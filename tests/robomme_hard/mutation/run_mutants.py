@@ -1,4 +1,4 @@
-"""植入（变异）执行器：读取全部 ``tests/**/mutants.json``，逐项植入语义错误，核对指定用例因之失败。
+"""植入（变异）执行器：读取全部 ``tests/robomme_hard/**/mutants.json``，逐项植入语义错误，核对指定用例因之失败。
 
 归类（详见同目录 README.md）：
 - A 文本替换／数据改写：在 tmp 隔离副本里落盘改源码（每个 old 恰好命中 1 次，否则记 not_applied），受保护的
@@ -65,9 +65,10 @@ T4_PLUGIN_DIR = "tests/robomme_hard/unit/hard"
 
 def load_items() -> list[dict]:
     items = []
-    for path in sorted((REPO / "tests").rglob("mutants.json")):
+    # 块名相对 tests/robomme_hard（与 recipes.py 的键、plugins/mut_inproc.py 的块名一致）；官方 tests/ 其余目录不参与植入。
+    for path in sorted((REPO / "tests" / "robomme_hard").rglob("mutants.json")):
         rel = path.relative_to(REPO).as_posix()
-        block = path.parent.relative_to(REPO / "tests").as_posix()
+        block = path.parent.relative_to(REPO / "tests" / "robomme_hard").as_posix()
         data = json.loads(path.read_text(encoding="utf-8"))
         entries = data["mutants"] if isinstance(data, dict) else data
         for e in entries:

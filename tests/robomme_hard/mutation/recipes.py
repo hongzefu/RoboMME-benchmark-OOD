@@ -1,6 +1,6 @@
 """植入配方补充表：mutants.json 只给了文字描述的条目，在这里补成可机检的具体做法。
 
-键为 ``<块>:<编号>``，块 = mutants.json 相对 ``tests/`` 的目录（如 ``pipeline/eval``）。三种形态：
+键为 ``<块>:<编号>``，块 = mutants.json 相对 ``tests/robomme_hard/`` 的目录（如 ``pipeline/challenge``）。三种形态：
 
 - ``{"kind": "text", "patch": [{"file", "old", "new"}, ...]}``：A 类，在隔离副本里逐字替换，每个 old 必须恰好命中 1 次；
 - ``{"kind": "transform", "func": <可调用>, "files": [...]}``：A 类，在隔离副本里按函数改写数据文件（如规格 jsonl 重签）；
@@ -34,71 +34,6 @@ CHALLENGE = {
                                    "total_episodes = len(task_list)")),
     "pipeline/challenge:M19f": _t(("challenge_interface/client.py", "if isinstance(response, str):", "if False:")),
     "pipeline/challenge:M19g": _t((_P1, 'buffer["is_first_step"] = False', 'buffer["is_first_step"] = True')),
-}
-
-# ─────────────────────────────── 评估块（tests/robomme_hard/pipeline/eval） ───────────────────────────────
-_EO = "scripts/eval-official/"
-EVAL = {
-    "pipeline/eval:M13a": _t((_EO + "framesamp_modul_client.py", "    resp = client.reset()\n", '    resp = {"reset_finished": True}\n')),
-    "pipeline/eval:M13b": _t((_EO + "smvla_client.py",
-                              '            reply = call("reset", {"reset": {"episode_key": episode_key(identity)}})\n',
-                              "            reply = {}\n")),
-    "pipeline/eval:M16a": _t((_EO + "env_client.py",
-                              '                record.update(status="timeout", infra=False, infra_reason=None, client_status',
-                              '                record.update(status="fail", infra=False, infra_reason=None, client_status')),
-    "pipeline/eval:M16b": _t((_EO + "env_client.py", "        if status in TERMINAL_STATUSES:\n            return True\n",
-                              '        if status in ("success", "timeout"):\n            return True\n')),
-    "pipeline/eval:M16c": _t((_EO + "framesamp_modul_client.py", 'INFRA_MARKERS = ("RecorderError",',
-                              'INFRA_MARKERS = ("Error", "RecorderError",')),
-    "pipeline/eval:M17a": _t((_EO + "eval_report.py", '            "denominator": len(mkeys), "outcomes"',
-                              '            "denominator": len(an["rows"]), "outcomes"')),
-    "pipeline/eval:M17b": _t((_EO + "eval_report.py",
-                              '"outcomes": {s: oc[s] for s in (*TERMINAL, "error", "missing", "conflict")},\n            "accepted"',
-                              '"outcomes": dict(oc),\n            "accepted"')),
-    "pipeline/eval:F3": _t((_EO + "eval_report.py", "            if have_cells.get(cell, 0) != want_cells.get(cell, 0):",
-                            "            if False:")),
-    "pipeline/eval:F2": _t((_EO + "eval_manifest.py", "    xhard0_expected = len(hs.ALL_TASKS) * hs.xhard0_prefix()",
-                            "    xhard0_expected = len(hs.ALL_TASKS) * hs.XHARD0_PER_TASK")),
-    "pipeline/eval:T8b-K1": _t((_EO + "env_client.py",
-                                '            if rec.get("status") == "error" and rec.get("infra") and led.attempts_used(k) < V8_MAX_ATTEMPTS:',
-                                "            if False:")),
-    "pipeline/eval:T8b-K2": _t((_EO + "smvla_client.py", "    return max(1, -(-int(max_steps) // max(1, execute_horizon))) + 2",
-                                "    return max(1, -(-int(max_steps) // max(1, execute_horizon))) + 3")),
-    "pipeline/eval:T8b-K3": _t((_EO + "eval_report.py", "    if len(mrows) != expect_total:", "    if False:")),
-}
-
-# ─────────────────────────────── 生成块（tests/robomme_hard/pipeline/gen）与站点块（tests/robomme_hard/pipeline/site） ───────────────────────────────
-_R = "scripts/injection-dev/_rollout.py"
-_FZ = "scripts/injection-dev/_freeze.py"
-_SBD = "scripts/injection-dev/site_build.py"
-_EX = "scripts/injection-dev/export_eval_identities.py"
-_SV = "scripts/injection-dev/site/site_server.py"
-_CT = "scripts/injection-dev/site/site_catalog.py"
-GEN_SITE = {
-    "pipeline/gen:M17a": _t((_R, '            "expected": expected,\n',
-                             '            "expected": sum(hard_specs.delivered(r) for r in mine),\n')),
-    "pipeline/gen:M17b": _t((_R, '"counts": totals, "cells": cell_out',
-                             '"counts": {k: v for k, v in totals.items() if v}, "cells": cell_out')),
-    "pipeline/gen:M18a": _t((_R, 'if entries and not any(r["tried"] for r in rows):', "if False:")),
-    "pipeline/gen:M18b": _t((_R, '    if resume:\n        command.append("--resume")\n', "")),
-    "pipeline/gen:T7-G1": _t((_R, 'key=lambda r: r["candidate"])\n            if row["task"] in same_way_tasks:',
-                              'key=lambda r: -r["candidate"])\n            if row["task"] in same_way_tasks:')),
-    "pipeline/gen:T7-G2": _t((_R, "infra_retries.get(key, 0) < max_infra_retries",
-                              "infra_retries.get(key, 0) <= max_infra_retries")),
-    "pipeline/gen:T7-G3": _t((_R, "if int(steps) > int(exec_cap):", "if int(steps) >= int(exec_cap):")),
-    "pipeline/gen:T7-G4": _t((_R, 'if row["task"] in same_way_tasks:', "if False:")),
-    "pipeline/gen:T7-F1": _t((_FZ, "for ep in by_way.get(way, [])[:quota_by_way[way]])",
-                              "for ep in by_way.get(way, [])[-quota_by_way[way]:])")),
-    "pipeline/gen:T7-F2": _t((_FZ, "return {key: int(n) for key, n in cells.items()}",
-                              "return {key: int(n) + 1 for key, n in cells.items()}")),
-    "pipeline/gen:T7-S1": _t((_SBD, 'prev.get("sha256s") == [sha256_file(p) for p in paths]', "True")),
-    "pipeline/gen:T7-S2": _t((_SBD, 'if old.get("fingerprint") != runner.fingerprint:', "if False:")),
-    "pipeline/gen:T7-E1": _t((_EX, 'and facts.get("delivery_mismatch", 0) == 0)', ")")),
-    "pipeline/site:M20a": _t((_SV, "os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)",
-                              "os.O_RDONLY | os.O_DIRECTORY, dir_fd=directory)")),
-    "pipeline/site:M20b": _t((_SV, "path = Path(filename).resolve(strict=True)", "path = Path(filename).absolute()")),
-    "pipeline/site:M20c": _t((_SV, "    return 206, start, end - start + 1", "    return 200, 0, size")),
-    "pipeline/site:T7-C1": _t((_CT, "if not table1_ok(task, dim, tier, value):", "if False:")),
 }
 
 # ─────────────────────────────── 契约块（tests/robomme_hard/contract）：规格 jsonl 与 builder ───────────────────────────────
@@ -164,4 +99,5 @@ CONTRACT = {
                         '            "native_episode_spec": entry["row"]["spec"],\n', "")),
 }
 
-RECIPES: dict[str, dict] = {**CHALLENGE, **EVAL, **GEN_SITE, **CONTRACT}
+# 评估块（pipeline/eval）与生成／站点块（pipeline/gen、pipeline/site）的配方随测试迁到私有评估仓 RoboMME-benchmark-OOD-eval，本仓不含。
+RECIPES: dict[str, dict] = {**CHALLENGE, **CONTRACT}
