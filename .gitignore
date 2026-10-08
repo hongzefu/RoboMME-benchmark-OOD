@@ -210,3 +210,16 @@ __marimo__/
 .agent/
 .cursor/
 .agents/
+
+# 产物根整体不进 git。
+/artifacts/*
+
+# Claude Code 子代理 worktree（计划执行模式）
+/.claude/worktrees/
+
+# 运行产物与媒体文件不进 git（入口脚本默认把视频写到 runs/）
+/runs/
+*.mp4
+*.mkv
+*.h5
+*.hdf5

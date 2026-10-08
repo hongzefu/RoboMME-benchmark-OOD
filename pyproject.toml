@@ -31,10 +31,16 @@ server = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/robomme"]
+packages = ["src/robomme", "src/robomme_hard"]
 
 [tool.pytest.ini_options]
+# robomme_hard 测试：日常门禁 = tests/robomme_hard 的非 slow 部分（纯 CPU，资源守卫插件拦截真实仿真／CUDA／权重／外网）；
+# tests/robomme_hard/sim 不在默认收集里，只能显式选择并带 --allow-sim-reset 运行。官方 tests/ 下其余目录按官方方式显式指定路径运行。
+testpaths = ["tests/robomme_hard"]
+addopts = "-p tests.robomme_hard._support.resource_policy"
+xfail_strict = true
 markers = [
+    "sim: 真实仿真 reset，只在 tests/robomme_hard/sim 中使用",
     "slow: slow-running tests",
     "gpu: tests requiring GPU/display/headless rendering stack",
     "dataset: tests that generate/use temporary datasets",
