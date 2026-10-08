@@ -10,7 +10,8 @@
 * 注册表归属：``REGISTERED_ENVS[uid].cls.__module__`` 以 ``robomme_hard.`` 开头，否则 ``ImportError``；
 * 命名空间归属：16 个环境模块与 ``utils`` 包里，凡名字在本包复制模块里有定义的可调用对象都必须属于本包
   （专挡官方 ``subgoal_evaluate_func`` 的 ``from robomme.robomme_env.utils import *`` 把官方函数灌回来的问题）；
-* 借用目标 cheap 校验（字节数 + 首尾 1 MiB blake2b），不符只警告；full 档由 ``scripts/parity/upstream_guard.py`` 负责。
+* 借用目标 cheap 校验（字节数 + 首尾 1 MiB blake2b），不符只警告；full 档由 benchmark 仓的 BENCH_UPSTREAM 闸门负责
+  （``git diff --quiet 016ac1c4 HEAD -- src/robomme …``：官方文件相对官方提交零改动）。
 """
 
 from __future__ import annotations
