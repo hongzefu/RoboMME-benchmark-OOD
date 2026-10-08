@@ -1,10 +1,10 @@
 """L0：顶层入口（C18 入口白名单、生产不依赖 tests、``run_example.EPISODE_LIMITS`` 与官方元数据一致）。
 
-- ``evaluation_hard.py`` 与上游 ``evaluation.py`` 恰好差 3 个单行 hunk 加 1 个纯插入块：import、``dataset=DATASET``、
-  ``max_steps=DATASET_MAX_STEPS[DATASET]``，以及 ``TASKS`` 之前插入的数据集选择块（两个接口 ``hard-verify``↔1300、
-  ``ood``↔1600，默认 ``ood``；1006 改名计划 R1：示例改成两段）。
-- ``scripts/*.py`` 恰好四个入口（AGENTS.md P1）。
-- ``scripts/`` 与 ``challenge_interface/`` 的生产代码不 import ``tests``（AST 收集 import 语句，L0 允许）。
+- ``evaluation_ood.py`` 与官方 ``016ac1c4`` 的 ``scripts/evaluation.py``（经 ``git show`` 读，不读工作区）恰好差白名单
+  四处：3 个单行 hunk（import、``dataset=DATASET``、``max_steps=DATASET_MAX_STEPS[DATASET]``）加 1 个纯插入块
+  （``TASKS`` 之前的数据集选择块：``hard-verify``↔1300、``ood``↔1800，默认 ``ood``）。
+- ``scripts/`` 恰好五个文件：官方三入口加 ``evaluation_ood.py``、``README_ood.md``，没有子目录。
+- ``scripts/``、``challenge_interface/`` 与 ``src/robomme_hard/`` 的生产代码不 import ``tests``（AST 收集 import 语句，L0 允许）。
 """
 from __future__ import annotations
 
@@ -12,19 +12,23 @@ import ast
 import difflib
 import json
 import re
+import subprocess
 import typing
 from pathlib import Path
 
 import pytest
 
 from tests.robomme_hard._support.loaders import REPO, load_script
+from tests.robomme_hard.contract.test_constants import DATASET_MAX_STEPS, DEFAULT_DATASET
 
 SCRIPTS = REPO / "scripts"
-ENTRY_SET = {"dataset_replay.py", "evaluation.py", "run_example.py", "evaluation_hard.py"}
-PRODUCTION_DIRS = (REPO / "scripts", REPO / "challenge_interface")
+#: 官方 RoboMME/robomme_benchmark 的锚点 commit（本仓自它分出；完整 40 位 sha）
+OFFICIAL_COMMIT = "016ac1c4ef3df2b88488abc19db08f3de83647b5"
+SCRIPTS_SET = {"dataset_replay.py", "evaluation.py", "run_example.py", "evaluation_ood.py", "README_ood.md"}
+PRODUCTION_DIRS = (REPO / "scripts", REPO / "challenge_interface", REPO / "src" / "robomme_hard")
 
 
-# ---------------------------------------------------------------- evaluation_hard 与 evaluation 的差异
+# ---------------------------------------------------------------- evaluation_ood 与官方 evaluation 的差异
 
 
 def single_line_hunks(old: str, new: str, *, allow_insert: bool = False):
@@ -55,9 +59,14 @@ def _builder_call(tree: ast.AST) -> ast.Call:
     return calls[0]
 
 
-def test_evaluation_hard_diff_is_three_single_line_hunks_and_dataset_block():
-    old = (SCRIPTS / "evaluation.py").read_text(encoding="utf-8")
-    new = (SCRIPTS / "evaluation_hard.py").read_text(encoding="utf-8")
+def _official_evaluation() -> str:
+    return subprocess.run(["git", "show", f"{OFFICIAL_COMMIT}:scripts/evaluation.py"], cwd=REPO, check=True,
+                          capture_output=True).stdout.decode("utf-8")
+
+
+def test_evaluation_ood_diff_is_three_single_line_hunks_and_dataset_block():
+    old = _official_evaluation()
+    new = (SCRIPTS / "evaluation_ood.py").read_text(encoding="utf-8")
     res = single_line_hunks(old, new, allow_insert=True)
     assert res is not None, "差异形态不合"
     hunks, insert = res
@@ -82,12 +91,13 @@ def test_evaluation_hard_diff_is_three_single_line_hunks_and_dataset_block():
     assert isinstance(kw["dataset"].value, ast.Name) and kw["dataset"].value.id == "DATASET"
     assert kw["max_steps"].value.lineno == l3
     assert isinstance(kw["max_steps"].value, ast.Subscript)
-    # 4) 插入块：只在 TASKS 之前、只含注释与两个赋值——两个接口与步数配对（本阶段 ood 仍 1600），默认 ood。
+    # 4) 插入块：只在 TASKS 之前、只含注释与两个赋值——两个接口与步数配对（hard-verify 1300、ood 1800），默认 ood。
     start, block = insert
     assert block[-1].startswith("DATASET = ") and new.splitlines()[start - 1 + len(block)].startswith("TASKS = ")
     code = [ln for ln in block if not ln.startswith("#")]
     assigns = {n.targets[0].id: ast.literal_eval(n.value) for n in ast.parse("\n".join(code)).body}
-    assert assigns == {"DATASET_MAX_STEPS": {"hard-verify": 1300, "ood": 1600}, "DATASET": "ood"}, assigns
+    assert assigns == {"DATASET_MAX_STEPS": DATASET_MAX_STEPS, "DATASET": DEFAULT_DATASET}, assigns
+    print(f"BENCH_ENTRY_DIFF=PASS changes={len(hunks) + 1} unexpected=0")
 
 
 def test_single_line_hunks_negatives():
@@ -106,8 +116,14 @@ def test_single_line_hunks_negatives():
 # ---------------------------------------------------------------- 入口清单
 
 
-def test_scripts_top_level_has_exactly_four_entries():
-    assert {p.name for p in SCRIPTS.glob("*.py")} == ENTRY_SET
+def test_scripts_has_exactly_five_files():
+    """``scripts/`` 只有五个文件、没有子目录（对拍、生成、评估编排工具都在私有评估仓）。"""
+    entries = [p for p in SCRIPTS.iterdir() if p.name != "__pycache__"]  # 按路径加载脚本时解释器会写字节码缓存
+    assert {p.name for p in entries} == SCRIPTS_SET
+    assert [p.name for p in entries if p.is_dir()] == []
+    tracked = subprocess.run(["git", "ls-files", "--", "scripts"], cwd=REPO, check=True, capture_output=True,
+                             text=True).stdout.split()
+    assert {t.removeprefix("scripts/") for t in tracked} == SCRIPTS_SET
 
 
 # ---------------------------------------------------------------- 生产代码不 import tests

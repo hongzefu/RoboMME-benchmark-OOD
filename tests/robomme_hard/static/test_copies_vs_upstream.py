@@ -1,6 +1,7 @@
 """L0：hard 包的三个录制复制件与官方只差白名单；``UPSTREAM.json`` 的 shim 与自签 sha 成立（C01 shim 部分、C18）。
 
-官方一侧一律从 git 对象 ``<src_commit>:src/robomme/...`` 读，不依赖工作区 ``src/robomme`` 的状态。
+官方一侧一律从 git 对象 ``016ac1c4:src/robomme/...`` 读（本仓自官方 ``016ac1c4`` 分出），不依赖工作区
+``src/robomme`` 的状态；shim 目标的 sha 同样对 ``016ac1c4`` 复算。
 白名单按行精确列出（删去的行、加入的行），任何额外差异——包括注释——都算越界。
 """
 from __future__ import annotations
@@ -17,6 +18,8 @@ import pytest
 from tests.robomme_hard._support.loaders import REPO
 
 HARD = REPO / "src" / "robomme_hard"
+#: 官方锚点（完整 40 位 sha）：本仓自它分出
+OFFICIAL_COMMIT = "016ac1c4ef3df2b88488abc19db08f3de83647b5"
 MANIFEST = HARD / "UPSTREAM.json"
 
 #: 复制件 → 与官方逐行差异白名单：[(官方删去的行, 复制件加入的行), ...]，按出现顺序。
@@ -67,8 +70,7 @@ def line_diff(official: str, copy: str) -> list[tuple[list[str], list[str]]]:
 
 @pytest.mark.parametrize("rel", sorted(WHITELIST))
 def test_copy_differs_from_official_exactly_by_whitelist(rel):
-    src_commit = _manifest_raw()["src_commit"]
-    official = _git_show(src_commit, f"src/robomme/{rel}").decode()
+    official = _git_show(OFFICIAL_COMMIT, f"src/robomme/{rel}").decode()
     copy = (HARD / rel).read_text(encoding="utf-8")
     assert line_diff(official, copy) == WHITELIST[rel]
     if not WHITELIST[rel]:
@@ -79,7 +81,7 @@ def test_copy_differs_from_official_exactly_by_whitelist(rel):
 def test_line_diff_detects_reverted_limit_and_extra_comment():
     """判定器负例：把 5000 改回 2000、或多加一行注释，差异都不再等于白名单。"""
     rel = "env_record_wrapper/RecordWrapper.py"
-    official = _git_show(_manifest_raw()["src_commit"], f"src/robomme/{rel}").decode()
+    official = _git_show(OFFICIAL_COMMIT, f"src/robomme/{rel}").decode()
     copy = (HARD / rel).read_text(encoding="utf-8")
     assert line_diff(official, copy.replace("fail_safe_limit = 5000", "fail_safe_limit = 2000")) != WHITELIST[rel]
     assert line_diff(official, copy.replace("import gymnasium", "# 多一行\nimport gymnasium", 1)) != WHITELIST[rel]
@@ -151,7 +153,7 @@ def test_shim_form_and_target(entry):
     assert lines[1] == SHIM_IMPORT
     assert _shim_alias(lines) == entry["target_module"]
     # 目标文件登记在官方清单里；目标文件的 sha 与字节数对官方 git 对象独立复算。
-    blob = _git_show(m["src_commit"], entry["target_file"])
+    blob = _git_show(OFFICIAL_COMMIT, entry["target_file"])
     assert entry["target_sha256"] == hashlib.sha256(blob).hexdigest()
     assert entry["target_bytes"] == len(blob)
     assert m["robomme_files"][entry["target_file"]] == entry["target_sha256"]

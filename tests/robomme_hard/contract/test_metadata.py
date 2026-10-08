@@ -3,8 +3,8 @@
 - 官方 ``src/robomme/env_metadata/{train,val,test}``：每 split 恰 16 个文件（16 任务各一）、每文件局数为钉值、
   episode 恰为 0..N−1 连续、每条记录 task 与文件名一致、seed 为整数；
 - test 的 hard 子集恰为原 episode 3,7,…,47（xhard0 的来源）；
-- hard 包 ``src/robomme_hard/env_metadata/train`` 只有四个 Unmask 任务、各 400 条、episode 连续，builder 的 train
-  元数据路径对这四个任务指向 hard 包、其余指向官方，且经真实 builder 读到的局数与文件一致。
+- hard 包不再带 train 元数据（H1 裁剪：``env_metadata`` 下只有 ``ood``），hard 构建器对 ``dataset="train"`` 一律拒绝；
+  官方 train 仍由官方构建器读，每任务 100 局。
 """
 from __future__ import annotations
 
@@ -15,8 +15,6 @@ import pytest
 
 from tests.robomme_hard._support.loaders import REPO
 from tests.robomme_hard.contract.test_constants import (
-    HARD_TRAIN_EPISODES,
-    HARD_TRAIN_TASKS,
     OFFICIAL_SPLIT_EPISODES,
     OFFICIAL_SPLIT_FILES,
     TASKS,
@@ -24,7 +22,7 @@ from tests.robomme_hard.contract.test_constants import (
 )
 
 OFFICIAL = REPO / "src" / "robomme" / "env_metadata"
-HARD = REPO / "src" / "robomme_hard" / "env_metadata" / "train"
+HARD_META = REPO / "src" / "robomme_hard" / "env_metadata"
 
 
 def metadata_problems(path: Path, task: str, n: int) -> list[str]:
@@ -62,24 +60,18 @@ def test_official_test_hard_subset_is_xhard0_source(task):
     assert tuple(hard) == XHARD0_EPISODES
 
 
-def test_hard_train_metadata():
-    files = sorted(HARD.glob("*.json"))
-    assert {p.name for p in files} == {f"record_dataset_{t}_metadata.json" for t in HARD_TRAIN_TASKS}
-    bad = {t: p for t in HARD_TRAIN_TASKS
-           if (p := metadata_problems(HARD / f"record_dataset_{t}_metadata.json", t, HARD_TRAIN_EPISODES))}
-    assert bad == {}
-
-
-def test_builder_reads_hard_train_for_unmask_tasks_only():
+def test_no_hard_train_metadata():
+    """hard 包只带 ood 规格，不带 train 元数据；hard 构建器拒绝 train，官方构建器读官方 train 每任务 100 局。"""
+    from robomme.env_record_wrapper.episode_config_resolver import BenchmarkEnvBuilder as Official
     from robomme_hard.env_record_wrapper import hard_builder
 
-    assert hard_builder.HARD_TRAIN_TASKS == frozenset(HARD_TRAIN_TASKS)
+    assert not (HARD_META / "train").exists()
+    assert sorted(p.name for p in HARD_META.iterdir()) == ["ood"]
+    assert not hasattr(hard_builder, "HARD_TRAIN_TASKS")
     for task in TASKS:
-        builder = hard_builder.BenchmarkEnvBuilder(env_id=task, dataset="train")
-        expected = HARD_TRAIN_EPISODES if task in HARD_TRAIN_TASKS else OFFICIAL_SPLIT_EPISODES["train"]
-        assert builder.get_episode_num() == expected, task
-        root = HARD if task in HARD_TRAIN_TASKS else OFFICIAL / "train"
-        assert Path(builder._resolve_metadata_path()) == root / f"record_dataset_{task}_metadata.json"
+        with pytest.raises(ValueError):
+            hard_builder.BenchmarkEnvBuilder(env_id=task, dataset="train")
+        assert Official(env_id=task, dataset="train").get_episode_num() == OFFICIAL_SPLIT_EPISODES["train"], task
 
 
 def test_metadata_problems_negative(tmp_path):

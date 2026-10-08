@@ -10,7 +10,7 @@
     "oracle": "清理前同口径扫描 reset-sweep.jsonl 的 59 格实测：包装链恒为 FailAwareWrapper→DemonstrationWrapper→TimeLimitWrapper→OrderEnforcing→任务类",
     "positive": "59 格（xhard0 16 任务 × 1 局 + xhard1～5 共 43 格 × 1 局）真实 reset 后链名逐层相等，第 0 层 FailAwareWrapper 是官方类（robomme_hard 的同名模块只是指向 robomme.env_record_wrapper.FailAwareWrapper 的别名 shim）、第 1 层 DemonstrationWrapper 与任务类是 robomme_hard 的类，unwrapped.seed／difficulty 等于规格行（xhard0 等于官方 test 元数据的 hard）",
     "negative": "任务类来自官方 robomme（接管失败）或链层次增减即失败；收集期格数不等于 16 + 43 即收集失败",
-    "boundaries": "xhard0 统一取官方 test 集 hard 子集首局（XHARD0_EPISODES[0]）；XHARD0_IN_TEST_HARD 打开时 ood 里的 xhard0 不重复计格",
+    "boundaries": "xhard0 统一取官方 test 集 hard 子集首局（XHARD0_EPISODES[0]）；ood 不含 xhard0",
     "nodeids": [
       "tests/robomme_hard/sim/test_reset_matrix.py::test_reset_cell"
     ],

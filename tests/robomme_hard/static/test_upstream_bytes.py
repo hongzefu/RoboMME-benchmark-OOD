@@ -1,60 +1,49 @@
-"""L0：上游守卫 ``scripts/parity/upstream_guard.py`` 的各道检查（C01 shim 部分、C18 上游字节与入口）。
+"""L0：本仓与官方 ``016ac1c4`` 的上游字节、``UPSTREAM.json`` 清单与 robomme_hard 的导入边界（C01、C18）。
 
-正例对真实仓库跑：``src/robomme`` 与官方 ``1fadc0ec`` 逐字节相同、三个上游入口与 ``git show 1fadc0ec:scripts/<名>`` 相同、
-清单自签成立。负例把守卫的模块级路径常量（``REPO``／``HARD``／``MANIFEST``／``VENDOR_DIR``）指到 ``tmp_path`` 下的
-小副本，逐个造一种坏法，各自必须 FAIL；``--allow-pending`` 只把字节差异降为 PENDING 并打警告。
+本仓 = 官方 RoboMME/robomme_benchmark ``016ac1c4`` + ``src/robomme_hard/`` + ``tests/robomme_hard/`` + 两个 ood 文件，
+旧仓的上游守卫 ``scripts/parity/upstream_guard.py`` 随私有评估仓走，本文件把它对本仓仍有意义的几道检查改写成
+不依赖该工具的独立断言：
 
-为什么能逐字节：``src/robomme`` 按 AGENTS.md P2 冻结，官方 commit 的 blob 就在本仓库 git 对象库里。
-负例只改 tmp 副本，绝不写真实仓库；副本里的 ``git show`` 经 ``GIT_DIR`` 指回真实对象库。
+- ``src/robomme`` 每个文件逐字节等于 ``git show 016ac1c4:<路径>`` 的 blob，工作区没有多余文件；
+- 三个官方入口 ``scripts/{dataset_replay,evaluation,run_example}.py`` 与 ``016ac1c4`` 逐字节相同；
+- ``UPSTREAM.json``：登记的 ``src_commit``（旧锚点 ``1fadc0ec``）下 ``src/robomme`` 的树与 ``016ac1c4`` 相同，
+  ``robomme_files`` 的键与 sha256 由 git blob 独立复算一致，``vendor`` 已清空；
+- 导入边界：robomme_hard 自有文件（shim 除外）的相对导入都落在包内，绝对 ``robomme.*`` 只指向 shim 目标或父类模块；
+- 借用闭包：shim 目标在官方源码上的传递依赖不含任何被 robomme_hard 复制的模块。
+
+为什么能逐字节：官方 commit 的 blob 就在本仓 git 对象库里（本仓从它分出），不联网。
 """
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
-import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from tests.robomme_hard._support.loaders import REPO, load_script
+from tests.robomme_hard._support.loaders import REPO
 
-#: 官方锚点（L0 期望）：本仓库 src/robomme 冻结所对齐的上游 commit 完整 40 位 sha
-#: （2026-10-04 由 ``git rev-parse 1fadc0ec`` 与 UPSTREAM.json 的 ``src_commit`` 两边核对一致后写死）。
-UPSTREAM_COMMIT = "1fadc0ec50316b60ddcfd8e82ac62ef2b70c18f9"
+#: 官方锚点（完整 40 位 sha）：本仓自它分出，src/robomme 与三个官方入口逐字节等于它
+OFFICIAL_COMMIT = "016ac1c4ef3df2b88488abc19db08f3de83647b5"
+#: UPSTREAM.json 登记的旧锚点（旧仓对齐的上游 commit）；与 016ac1c4 在 src/robomme 上是同一棵树
+MANIFEST_COMMIT = "1fadc0ec50316b60ddcfd8e82ac62ef2b70c18f9"
 ENTRIES = ("dataset_replay.py", "evaluation.py", "run_example.py")
+HARD = REPO / "src" / "robomme_hard"
+MANIFEST = HARD / "UPSTREAM.json"
+
+
+def _git(*args: str) -> bytes:
+    return subprocess.run(["git", *args], cwd=REPO, check=True, capture_output=True).stdout
 
 
 @pytest.fixture(scope="module")
-def guard():
-    return load_script("parity/upstream_guard.py")
+def manifest() -> dict:
+    return json.loads(MANIFEST.read_text(encoding="utf-8"))
 
 
-@pytest.fixture(scope="module")
-def real_manifest(guard):
-    m = guard.load_manifest()
-    m["manifest_sha256"] = "verified"
-    return m
-
-
-def _git(*args: str, cwd: Path = REPO) -> bytes:
-    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True).stdout
-
-
-# ---------------------------------------------------------------- 正例：真实仓库
-
-
-def test_manifest_anchor_is_official_commit(guard, real_manifest):
-    assert real_manifest["src_commit"] == guard.SRC_COMMIT
-    assert real_manifest["src_commit"] == UPSTREAM_COMMIT
-    # 清单登记的文件集合 = 官方 commit 下 src/robomme 的文件集合（独立从 git 树取）。
-    names = _git("ls-tree", "-r", "-z", "--name-only", real_manifest["src_commit"], "--", "src/robomme")
-    official = {x.decode() for x in names.split(b"\0") if x}
-    assert set(real_manifest["robomme_files"]) == official
-
-
-def _official_blobs(commit: str) -> dict[str, bytes]:
+def official_blobs(commit: str) -> dict[str, bytes]:
     """官方 commit 下 src/robomme 每个文件的 blob 字节（一次 ls-tree + 一次 cat-file --batch，不经清单）。"""
     tree = _git("ls-tree", "-r", "-z", commit, "--", "src/robomme")
     entries = []
@@ -76,269 +65,193 @@ def _official_blobs(commit: str) -> dict[str, bytes]:
     return blobs
 
 
-def test_src_robomme_bytes_equal_official_blobs_independently(real_manifest):
-    """独立证明：工作区 src/robomme 每个文件逐字节等于官方 git blob，不经 UPSTREAM.json 的 sha 中转；
-    同时核清单登记的 sha 就是该 blob 的 sha256、工作区没有多余文件。"""
-    blobs = _official_blobs(real_manifest["src_commit"])
-    assert set(real_manifest["robomme_files"]) == set(blobs)
-    have = {str(p.relative_to(REPO)) for p in (REPO / "src" / "robomme").rglob("*")
+@pytest.fixture(scope="module")
+def blobs() -> dict[str, bytes]:
+    return official_blobs(OFFICIAL_COMMIT)
+
+
+# ---------------------------------------------------------------- 上游字节
+
+
+def byte_mismatches(root: Path, blobs: dict[str, bytes]) -> list[str]:
+    """工作区（以 root 为仓根）src/robomme 与官方 blob 的差异清单：changed／extra／missing。"""
+    have = {str(p.relative_to(root)) for p in (root / "src" / "robomme").rglob("*")
             if p.is_file() and "__pycache__" not in p.parts and not p.name.endswith(".pyc")}
-    assert have == set(blobs)
-    bad = [rel for rel, blob in blobs.items() if (REPO / rel).read_bytes() != blob]
+    out = [f"missing:{rel}" for rel in sorted(set(blobs) - have)]
+    out += [f"extra:{rel}" for rel in sorted(have - set(blobs))]
+    out += [f"changed:{rel}" for rel in sorted(have & set(blobs)) if (root / rel).read_bytes() != blobs[rel]]
+    return out
+
+
+def test_src_robomme_bytes_equal_official(blobs):
+    assert blobs
+    bad = byte_mismatches(REPO, blobs)
+    print(f"UPSTREAM_BYTES={'FAIL' if bad else 'PASS'} commit={OFFICIAL_COMMIT[:8]} files={len(blobs)} diff={len(bad)}")
     assert bad == []
-    wrong_sha = [rel for rel, blob in blobs.items()
-                 if real_manifest["robomme_files"][rel] != hashlib.sha256(blob).hexdigest()]
-    assert wrong_sha == []
 
 
-def test_real_repo_upstream_bytes_pass(guard, real_manifest, capsys):
-    assert guard.check_upstream_bytes(real_manifest) is True
-    out = capsys.readouterr().out
-    assert out.startswith("UPSTREAM_BYTES=PASS") and "diff=0" in out
-
-
-def test_real_repo_entry_scripts_pass(guard, real_manifest, capsys):
-    assert guard.check_entry_scripts(real_manifest) is True
-    assert capsys.readouterr().out.startswith("ENTRY_SCRIPTS=PASS")
-    # 独立复核：三个入口逐字节等于 git show <官方>:scripts/<名>。
-    for name in ENTRIES:
-        assert (REPO / "scripts" / name).read_bytes() == _git("show", f"{real_manifest['src_commit']}:scripts/{name}")
-
-
-def test_real_repo_vendor_shims_imports_deps_pass(guard, real_manifest, capsys):
-    assert guard.check_vendor(real_manifest) is True
-    assert guard.check_shims(real_manifest) is True
-    assert guard.check_abs_import(real_manifest) is True
-    assert guard.check_borrowed_deps(real_manifest) is True
-    lines = capsys.readouterr().out.splitlines()
-    assert [ln.split("=", 1)[0] for ln in lines] == ["VENDOR_SAME", "SHIMS", "ABS_IMPORT", "BORROWED_DEPS"]
-    assert all("=PASS" in ln for ln in lines)
-
-
-def test_main_check_strict_by_default(guard, monkeypatch, capsys):
-    monkeypatch.setattr(sys, "argv", ["upstream_guard.py", "check"])
-    assert guard.main() == 0
-    assert capsys.readouterr().out.splitlines()[-1] == "UPSTREAM_GUARD=PASS"
-
-
-def test_main_flags_mutually_exclusive(guard, monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["upstream_guard.py", "check", "--allow-pending", "--require-upstream"])
-    with pytest.raises(SystemExit) as ei:
-        guard.main()
-    assert ei.value.code == 2
-
-
-# ---------------------------------------------------------------- 负例：tmp 小副本
-
-
-def _copy(src: Path, dst: Path) -> None:
-    shutil.copytree(src, dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-
-
-@pytest.fixture
-def mini(guard, tmp_path, monkeypatch):
-    """真实仓库守卫相关部分的 tmp 副本；守卫的路径常量全部改指过去。"""
-    root = tmp_path / "repo"
-    _copy(REPO / "src" / "robomme", root / "src" / "robomme")
-    _copy(REPO / "src" / "robomme_hard", root / "src" / "robomme_hard")
-    (root / "scripts").mkdir(parents=True)
-    for name in ENTRIES:
-        shutil.copy2(REPO / "scripts" / name, root / "scripts" / name)
-    vendor_rel = guard.VENDOR_DIR.relative_to(REPO)
-    _copy(guard.VENDOR_DIR, root / vendor_rel)
-    gitdir = _git("rev-parse", "--absolute-git-dir").decode().strip()
-    monkeypatch.setenv("GIT_DIR", gitdir)
-    monkeypatch.setattr(guard, "REPO", root)
-    monkeypatch.setattr(guard, "HARD", root / "src" / "robomme_hard")
-    monkeypatch.setattr(guard, "MANIFEST", root / "src" / "robomme_hard" / "UPSTREAM.json")
-    monkeypatch.setattr(guard, "VENDOR_DIR", root / vendor_rel)
-    return root
-
-
-def _manifest(guard) -> dict:
-    m = guard.load_manifest()
-    m["manifest_sha256"] = "verified"
-    return m
-
-
-def _resign(guard, root: Path, mutate) -> None:
-    """改清单后按守卫自己的规则重签（造「签名合法但内容不对」的输入）。"""
-    path = root / "src" / "robomme_hard" / "UPSTREAM.json"
-    m = json.loads(path.read_text())
-    m.pop("manifest_sha256")
-    mutate(m)
-    m["manifest_sha256"] = hashlib.sha256(guard.canonical(m).encode()).hexdigest()
-    path.write_text(json.dumps(m, indent=1, ensure_ascii=False, sort_keys=True) + "\n")
-
-
-def test_mini_copy_passes_everything(guard, mini, capsys):
-    """副本本身必须全过，负例的 FAIL 才能归因于植入的那一处。"""
-    m = _manifest(guard)
-    assert guard.check_upstream_bytes(m)
-    assert guard.check_entry_scripts(m)
-    assert guard.check_vendor(m)
-    assert guard.check_shims(m)
-    assert guard.check_abs_import(m)
-    assert guard.check_borrowed_deps(m)
-
-
-def _flip_one_byte(path: Path) -> None:
-    data = bytearray(path.read_bytes())
-    data[len(data) // 2] ^= 0x01
-    path.write_bytes(bytes(data))
-
-
-def test_upstream_bytes_one_byte_changed_fails(guard, mini, capsys):
-    _flip_one_byte(mini / "src" / "robomme" / "robomme_env" / "BinFill.py")
-    assert guard.check_upstream_bytes(_manifest(guard)) is False
-    out = capsys.readouterr().out
-    assert "UPSTREAM_BYTES=FAIL" in out and "changed=1" in out
-
-
-def test_upstream_bytes_extra_file_fails(guard, mini, capsys):
-    (mini / "src" / "robomme" / "extra.py").write_text("x = 1\n")
-    assert guard.check_upstream_bytes(_manifest(guard)) is False
-    assert "extra=1" in capsys.readouterr().out
-
-
-def test_upstream_bytes_missing_file_fails(guard, mini, capsys):
-    (mini / "src" / "robomme" / "logging_utils.py").unlink()
-    assert guard.check_upstream_bytes(_manifest(guard)) is False
-    assert "missing=1" in capsys.readouterr().out
-
-
-def test_upstream_bytes_allow_pending_passes_with_warning(guard, mini, capsys):
-    _flip_one_byte(mini / "src" / "robomme" / "robomme_env" / "BinFill.py")
-    assert guard.check_upstream_bytes(_manifest(guard), allow_pending=True) is True
-    cap = capsys.readouterr()
-    assert "UPSTREAM_BYTES=PENDING" in cap.out
-    assert "--allow-pending" in cap.err and "不得作为验收证据" in cap.err
-
-
-def test_main_allow_pending_does_not_excuse_entry_scripts(guard, mini, monkeypatch, capsys):
-    _flip_one_byte(mini / "src" / "robomme" / "robomme_env" / "BinFill.py")
-    monkeypatch.setattr(sys, "argv", ["upstream_guard.py", "check", "--allow-pending"])
-    assert guard.main() == 0
-    assert capsys.readouterr().out.splitlines()[-1] == "UPSTREAM_GUARD=PASS"
-    with (mini / "scripts" / "evaluation.py").open("a") as fh:
-        fh.write("# 多一行\n")
-    assert guard.main() == 1
-    assert capsys.readouterr().out.splitlines()[-1] == "UPSTREAM_GUARD=FAIL"
-
-
-def test_main_strict_fails_on_byte_change(guard, mini, monkeypatch, capsys):
-    _flip_one_byte(mini / "src" / "robomme" / "robomme_env" / "BinFill.py")
-    monkeypatch.setattr(sys, "argv", ["upstream_guard.py", "check"])
-    assert guard.main() == 1
-    assert capsys.readouterr().out.splitlines()[-1] == "UPSTREAM_GUARD=FAIL"
-
-
-@pytest.mark.parametrize("name", ENTRIES)
-def test_entry_script_extra_line_fails(guard, mini, name, capsys):
-    with (mini / "scripts" / name).open("a") as fh:
-        fh.write("\n")
-    assert guard.check_entry_scripts(_manifest(guard)) is False
-    assert f"{name}:changed" in capsys.readouterr().out
-
-
-def test_entry_script_missing_fails(guard, mini, capsys):
-    (mini / "scripts" / "run_example.py").unlink()
-    assert guard.check_entry_scripts(_manifest(guard)) is False
-    assert "run_example.py:missing" in capsys.readouterr().out
-
-
-def test_vendor_changed_fails(guard, mini, capsys):
-    _flip_one_byte(mini / guard.VENDOR_DIR.relative_to(mini) / "generate_dataset.py")
-    assert guard.check_vendor(_manifest(guard)) is False
-    assert "VENDOR_SAME=FAIL" in capsys.readouterr().out
-
-
-SHIM = Path("src/robomme_hard/env_record_wrapper/FailAwareWrapper.py")
-
-
-def test_shim_wrong_target_fails(guard, mini, capsys):
-    p = mini / SHIM
-    p.write_text(p.read_text().replace("FailAwareWrapper\")", "MultiStepDemonstrationWrapper\")"))
-    assert guard.check_shims(_manifest(guard)) is False
-    assert f"{SHIM}:body" in capsys.readouterr().out
-
-
-def test_shim_extra_code_lines_fail(guard, mini, capsys):
-    """shim 体里塞进两行额外代码必须 FAIL。"""
-    with (mini / SHIM).open("a") as fh:
-        fh.write("X = 1\nY = 2\n")
-    assert guard.check_shims(_manifest(guard)) is False
-
-
-def test_shim_one_extra_code_line_fails(guard, mini, capsys):
-    """shim 只多 1 行代码也必须 FAIL：守卫 12.393 起要求非注释行恰为两行（原判据「> 3 行」会放过这一行）。
-    同时多加一行注释与空行，证明注释、空行不计入、只有代码行触发。"""
-    with (mini / SHIM).open("a") as fh:
-        fh.write("\n# 注释行不算代码\nX = 1\n")
-    assert guard.check_shims(_manifest(guard)) is False
-    out = capsys.readouterr().out
-    assert out.startswith("SHIMS=FAIL") and f"{SHIM}:body" in out
-
-
-def test_shim_comment_and_blank_lines_only_pass(guard, mini, capsys):
-    """对照：只加注释与空行不改变 shim 判定（上一条 FAIL 确由那一行代码引起）。"""
-    with (mini / SHIM).open("a") as fh:
-        fh.write("\n# 只是注释\n\n")
-    assert guard.check_shims(_manifest(guard)) is True
-    assert capsys.readouterr().out.startswith("SHIMS=PASS")
-
-
-def test_shim_missing_fails(guard, mini, capsys):
-    (mini / SHIM).unlink()
-    assert guard.check_shims(_manifest(guard)) is False
-    assert f"{SHIM}:missing" in capsys.readouterr().out
-
-
-OWN = Path("src/robomme_hard/robomme_env/utils/difficulty.py")
-
-
-def test_illegal_absolute_import_fails(guard, mini, capsys):
-    """自有文件绝对导入一个既非 shim 目标、也非父类模块的官方模块。"""
-    with (mini / OWN).open("a") as fh:
-        fh.write("\nfrom robomme.robomme_env.utils.vqa_options import get_vqa_options  # noqa\n")
-    assert guard.check_abs_import(_manifest(guard)) is False
-    assert "ABS_IMPORT=FAIL" in capsys.readouterr().out
-
-
-def test_unresolved_relative_import_fails(guard, mini, capsys):
-    with (mini / OWN).open("a") as fh:
-        fh.write("\nfrom .no_such_module import x  # noqa\n")
-    assert guard.check_abs_import(_manifest(guard)) is False
-
-
-def test_borrowed_dep_copied_instead_of_shimmed_fails(guard, mini, capsys):
-    """官方 FailAwareWrapper 依赖 robomme.logging_utils；把后者从 shim 清单拿掉（hard 包里那份就算「复制件」），
-    借用闭包里出现复制件，必须 FAIL。"""
-    _resign(guard, mini, lambda m: m.__setitem__(
-        "shims", [s for s in m["shims"] if s["target_module"] != "robomme.logging_utils"]))
-    assert guard.check_borrowed_deps(_manifest(guard)) is False
-    assert "robomme.logging_utils" in capsys.readouterr().out
-
-
-def test_manifest_tampered_fails(guard, mini):
-    path = mini / "src" / "robomme_hard" / "UPSTREAM.json"
-    m = json.loads(path.read_text())
-    first = sorted(m["robomme_files"])[0]
-    m["robomme_files"][first] = "0" * 64
-    path.write_text(json.dumps(m, indent=1, ensure_ascii=False, sort_keys=True) + "\n")
-    with pytest.raises(SystemExit) as ei:
-        guard.load_manifest()
-    assert "manifest_tampered" in str(ei.value)
-
-
-def test_manifest_short_commit_fails_even_if_resigned(guard, mini):
-    _resign(guard, mini, lambda m: m.__setitem__("src_commit", m["src_commit"][:8]))
-    with pytest.raises(SystemExit) as ei:
-        guard.load_manifest()
-    assert "src_commit_not_40_hex" in str(ei.value)
-
-
-def test_resigned_wrong_file_hash_fails_bytes(guard, mini, capsys):
-    """签名合法但官方文件 sha 被改：字节检查必须 FAIL（签名只防篡改，不替代比对）。"""
-    _resign(guard, mini, lambda m: m["robomme_files"].__setitem__(sorted(m["robomme_files"])[0], "0" * 64))
-    assert guard.check_upstream_bytes(_manifest(guard)) is False
+def test_byte_mismatches_negative(blobs, tmp_path):
+    """判定器负例：小副本里改 1 字节、多一个文件、少一个文件，各被点名。"""
+    picked = sorted(rel for rel in blobs if rel.endswith(".py"))[:3]
+    sub = {rel: blobs[rel] for rel in picked}
+    for rel, data in sub.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_bytes(data)
+    assert byte_mismatches(tmp_path, sub) == []
+    first, second = picked[0], picked[1]
+    (tmp_path / first).write_bytes(sub[first] + b"#")
+    (tmp_path / "src" / "robomme" / "extra.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / second).unlink()
+    assert sorted(byte_mismatches(tmp_path, sub)) == sorted(
+        [f"changed:{first}", "extra:src/robomme/extra.py", f"missing:{second}"])
+
+
+def test_official_entry_scripts_equal_official():
+    bad = [name for name in ENTRIES
+           if (REPO / "scripts" / name).read_bytes() != _git("show", f"{OFFICIAL_COMMIT}:scripts/{name}")]
+    print(f"ENTRY_SCRIPTS={'FAIL' if bad else 'PASS'} commit={OFFICIAL_COMMIT[:8]} files={len(ENTRIES)} diff={len(bad)}")
+    assert bad == []
+
+
+# ---------------------------------------------------------------- UPSTREAM.json
+
+
+def test_manifest_anchor_same_tree_as_official(manifest):
+    """清单的旧锚点 1fadc0ec 与 016ac1c4 在 src/robomme 上是同一棵树：清单登记的上游字节对本仓仍然成立。"""
+    assert manifest["src_commit"] == MANIFEST_COMMIT
+    a = _git("rev-parse", f"{manifest['src_commit']}:src/robomme").strip()
+    b = _git("rev-parse", f"{OFFICIAL_COMMIT}:src/robomme").strip()
+    assert a == b
+
+
+def test_manifest_files_equal_official_blobs(manifest, blobs):
+    assert set(manifest["robomme_files"]) == set(blobs)
+    wrong = [rel for rel, blob in blobs.items() if manifest["robomme_files"][rel] != hashlib.sha256(blob).hexdigest()]
+    assert wrong == []
+
+
+def test_manifest_vendor_empty(manifest):
+    """官方编排脚本的 vendor 副本已随私有评估仓移走：清单 vendor 为空。"""
+    assert manifest["vendor"] == {}
+
+
+# ---------------------------------------------------------------- 导入边界与借用闭包
+
+
+def modname(rel: str) -> str:
+    parts = rel[len("src/"):-3].split("/")
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def _resolve(cur: str, is_pkg: bool, level: int, module: str | None) -> str:
+    if level == 0:
+        return module or ""
+    base = cur.split(".") if is_pkg else cur.split(".")[:-1]
+    if level > 1:
+        base = base[: len(base) - (level - 1)]
+    return ".".join(base + ([module] if module else []))
+
+
+def iter_imports(mod: str, source: str, is_pkg: bool, known: set[str]):
+    """产出 (lineno, 解析后的目标模块, 是否相对导入)；``from X import y`` 且 ``X.y`` 是模块时取 ``X.y``。"""
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                yield node.lineno, alias.name, False
+        elif isinstance(node, ast.ImportFrom):
+            target = _resolve(mod, is_pkg, node.level, node.module)
+            for alias in node.names:
+                sub = f"{target}.{alias.name}"
+                yield node.lineno, (sub if sub in known else target), node.level > 0
+
+
+def hard_sources() -> dict[str, str]:
+    """robomme_hard 的 .py 文件 → 源码（相对仓根路径为键）。"""
+    return {str(p.relative_to(REPO)): p.read_text(encoding="utf-8")
+            for p in sorted(HARD.rglob("*.py")) if "__pycache__" not in p.parts}
+
+
+def abs_import_problems(sources: dict[str, str], manifest: dict) -> list[str]:
+    """robomme_hard 自有文件（shim 除外）：相对导入与 ``robomme_hard.*`` 必须落在包内已有模块；
+    绝对 ``robomme.*`` 只许指向 shim 目标或父类模块。"""
+    shims = {s["shim"] for s in manifest["shims"]}
+    allowed = {s["target_module"] for s in manifest["shims"]} | set(manifest.get("parents", ()))
+    known = {modname(rel) for rel in sources}
+    known_official = {modname(r) for r in manifest["robomme_files"] if r.endswith(".py")}
+    bad = []
+    for rel, src in sources.items():
+        if rel in shims:
+            continue
+        for lineno, target, relative in iter_imports(modname(rel), src, rel.endswith("__init__.py"),
+                                                     known | known_official):
+            if relative or target == "robomme_hard" or target.startswith("robomme_hard."):
+                if target not in known:
+                    bad.append(f"{rel}:{lineno}:{target}")
+            elif (target == "robomme" or target.startswith("robomme.")) and target not in allowed:
+                bad.append(f"{rel}:{lineno}:{target}")
+    return bad
+
+
+def test_abs_import_boundary(manifest):
+    sources = hard_sources()
+    bad = abs_import_problems(sources, manifest)
+    print(f"ABS_IMPORT={'FAIL' if bad else 'PASS'} files={len(sources)} unresolved={len(bad)}")
+    assert bad == []
+
+
+def test_abs_import_negative(manifest):
+    """判定器负例：自有文件里绝对导入一个非 shim 目标的官方模块、相对导入不存在的模块，都被抓到。"""
+    sources = {"src/robomme_hard/env_record_wrapper/zz_probe.py":
+               "from robomme.env_record_wrapper.RecordWrapper import RobommeRecordWrapper\nfrom .no_such_mod import x\n",
+               "src/robomme_hard/env_record_wrapper/__init__.py": ""}
+    bad = abs_import_problems(sources, manifest)
+    assert len(bad) == 2, bad
+
+
+def official_edges(manifest: dict, blobs: dict[str, bytes]) -> dict[str, set[str]]:
+    """官方源码（从 git blob 读）上的模块依赖边：模块 → 它导入的官方模块集合。"""
+    sources = {}
+    for rel in manifest["robomme_files"]:
+        name = rel.rsplit("/", 1)[-1]
+        if rel.endswith(".py") and " " not in name and "-" not in name:
+            sources[modname(rel)] = (blobs[rel].decode("utf-8"), rel.endswith("__init__.py"))
+    known = set(sources)
+    return {mod: {t for _, t, _ in iter_imports(mod, src, is_pkg, known) if t in known}
+            for mod, (src, is_pkg) in sources.items()}
+
+
+def borrowed_hits(manifest: dict, edges: dict[str, set[str]], hard_rels: list[str]) -> list[str]:
+    """shim 目标的传递闭包里出现被 robomme_hard 复制（非 shim）的官方模块 → 命中清单。"""
+    shims = {s["shim"] for s in manifest["shims"]}
+    copied = {"robomme" + modname(rel)[len("robomme_hard"):] for rel in hard_rels if rel not in shims}
+    copied &= set(edges)
+    hits = []
+    for entry in manifest["shims"]:
+        seen, stack = set(), [entry["target_module"]]
+        while stack:
+            for dep in edges.get(stack.pop(), ()):
+                if dep not in seen:
+                    seen.add(dep)
+                    stack.append(dep)
+        if seen & copied:
+            hits.append(f"{entry['target_module']}->{sorted(seen & copied)}")
+    return hits
+
+
+def test_borrowed_deps_closure(manifest, blobs):
+    edges = official_edges(manifest, blobs)
+    hits = borrowed_hits(manifest, edges, list(hard_sources()))
+    print(f"BORROWED_DEPS={'FAIL' if hits else 'PASS'} shims={len(manifest['shims'])} changed_hits={len(hits)}")
+    assert hits == []
+
+
+def test_borrowed_deps_negative(manifest, blobs):
+    """判定器负例：在某个 shim 目标的依赖边里加一条指向被复制模块（RecordWrapper）的边 → 命中。"""
+    edges = {k: set(v) for k, v in official_edges(manifest, blobs).items()}
+    target = manifest["shims"][0]["target_module"]
+    copied = "robomme.env_record_wrapper.RecordWrapper"
+    assert copied in edges
+    edges[target].add(copied)
+    assert borrowed_hits(manifest, edges, list(hard_sources())) != []

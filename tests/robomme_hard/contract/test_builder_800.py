@@ -4,11 +4,12 @@
 不建任何仿真场景。期望由标准库 json 直接读包内规格得出：档序 xhard1→xhard5 主序、档内交付行（selected 且
 rollout ok）按 candidate 升序拼接成 episode 0..49（hard_builder 模块文档写明的契约）。
 
-- 默认开关关：16 任务 × 50 局 = 800，逐局 kwargs = runtime 四项 + seed + difficulty（档名）+ sampling_config
-  （header 该任务）+ native_episode_spec（该行 spec），恰好这些键；
-- 开关开：每任务前置 12 局 xhard0，seed 逐条等于官方 test 元数据 hard 子集（按原 episode 升序）、difficulty
-  传 ``"hard"``、无回注参数，合计 16 × 62 = 992；
-- 规格根覆盖（参数与环境变量）与拒绝路径（含 ``dataset="hard-verify"`` 的接受与拒绝；其逐局参数见 ``test_builder_hard0.py``）。
+- 16 任务 × 50 局 = 800，逐局 kwargs = runtime 四项 + seed + difficulty（档名）+ sampling_config
+  （header 该任务）+ native_episode_spec（该行 spec），恰好这些键；ood 不含 xhard0；
+- 不传 ``dataset`` 即 ood；只认 ``ood``／``hard-verify`` 两个数据集，官方 ``train``／``test``／``val``、档位名
+  （如 ``xhard1``）、改名前旧名与拼写变体一律 ``ValueError``；构造函数没有 ``specs_root`` 形参（规格根只读包内）；
+- 规格根整根校验（空根、旧 schema、改行不重签）直接对 ``hard_specs.load_specs_root`` 测——builder 已不接受外部根。
+  hard-verify 的逐局参数见 ``test_builder_hard0.py``。
 """
 from __future__ import annotations
 
@@ -18,22 +19,23 @@ from pathlib import Path
 
 import pytest
 
-from tests.robomme_hard._support.loaders import REPO, load_script
+from tests.robomme_hard._support.loaders import REPO
 from tests.robomme_hard.contract.test_constants import (
+    DATASETS,
+    DEFAULT_DATASET,
+    LEGACY_DATASET_NAMES,
     NEW_TIERS,
     PER_TASK,
-    PER_TASK_WITH_XHARD0,
     RUNTIME,
     TASKS,
     TOTAL,
-    TOTAL_WITH_XHARD0,
+    TOTAL_HARD_VERIFY,
+    V9_CELLS,
     XHARD0,
-    XHARD0_EPISODES,
     XHARD0_PER_TASK,
 )
 
 ROOT = REPO / "src" / "robomme_hard" / "env_metadata" / "ood"
-OFFICIAL_TEST = REPO / "src" / "robomme" / "env_metadata" / "test"
 EXPECTED_KEYS = {*RUNTIME, "seed", "difficulty", "sampling_config", "native_episode_spec"}
 
 
@@ -74,11 +76,6 @@ def expected_rows(root: Path = ROOT) -> dict[str, list[tuple[str, dict, dict]]]:
         for row in sorted(chosen, key=lambda r: r["candidate"]):
             out[row["task"]].append((tier, header, row))
     return out
-
-
-def official_hard(task: str) -> list[dict]:
-    payload = json.loads((OFFICIAL_TEST / f"record_dataset_{task}_metadata.json").read_text(encoding="utf-8"))
-    return sorted((r for r in payload["records"] if r["difficulty"] == "hard"), key=lambda r: int(r["episode"]))
 
 
 def capture(builder, episode: int, calls: list) -> tuple[tuple, dict]:
@@ -165,44 +162,75 @@ def test_known_defect_builder_kwargs_aliased_to_builder_state(recorder):
     assert aliased == {"sampling_config": True, "native_episode_spec": True}
 
 
-def test_builder_992_with_xhard0_switch(recorder, monkeypatch):
-    from robomme_hard.env_record_wrapper import hard_specs
+def test_default_dataset_is_ood_without_xhard0(recorder):
+    """不传 ``dataset`` 构造即 ood：局数、逐局参数与显式 ``dataset="ood"`` 相同，且没有一局是 xhard0。"""
+    import inspect
 
-    monkeypatch.setattr(hard_specs, "XHARD0_IN_TEST_HARD", True)
+    cls = builder_cls()
+    assert inspect.signature(cls.__init__).parameters["dataset"].default == DEFAULT_DATASET
     expected = expected_rows()
-    total = 0
     for task in TASKS:
-        builder = builder_cls()(env_id=task, dataset="ood")
-        assert builder.get_episode_num() == PER_TASK_WITH_XHARD0
-        hard = official_hard(task)
-        assert tuple(int(r["episode"]) for r in hard) == XHARD0_EPISODES
-        for episode, record in enumerate(hard):
-            args, kwargs = capture(builder, episode, recorder)
-            assert args == (task,)
-            assert kwargs == {**RUNTIME, "seed": int(record["seed"]), "difficulty": "hard"}, (task, episode)
-            ident = builder.resolve_identity(episode)
-            assert (ident["tier"], ident["seed"], ident["source_episode"]) == \
-                (XHARD0, int(record["seed"]), int(record["episode"]))
-        for offset, (tier, header, row) in enumerate(expected[task]):
-            _, kwargs = capture(builder, XHARD0_PER_TASK + offset, recorder)
-            assert kwargs == newvalue_kwargs(tier, header, row, task)
-        total += builder.get_episode_num()
-    assert total == TOTAL_WITH_XHARD0
+        builder = cls(env_id=task)
+        assert builder.dataset == DEFAULT_DATASET
+        assert builder.get_episode_num() == PER_TASK
+        tiers = {builder.resolve_episode(e)[1] for e in range(PER_TASK)}
+        assert XHARD0 not in tiers and tiers <= set(NEW_TIERS)
+    # 抽一任务逐局比 kwargs，证明缺省构造就是 ood 本身
+    builder = cls(env_id="StopCube")
+    for episode, (tier, header, row) in enumerate(expected["StopCube"]):
+        _, kwargs = capture(builder, episode, recorder)
+        assert kwargs == newvalue_kwargs(tier, header, row, "StopCube")
 
 
-def test_xhard0_switch_rejects_broken_official_subset(monkeypatch):
-    """开关开时 xhard0 子集必须恰为原 episode 3,7,…,47：父类读到的元数据被改坏即拒绝。"""
-    from robomme_hard.env_record_wrapper import hard_builder, hard_specs
+def test_two_datasets_episode_totals():
+    """两数据集局数乘式：hard-verify 16 任务 × 12 局 = 192，ood 16 任务 × 50 局 = 800；ood 逐任务等于交付格表行和。"""
+    cls = builder_cls()
+    totals = {dataset: 0 for dataset in DATASETS}
+    for task in TASKS:
+        for dataset in DATASETS:
+            totals[dataset] += cls(env_id=task, dataset=dataset).get_episode_num()
+        assert cls(env_id=task, dataset="ood").get_episode_num() == \
+            sum(n for (t, _tier), n in V9_CELLS.items() if t == task)
+    assert totals == {"hard-verify": TOTAL_HARD_VERIFY, "ood": TOTAL}
 
-    monkeypatch.setattr(hard_specs, "XHARD0_IN_TEST_HARD", True)
-    index = {}
-    for r in official_hard("BinFill")[:-1]:  # 少一局
-        index[("BinFill", int(r["episode"]))] = r
+
+def test_no_specs_root_parameter():
+    """构造函数没有 ``specs_root`` 形参（H1 裁剪）：传入即 ``TypeError``，两数据集都一样；``resolve_identity`` 不带该键。"""
+    import inspect
+
+    cls = builder_cls()
+    assert "specs_root" not in inspect.signature(cls.__init__).parameters
+    for dataset in DATASETS:
+        with pytest.raises(TypeError):
+            cls(env_id="StopCube", dataset=dataset, specs_root=ROOT)
+    assert "specs_root" not in cls(env_id="StopCube", dataset="ood").resolve_identity(0)
+
+
+def test_rejections(tmp_path):
+    cls = builder_cls()
+    # 官方三个 split 与档位名：本构建器一律拒绝（要官方行为请用官方 robomme 的构建器）
+    for dataset in ("train", "test", "val", "xhard1"):
+        with pytest.raises(ValueError):
+            cls(env_id="StopCube", dataset=dataset)
     with pytest.raises(ValueError):
-        hard_builder._xhard0_entries("BinFill", index)
+        cls(env_id="StopCube", dataset="ood", override_metadata_path=tmp_path)
+    with pytest.raises(ValueError):
+        cls(env_id="StopCube", dataset="ood", action_space="torque")
+    with pytest.raises(ValueError):
+        cls(env_id="NotATask", dataset="ood")
+    # hard-verify：接受（每任务恰 12 局 xhard0）；拼写变体、改名前的旧名、元数据覆盖、未知任务一律拒绝
+    assert cls(env_id="StopCube", dataset="hard-verify").get_episode_num() == XHARD0_PER_TASK
+    assert len(LEGACY_DATASET_NAMES) == 2
+    for wrong in ("hard_verify", "hard-verify0", "xhard0", "Hard-Verify", "OOD", *LEGACY_DATASET_NAMES):
+        with pytest.raises(ValueError):
+            cls(env_id="StopCube", dataset=wrong)
+    with pytest.raises(ValueError):
+        cls(env_id="StopCube", dataset="hard-verify", override_metadata_path=tmp_path)
+    with pytest.raises(ValueError):
+        cls(env_id="NotATask", dataset="hard-verify")
 
 
-# ── 规格根覆盖与拒绝 ─────────────────────────────────────────────────────
+# ── 规格根整根校验（builder 只读包内根；校验函数本身对 tmp 副本测）────────────
 
 
 def partial_root(tmp_path: Path, tiers=("xhard5",)) -> Path:
@@ -213,56 +241,25 @@ def partial_root(tmp_path: Path, tiers=("xhard5",)) -> Path:
     return root
 
 
-def test_specs_root_override_param_and_env(recorder, tmp_path, monkeypatch):
+def _xhard5_cells() -> dict:
+    return {key: n for key, n in V9_CELLS.items() if key[1] == "xhard5"}
+
+
+def _load(root: Path):
     from robomme_hard.env_record_wrapper import hard_specs
 
-    root = partial_root(tmp_path)
-    expected = expected_rows(root)
-    for how in ("param", "env"):
-        if how == "env":
-            monkeypatch.setenv(hard_specs.SPECS_ROOT_ENV, str(root))
-            builder = builder_cls()(env_id="StopCube", dataset="ood")
-        else:
-            monkeypatch.delenv(hard_specs.SPECS_ROOT_ENV, raising=False)
-            builder = builder_cls()(env_id="StopCube", dataset="ood", specs_root=root)
-        assert builder.get_episode_num() == len(expected["StopCube"]) > 0
-        for episode, (tier, header, row) in enumerate(expected["StopCube"]):
-            _, kwargs = capture(builder, episode, recorder)
-            assert kwargs == newvalue_kwargs(tier, header, row, "StopCube")
-            assert builder.resolve_identity(episode)["specs_root"] == str(root.resolve())
-        # 局部根里没有的任务：0 局
-        assert builder_cls()(env_id="PickXtimes", dataset="ood", specs_root=root).get_episode_num() == 0
+    return hard_specs.load_specs_root(root, _xhard5_cells(), cell_table=hard_specs.EXPECTED_CELLS)
 
 
-def test_rejections(tmp_path):
+def test_specs_root_validation_rejections(tmp_path):
+    """局部根（只含 xhard5）原样可读；空根、档文件不是 /4、改了一行不重签，整根校验都拒绝。"""
     from robomme_hard.env_record_wrapper import hard_specs
 
-    cls = builder_cls()
-    with pytest.raises(ValueError):
-        cls(env_id="StopCube", dataset="xhard1")
-    with pytest.raises(ValueError):
-        cls(env_id="StopCube", dataset="ood", override_metadata_path=tmp_path)
-    with pytest.raises(ValueError):
-        cls(env_id="StopCube", dataset="ood", action_space="torque")
-    with pytest.raises(ValueError):
-        cls(env_id="NotATask", dataset="ood")
-    # hard-verify：接受（每任务恰 12 局 xhard0）；拼写变体、改名前的旧名、规格根、元数据覆盖、未知任务一律拒绝
-    assert cls(env_id="StopCube", dataset="hard-verify").get_episode_num() == XHARD0_PER_TASK
-    legacy = tuple(load_script("eval-official/official_defs.py").LEGACY_DATASET_ALIASES)  # 旧名只在别名表里
-    assert len(legacy) == 2
-    for wrong in ("hard_verify", "hard-verify0", "xhard0", "Hard-Verify", "OOD", *legacy):
-        with pytest.raises(ValueError):
-            cls(env_id="StopCube", dataset=wrong)
-    with pytest.raises(ValueError):
-        cls(env_id="StopCube", dataset="hard-verify", specs_root=ROOT)
-    with pytest.raises(ValueError):
-        cls(env_id="StopCube", dataset="hard-verify", override_metadata_path=tmp_path)
-    with pytest.raises(ValueError):
-        cls(env_id="NotATask", dataset="hard-verify")
+    assert tuple(_load(partial_root(tmp_path / "ok"))) == ("xhard5",)
     empty = tmp_path / "empty"
     empty.mkdir()
     with pytest.raises(hard_specs.SpecsError):
-        cls(env_id="StopCube", dataset="ood", specs_root=empty)
+        _load(empty)
     # 档文件不是 /4
     old = tmp_path / "old"
     (old / "xhard5").mkdir(parents=True)
@@ -271,7 +268,7 @@ def test_rejections(tmp_path):
     header["schema"] = "hard-specs/3"
     (old / "xhard5" / "specs.jsonl").write_text("\n".join([json.dumps(header), *lines[1:]]) + "\n", encoding="utf-8")
     with pytest.raises(hard_specs.SpecsError):
-        cls(env_id="StopCube", dataset="ood", specs_root=old)
+        _load(old)
     # 改了一行不重签：整根校验拒绝
     bad = partial_root(tmp_path / "bad")
     lines = (bad / "xhard5" / "specs.jsonl").read_text(encoding="utf-8").splitlines()
@@ -280,16 +277,4 @@ def test_rejections(tmp_path):
     lines[1] = json.dumps(row)
     (bad / "xhard5" / "specs.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     with pytest.raises(hard_specs.SpecsError):
-        cls(env_id="StopCube", dataset="ood", specs_root=bad)
-
-
-def test_official_datasets_unchanged_except_hard_train(recorder):
-    """train／test／val 仍走官方元数据（四个 Unmask 任务的 train 改读 hard 包）；gym.make 不带回注参数。"""
-    cls = builder_cls()
-    for dataset in ("test", "val", "train"):
-        builder = cls(env_id="BinFill", dataset=dataset)
-        _, kwargs = capture(builder, 0, recorder)
-        assert set(kwargs) == {*RUNTIME, "seed", "difficulty"}
-    hard_train = cls(env_id="VideoUnmask", dataset="train")
-    assert "robomme_hard" in hard_train._resolve_metadata_path()
-    assert "robomme_hard" not in cls(env_id="BinFill", dataset="train")._resolve_metadata_path()
+        _load(bad)
