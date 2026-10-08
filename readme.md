@@ -172,3 +172,12 @@ This work was supported in part by NSF SES-2128623, NSF CAREER #2337870, NSF NRI
   year={2026}
 }
 ```
+
+
+## Hard evaluation
+
+本仓库在官方 benchmark 之上新增环境包 `src/robomme_hard/`：它与官方 `robomme` 并列、分层继承，`src/robomme/` 与官方逐字节相同；`robomme_hard` 只放差异（16 个环境类的新值档、回注规格与子类化的 `BenchmarkEnvBuilder`），导入后接管 16 个环境 id。
+
+新增两个评估数据集：`hard-verify`（即 xhard0，官方 test 里每任务 hard 难度的 12 局，16 任务 × 12 局 = 192，步数上限 1300）与 `ood`（xhard1～xhard5 新值局，16 任务 × 50 局 = 800，步数上限 1800）。
+
+评估入口是 [`scripts/evaluation_ood.py`](scripts/evaluation_ood.py)（由官方 `scripts/evaluation.py` 派生，只改数据集与步数上限），用法、局数与和官方入口的逐行差异见 [`scripts/README_ood.md`](scripts/README_ood.md)。
