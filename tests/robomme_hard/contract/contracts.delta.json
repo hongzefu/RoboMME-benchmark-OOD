@@ -211,11 +211,11 @@
   "id": "C04-TIER-TABLE",
   "domain": "C04",
   "source": "src/robomme_hard/robomme_env/*.py",
-  "symbol": "各任务 native_blocks(cls) 的 decision/native；包内 header sampling_config；VideoPlaceButton.vpb_target_placement_count",
+  "symbol": "各任务 native_blocks(cls) 的 decision/native；包内 header sampling_config；VideoPlaceButton.vpb_target_placement_count；tests/robomme_hard/contract/packaged_checks.py::tier_dims（字段照 hard_regression.tier_dims）",
   "oracle": "tests/robomme_hard/contract/test_tier_table.py 的 TABLE（v8 方案表 1，V9 沿用；测试侧独立写，不读 hard_regression.V8_TIER_TABLE）",
-  "positive": "41 个有取值维度的交付格：native_blocks 的 decision 按档读出等于表；五档 header sampling_config 逐字等于 native_blocks",
-  "negative": "改 decision 一档取值被判定器抓到；植入 M05 失败",
-  "boundaries": "MoveCube、InsertPeg 不计取值；交付行逐局取值（hard_regression.tier_dims）与 movecube-layout 随私有评估仓",
+  "positive": "41 个有取值维度的交付格：native_blocks 的 decision 按档读出等于表；五档 header sampling_config 逐字等于 native_blocks；包内交付行实际取值（packaged_checks.tier_dims）等于表（RouteStick/PatternLock 落在闭区间）",
+  "negative": "改 decision 一档取值、改一局次数、把段数改出区间、删取值字段都被判定器抓到；植入 M05 失败",
+  "boundaries": "MoveCube、InsertPeg 不计取值（MoveCube 由 C15-REGRESSION-PACKAGED 的 movecube-layout 守）",
   "nodeids": [
    "tests/robomme_hard/contract/test_tier_table.py::test_table_covers_exactly_valued_delivery_cells",
    "tests/robomme_hard/contract/test_tier_table.py::test_native_blocks_decision_matches_table[BinFill-xhard1]",
@@ -264,11 +264,46 @@
    "tests/robomme_hard/contract/test_tier_table.py::test_header_sampling_config_equals_native_blocks_and_table[xhard3]",
    "tests/robomme_hard/contract/test_tier_table.py::test_header_sampling_config_equals_native_blocks_and_table[xhard4]",
    "tests/robomme_hard/contract/test_tier_table.py::test_header_sampling_config_equals_native_blocks_and_table[xhard5]",
-   "tests/robomme_hard/contract/test_tier_table.py::test_decision_reader_negative"
+   "tests/robomme_hard/contract/test_tier_table.py::test_decision_reader_negative",
+   "tests/robomme_hard/contract/test_tier_table.py::test_packaged_rows_match_table[xhard1]",
+   "tests/robomme_hard/contract/test_tier_table.py::test_packaged_rows_match_table[xhard2]",
+   "tests/robomme_hard/contract/test_tier_table.py::test_packaged_rows_match_table[xhard3]",
+   "tests/robomme_hard/contract/test_tier_table.py::test_packaged_rows_match_table[xhard4]",
+   "tests/robomme_hard/contract/test_tier_table.py::test_packaged_rows_match_table[xhard5]",
+   "tests/robomme_hard/contract/test_tier_table.py::test_row_mismatches_negative"
   ],
   "resource": "cpu",
   "mutants": [
    "M05"
+  ],
+  "status": "verified"
+ },
+ {
+  "id": "C15-REGRESSION-PACKAGED",
+  "domain": "C15",
+  "source": "src/robomme_hard/env_metadata/ood/xhard{1..5}/specs.jsonl、tests/robomme_hard/contract/packaged_checks.py",
+  "symbol": "包内规格数据：逐格交付行、跨档 seed、布局独立、14 任务 41 格取值、MoveCube xhard4 落点与运动方式；测试侧判定器 packaged_checks.delivery_set_check / tier_values_check / movecube_layout_check（判据照 fd0017d6 的 hard_regression 同名子命令）",
+  "oracle": "钉值 43 格、800 局、EXEC_CAP 1600、LAYOUT_RULE、取值表 TABLE、300 点、V9 区域 0.24／0.42／[0.31, 0.80]、V8 旧区域、运动方式 17/17/16；规格行只用标准库 json 读；MoveCube 落点用源码 MoveCube._in_region_u／_xhard4_region／_peg_geometry 判定",
+  "positive": "包内规格：43 格交付数逐格等于格表、合计 800、selected_not_ok=0、delivered_over_cap=0、跨档 seed 交集 0、layout_rule 合规、layout_parent 全空、跨档位置照抄 0 对；41 格 700 局取值等于表；MoveCube 50 局 300 点全在 V9 区域、outside_old≥1、region_mismatch=0、运动方式 17/17/16",
+  "negative": "去掉一个交付行、缺档文件、selected 而失败、执行步超上限、跨档 seed 撞号、layout_parent 非空、跨档照抄位置、layout_rule 改掉、改一个取值、MoveCube 一点移出区域、region 改值、换运动方式、删字段成坏行，各自计数变化",
+  "boundaries": "不含 load_specs_root 整根校验（由 C03-PACKAGED-SPECS 覆盖）；step-headroom（逐局 h5 与交付清单）属工具行为，随私有评估仓",
+  "nodeids": [
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_delivery_set_pass_on_packaged",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_delivery_set_fails_when_one_delivered_row_dropped",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_delivery_set_fails_on_missing_tier_file",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_delivery_set_negatives_selected_not_ok_over_cap_seed_layout",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_tier_values_pass_on_packaged",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_tier_values_fail_on_changed_value",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_movecube_layout_pass_on_packaged",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_movecube_layout_fail_on_point_outside_region",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_movecube_layout_negatives_region_way_bad_row"
+  ],
+  "resource": "cpu",
+  "mutants": [
+   "M04",
+   "M05",
+   "M06",
+   "M07"
   ],
   "status": "verified"
  },

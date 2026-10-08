@@ -1,12 +1,11 @@
-"""L1 契约：唯一一份 V9 档位取值表（v8 方案第一部分表 1，V9 沿用），对两处核对：
+"""L1 契约：唯一一份 V9 档位取值表（v8 方案第一部分表 1，V9 沿用），同时对三处核对：
 
 1. 进程内各任务 ``native_blocks(cls)`` 给出的 ``decision``（按档位的新值取值）；
-2. 包内各档 header 的 ``sampling_config[task]``（逐字等于 1 的 ``{"decision", "native"}``，并按表取值）。
-
-逐行规格实际取值的核对依赖 ``scripts/parity/hard_regression.py`` 的 ``tier_dims``，该工具与其断言随私有评估仓，
-本仓不测。
+2. 包内各档 header 的 ``sampling_config[task]``（逐字等于 1 的 ``{"decision", "native"}``，并按表取值）；
+3. 包内逐行规格：交付行 ``spec`` 里本局的实际取值（经测试侧读取函数 ``packaged_checks.tier_dims``，字段与旧仓
+   ``scripts/parity/hard_regression.py::tier_dims`` 逐项相同；该工具随私有评估仓，本仓自带等价判定）。
 表里定值写成整数，区间写成 ``(lo, hi)`` 闭区间（RouteStick 的段数、PatternLock 的节点数）。
-MoveCube、InsertPeg 不计取值维度。
+MoveCube、InsertPeg 不计取值维度（MoveCube 的区域与运动方式由 ``test_regression_on_packaged`` 的 movecube-layout 守）。
 本表是测试侧独立写下的期望，不读 ``hard_regression.V8_TIER_TABLE``。
 """
 from __future__ import annotations
@@ -17,6 +16,7 @@ import json
 import pytest
 
 from tests.robomme_hard._support.loaders import REPO
+from tests.robomme_hard.contract.packaged_checks import row_mismatches, tier_dims
 from tests.robomme_hard.contract.test_constants import NEW_TIERS, V9_CELLS, XHARD4_ONLY
 
 ROOT = REPO / "src" / "robomme_hard" / "env_metadata" / "ood"
@@ -127,6 +127,31 @@ def test_header_sampling_config_equals_native_blocks_and_table(tier):
         assert header["sampling_config"][task] == {"decision": decision, "native": native}, task
         if task in TABLE:
             assert DECISION_READERS[task](header["sampling_config"][task]["decision"], tier) == TABLE[task][tier]
+
+
+@pytest.mark.parametrize("tier", NEW_TIERS)
+def test_packaged_rows_match_table(tier):
+    lines = (ROOT / tier / "specs.jsonl").read_text(encoding="utf-8").splitlines()
+    rows = [json.loads(line) for line in lines[1:] if line.strip()]
+    assert row_mismatches(rows, tier, TABLE) == []
+    checked = {(r["task"], tier) for r in rows if r["task"] in TABLE and r["selected"]}
+    assert checked == {key for key in VALUED_CELLS if key[1] == tier}
+
+
+def test_row_mismatches_negative():
+    """判定器负例：把一局 PickXtimes 的次数改成表外值、RouteStick 段数改出区间、删掉一个取值字段，都被抓到。"""
+    lines = (ROOT / "xhard1" / "specs.jsonl").read_text(encoding="utf-8").splitlines()
+    rows = [json.loads(line) for line in lines[1:]]
+    pick = next(r for r in rows if r["task"] == "PickXtimes" and r["selected"])
+    route = next(r for r in rows if r["task"] == "RouteStick" and r["selected"])
+    stop = next(r for r in rows if r["task"] == "BinFill" and r["selected"])
+    pick, route, stop = _norm(pick), _norm(route), _norm(stop)
+    assert row_mismatches([pick, route, stop], "xhard1", TABLE) == []
+    assert tier_dims("PickXtimes", pick["spec"])["times"] == TABLE["PickXtimes"]["xhard1"]["times"]
+    pick["spec"]["objects"]["num_repeats"] = TABLE["PickXtimes"]["xhard1"]["times"] + 1
+    route["spec"]["objects"]["L"] = TABLE["RouteStick"]["xhard1"]["segments"][1] + 1
+    del stop["spec"]["objects"]["target_numbers"]
+    assert len(row_mismatches([pick, route, stop], "xhard1", TABLE)) == 3
 
 
 def test_decision_reader_negative():

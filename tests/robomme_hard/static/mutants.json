@@ -6,7 +6,7 @@
   "expect_fail": [
    "tests/robomme_hard/static/test_upstream_bytes.py::test_src_robomme_bytes_equal_official"
   ],
-  "self_check": "2026-10-04 本机实测：恰好上列 3 个失败，其余 73 过（2026-10-08 H3 改接新仓：expect_fail／observed_fail 已删去随私有评估仓移走或删除的用例、改名用例按新名替换；植入未在新仓重跑，计数以主会话重测为准）"
+  "self_check": "2026-10-08 H3 改接新仓：expect_fail 现为上列 1 个用例（旧仓 2026-10-04 实测的「恰好 3／1 个失败、其余 73／75 过」对应旧用例集，已不适用）；新仓植入尚未重跑，失败数与其余通过数待主会话重测"
  },
  {
   "id": "M02",
@@ -15,7 +15,7 @@
   "expect_fail": [
    "tests/robomme_hard/static/test_upstream_bytes.py::test_official_entry_scripts_equal_official"
   ],
-  "self_check": "2026-10-04 本机实测：恰好上列 3 个失败，其余 73 过（2026-10-08 H3 改接新仓：expect_fail／observed_fail 已删去随私有评估仓移走或删除的用例、改名用例按新名替换；植入未在新仓重跑，计数以主会话重测为准）"
+  "self_check": "2026-10-08 H3 改接新仓：expect_fail 现为上列 1 个用例（旧仓 2026-10-04 实测的「恰好 3／1 个失败、其余 73／75 过」对应旧用例集，已不适用）；新仓植入尚未重跑，失败数与其余通过数待主会话重测"
  },
  {
   "id": "M03",
@@ -24,7 +24,7 @@
   "expect_fail": [
    "tests/robomme_hard/static/test_copies_vs_upstream.py::test_copy_differs_from_official_exactly_by_whitelist[env_record_wrapper/RecordWrapper.py]"
   ],
-  "self_check": "2026-10-04 本机实测：恰好上列 1 个失败，其余 75 过"
+  "self_check": "2026-10-08 H3 改接新仓：expect_fail 现为上列 1 个用例（旧仓 2026-10-04 实测的「恰好 3／1 个失败、其余 73／75 过」对应旧用例集，已不适用）；新仓植入尚未重跑，失败数与其余通过数待主会话重测"
  },
  {
   "id": "M04S",

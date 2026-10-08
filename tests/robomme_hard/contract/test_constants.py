@@ -109,6 +109,12 @@ PACKAGED_ROWS_TOTAL = 1518
 PACKAGED_SELECTED = {"xhard1": 272, "xhard2": 272, "xhard3": 92, "xhard4": 144, "xhard5": 20}
 #: 包内规格结果段里 error_type == exec_over_cap 的行数（实测 0）
 PACKAGED_EXEC_OVER_CAP = 0
+#: MoveCube xhard4 50 局 × 2 段 × 3 物体 = 300 点；运动方式 0/1/2 配额 17/17/16
+MOVECUBE_POINTS = 300
+MOVECUBE_WAYS = {0: 17, 1: 17, 2: 16}
+#: MoveCube xhard4 的 V9 区域三个数（1002 方案第一部分 §1 已定口径 1）与改值前的 V8 区域（只用来数「落在旧区域外」）
+MOVECUBE_REGION_V9 = {"r_in": 0.24, "r_out": 0.42, "base_dist": [0.31, 0.80]}
+MOVECUBE_REGION_V8 = {"r_in": 0.12, "r_out": 0.20, "base_dist": [0.35, 0.76]}
 #: 官方元数据：每 split 16 个文件、每文件局数
 OFFICIAL_SPLIT_FILES = 16
 OFFICIAL_SPLIT_EPISODES = {"train": 100, "val": 50, "test": 50}

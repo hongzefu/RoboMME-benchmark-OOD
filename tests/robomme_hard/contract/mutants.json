@@ -27,13 +27,19 @@
   "target": "src/robomme_hard/env_metadata/ood/xhard1/specs.jsonl",
   "method": "隔离副本：xhard1 第一个 PickXtimes selected 行 spec.objects.num_repeats 加 1，重算 spec_sha256 与 header 三个散列（植入后 validate_specs 仍通过）",
   "expect_fail": [
-   "tests/robomme_hard/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins"
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_hard/contract/test_tier_table.py::test_packaged_rows_match_table[xhard1]",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_tier_values_pass_on_packaged"
   ],
   "observed_fail": [
    "tests/robomme_hard/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
-   "tests/robomme_hard/contract/test_packaged_specs.py::test_pin_check_negative"
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_pin_check_negative",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_tier_values_pass_on_packaged",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_tier_values_fail_on_changed_value",
+   "tests/robomme_hard/contract/test_tier_table.py::test_packaged_rows_match_table[xhard1]",
+   "tests/robomme_hard/contract/test_tier_table.py::test_row_mismatches_negative"
   ],
-  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_hard/contract 非 slow 207 passed, 4 deselected；植入后 8 failed, 199 passed, 4 deselected，expect_fail 全部在失败之列（2026-10-08 H3 改接新仓：expect_fail／observed_fail 已删去随私有评估仓移走或删除的用例、改名用例按新名替换；植入未在新仓重跑，计数以主会话重测为准）"
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_hard/contract 非 slow 207 passed, 4 deselected；植入后 8 failed, 199 passed, 4 deselected，expect_fail 全部在失败之列（2026-10-08 H3 第二轮：tier_table 逐行取值与 tier-values 两项已用测试侧等价判定恢复，相应 nodeid 回填；H3 改接新仓：expect_fail／observed_fail 已删去随私有评估仓移走或删除的用例、改名用例按新名替换；植入未在新仓重跑，计数以主会话重测为准）"
  },
  {
   "id": "M06",
