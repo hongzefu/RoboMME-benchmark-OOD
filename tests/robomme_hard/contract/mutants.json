@@ -1,0 +1,162 @@
+[
+ {
+  "id": "M04",
+  "target": "src/robomme_hard/env_metadata/ood/xhard1/specs.jsonl",
+  "method": "隔离副本（scratchpad 复制 src/scripts/tests/challenge_interface/pyproject.toml）：xhard1 第一个 selected 行 seed 加 1，只改这一行、不重签",
+  "expect_fail": [
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_load_specs_each_file[xhard1]",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_load_specs_root_whole",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_rows_self_consistent[xhard1]",
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_delivery_set_pass_on_packaged"
+  ],
+  "observed_fail": [
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_hard/contract/test_builder_800.py::test_known_defect_builder_kwargs_aliased_to_builder_state",
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_992_with_xhard0_switch",
+   "tests/robomme_hard/contract/test_gate_set.py::test_tampered_frozen_value_fails",
+   "tests/robomme_hard/contract/test_gate_set.py::test_resigned_but_swapped_rows_fail_check",
+   "tests/robomme_hard/contract/test_gate_set.py::test_f7_empty_or_broken_frozen_file_fails[]",
+   "tests/robomme_hard/contract/test_gate_set.py::test_f7_empty_or_broken_frozen_file_fails[  \\n]",
+   "tests/robomme_hard/contract/test_gate_set.py::test_f7_empty_or_broken_frozen_file_fails[{not json]",
+   "tests/robomme_hard/contract/test_gate_set.py::test_f7_empty_or_broken_frozen_file_fails[[]]",
+   "tests/robomme_hard/contract/test_gate_set.py::test_f7_missing_frozen_file_fails",
+   "tests/robomme_hard/contract/test_gate_set.py::test_cli_check_and_export",
+   "tests/robomme_hard/contract/test_gate_set.py::test_xhard0_builder_episode_matches_switch_on_builder",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_pin_check_negative",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_load_specs_each_file[xhard1]",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_load_specs_root_whole",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_rows_self_consistent[xhard1]",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_delivery_set_pass_on_packaged",
+   "tests/robomme_hard/contract/test_gate_set.py::test_build_is_deterministic",
+   "tests/robomme_hard/contract/test_gate_set.py::test_scale_43_cells_times_3",
+   "tests/robomme_hard/contract/test_gate_set.py::test_rows_ordered_by_canonical_task_order",
+   "tests/robomme_hard/contract/test_gate_set.py::test_each_row_is_a_delivered_row",
+   "tests/robomme_hard/contract/test_gate_set.py::test_each_cell_takes_smallest_candidates",
+   "tests/robomme_hard/contract/test_gate_set.py::test_builder_episode_equals_real_builder",
+   "tests/robomme_hard/contract/test_gate_set.py::test_frozen_file_equals_rebuild_and_check_passes",
+   "tests/robomme_hard/contract/test_gate_set.py::test_exports"
+  ],
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_hard/contract 非 slow 207 passed, 4 deselected；植入后 18 failed, 181 passed, 4 deselected, 8 errors，expect_fail 全部在失败之列"
+ },
+ {
+  "id": "M05",
+  "target": "src/robomme_hard/env_metadata/ood/xhard1/specs.jsonl",
+  "method": "隔离副本：xhard1 第一个 PickXtimes selected 行 spec.objects.num_repeats 加 1，重算 spec_sha256 与 header 三个散列（植入后 validate_specs 仍通过）",
+  "expect_fail": [
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_hard/contract/test_tier_table.py::test_packaged_rows_match_table[xhard1]",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_tier_values_pass_on_packaged",
+   "tests/robomme_hard/contract/test_gate_set.py::test_frozen_file_equals_rebuild_and_check_passes"
+  ],
+  "observed_fail": [
+   "tests/robomme_hard/contract/test_gate_set.py::test_frozen_file_equals_rebuild_and_check_passes",
+   "tests/robomme_hard/contract/test_gate_set.py::test_cli_check_and_export",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_pin_check_negative",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_tier_values_pass_on_packaged",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_tier_values_fail_on_changed_value",
+   "tests/robomme_hard/contract/test_tier_table.py::test_packaged_rows_match_table[xhard1]",
+   "tests/robomme_hard/contract/test_tier_table.py::test_row_mismatches_negative"
+  ],
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_hard/contract 非 slow 207 passed, 4 deselected；植入后 8 failed, 199 passed, 4 deselected，expect_fail 全部在失败之列"
+ },
+ {
+  "id": "M06",
+  "target": "src/robomme_hard/env_metadata/ood/xhard1/specs.jsonl",
+  "method": "隔离副本：xhard1 candidate==1 的行改 True、candidate==2 的行 attempt 改浮点，重算 header 三个散列",
+  "expect_fail": [
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_load_specs_each_file[xhard1]",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_load_specs_root_whole",
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_delivery_set_pass_on_packaged"
+  ],
+  "observed_fail": [
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_hard/contract/test_builder_800.py::test_known_defect_builder_kwargs_aliased_to_builder_state",
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_992_with_xhard0_switch",
+   "tests/robomme_hard/contract/test_gate_set.py::test_tampered_frozen_value_fails",
+   "tests/robomme_hard/contract/test_gate_set.py::test_resigned_but_swapped_rows_fail_check",
+   "tests/robomme_hard/contract/test_gate_set.py::test_f7_empty_or_broken_frozen_file_fails[]",
+   "tests/robomme_hard/contract/test_gate_set.py::test_f7_empty_or_broken_frozen_file_fails[  \\n]",
+   "tests/robomme_hard/contract/test_gate_set.py::test_f7_empty_or_broken_frozen_file_fails[{not json]",
+   "tests/robomme_hard/contract/test_gate_set.py::test_f7_empty_or_broken_frozen_file_fails[[]]",
+   "tests/robomme_hard/contract/test_gate_set.py::test_f7_missing_frozen_file_fails",
+   "tests/robomme_hard/contract/test_gate_set.py::test_cli_check_and_export",
+   "tests/robomme_hard/contract/test_gate_set.py::test_xhard0_builder_episode_matches_switch_on_builder",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_pin_check_negative",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_load_specs_each_file[xhard1]",
+   "tests/robomme_hard/contract/test_packaged_specs.py::test_load_specs_root_whole",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_delivery_set_pass_on_packaged",
+   "tests/robomme_hard/contract/test_gate_set.py::test_build_is_deterministic",
+   "tests/robomme_hard/contract/test_gate_set.py::test_scale_43_cells_times_3",
+   "tests/robomme_hard/contract/test_gate_set.py::test_rows_ordered_by_canonical_task_order",
+   "tests/robomme_hard/contract/test_gate_set.py::test_each_row_is_a_delivered_row",
+   "tests/robomme_hard/contract/test_gate_set.py::test_each_cell_takes_smallest_candidates",
+   "tests/robomme_hard/contract/test_gate_set.py::test_builder_episode_equals_real_builder",
+   "tests/robomme_hard/contract/test_gate_set.py::test_frozen_file_equals_rebuild_and_check_passes",
+   "tests/robomme_hard/contract/test_gate_set.py::test_exports"
+  ],
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_hard/contract 非 slow 207 passed, 4 deselected；植入后 17 failed, 182 passed, 4 deselected, 8 errors，expect_fail 全部在失败之列"
+ },
+ {
+  "id": "M07",
+  "target": "src/robomme_hard/env_record_wrapper/hard_specs.py",
+  "method": "进程内（pytest 插件 pytest_configure，不落盘）：V9_CELLS[('PickXtimes','xhard1')] += 1（EXPECTED_CELLS／CELL_TABLES['v9'] 同一对象）。源码里改会被导入期 assert 拦成导入失败，不算抓到，故在导入后改",
+  "expect_fail": [
+   "tests/robomme_hard/contract/test_constants.py::test_v9_cells_exact",
+   "tests/robomme_hard/contract/test_constants.py::test_v9_cell_count_per_task_and_total",
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_delivery_set_pass_on_packaged"
+  ],
+  "observed_fail": [
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_hard/contract/test_builder_800.py::test_known_defect_builder_kwargs_aliased_to_builder_state",
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_992_with_xhard0_switch",
+   "tests/robomme_hard/contract/test_constants.py::test_v9_cells_exact",
+   "tests/robomme_hard/contract/test_constants.py::test_v9_cell_count_per_task_and_total",
+   "tests/robomme_hard/contract/test_gate_set.py::test_builder_episode_equals_real_builder",
+   "tests/robomme_hard/contract/test_gate_set.py::test_xhard0_builder_episode_matches_switch_on_builder",
+   "tests/robomme_hard/contract/test_regression_on_packaged.py::test_delivery_set_pass_on_packaged"
+  ],
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_hard/contract 非 slow 207 passed, 4 deselected；植入后 8 failed, 199 passed, 4 deselected，expect_fail 全部在失败之列"
+ },
+ {
+  "id": "M09",
+  "target": "src/robomme_hard/env_record_wrapper/hard_builder.py",
+  "method": "隔离副本：删去 _hard_env_kwargs 返回字典里的 \"native_episode_spec\" 一行",
+  "expect_fail": [
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_992_with_xhard0_switch",
+   "tests/robomme_hard/contract/test_builder_800.py::test_specs_root_override_param_and_env"
+  ],
+  "observed_fail": [
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_992_with_xhard0_switch",
+   "tests/robomme_hard/contract/test_builder_800.py::test_specs_root_override_param_and_env"
+  ],
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_hard/contract 非 slow 207 passed, 4 deselected；植入后 3 failed, 204 passed, 4 deselected，expect_fail 全部在失败之列"
+ },
+ {
+  "id": "M10",
+  "target": "src/robomme_hard/env_record_wrapper/hard_builder.py",
+  "method": "进程内（pytest 插件，不落盘）：包装 _ood_entries，返回列表的前两个身份互换（总数不变）",
+  "expect_fail": [
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_hard/contract/test_gate_set.py::test_builder_episode_equals_real_builder",
+   "tests/robomme_hard/contract/test_gate_set.py::test_xhard0_builder_episode_matches_switch_on_builder"
+  ],
+  "observed_fail": [
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_hard/contract/test_builder_800.py::test_builder_992_with_xhard0_switch",
+   "tests/robomme_hard/contract/test_builder_800.py::test_specs_root_override_param_and_env",
+   "tests/robomme_hard/contract/test_gate_set.py::test_builder_episode_equals_real_builder",
+   "tests/robomme_hard/contract/test_gate_set.py::test_xhard0_builder_episode_matches_switch_on_builder"
+  ],
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_hard/contract 非 slow 207 passed, 4 deselected；植入后 5 failed, 202 passed, 4 deselected，expect_fail 全部在失败之列"
+ }
+]

@@ -1,0 +1,275 @@
+[
+ {
+  "id": "C18-UPSTREAM-BYTES",
+  "domain": "C18",
+  "source": "scripts/parity/upstream_guard.py",
+  "symbol": "load_manifest / check_upstream_bytes / main",
+  "oracle": "官方 1fadc0ec 的 git 树与 blob（ls-tree + cat-file --batch，测试侧逐文件比字节，不经清单 sha 中转）；UPSTREAM.json 逐文件 sha256 须等于 sha256(blob)；src/robomme 按 P2 冻结",
+  "positive": "工作区 src/robomme 文件集合与逐文件字节 = 官方 blob，清单 sha = sha256(blob)；守卫 UPSTREAM_BYTES=PASS diff=0；清单文件集合 = git ls-tree 1fadc0ec src/robomme；main check 默认严格末行 UPSTREAM_GUARD=PASS",
+  "negative": "tmp 副本改 1 字节、多 1 文件、少 1 文件、清单 sha 改错后重签，均 FAIL；main 严格模式退出 1",
+  "boundaries": "--allow-pending 只把字节差降为 PENDING 并向 stderr 打警告；--allow-pending 与 --require-upstream 互斥（退出 2）",
+  "nodeids": [
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_manifest_anchor_is_official_commit",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_src_robomme_bytes_equal_official_blobs_independently",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_real_repo_upstream_bytes_pass",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_main_check_strict_by_default",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_main_flags_mutually_exclusive",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_mini_copy_passes_everything",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_upstream_bytes_one_byte_changed_fails",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_upstream_bytes_extra_file_fails",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_upstream_bytes_missing_file_fails",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_upstream_bytes_allow_pending_passes_with_warning",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_main_strict_fails_on_byte_change",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_resigned_wrong_file_hash_fails_bytes"
+  ],
+  "resource": "cpu",
+  "mutants": ["M01", "M04S"],
+  "status": "verified"
+ },
+ {
+  "id": "C18-UPSTREAM-MANIFEST-SIGN",
+  "domain": "C18",
+  "source": "src/robomme_hard/UPSTREAM.json",
+  "symbol": "manifest_sha256 / load_manifest",
+  "oracle": "剔除 manifest_sha256 后 canonical JSON（sort_keys、紧凑分隔符）的 sha256",
+  "positive": "真实清单自签成立；src_commit 为 40 位",
+  "negative": "改任一值不重签 → manifest_tampered；重签但 src_commit 截短 → src_commit_not_40_hex",
+  "boundaries": "签名只防篡改，不替代逐文件比对（见 test_resigned_wrong_file_hash_fails_bytes）",
+  "nodeids": [
+   "tests/robomme_hard/static/test_copies_vs_upstream.py::test_manifest_self_signature_holds",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_manifest_tampered_fails",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_manifest_short_commit_fails_even_if_resigned"
+  ],
+  "resource": "cpu",
+  "mutants": [],
+  "status": "verified"
+ },
+ {
+  "id": "C18-ENTRY-SCRIPTS-UPSTREAM",
+  "domain": "C18",
+  "source": "scripts/parity/upstream_guard.py",
+  "symbol": "check_entry_scripts（scripts/{dataset_replay,evaluation,run_example}.py）",
+  "oracle": "git show 1fadc0ec:scripts/<名>.py 逐字节",
+  "positive": "真实三个入口 ENTRY_SCRIPTS=PASS，且测试独立逐字节复核",
+  "negative": "tmp 副本每个入口多一行 → <名>:changed；删入口 → missing；--allow-pending 不豁免入口差异",
+  "boundaries": "上游无此文件记 upstream_missing",
+  "nodeids": [
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_real_repo_entry_scripts_pass",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_entry_script_extra_line_fails",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_entry_script_missing_fails",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_main_allow_pending_does_not_excuse_entry_scripts"
+  ],
+  "resource": "cpu",
+  "mutants": ["M02"],
+  "status": "verified"
+ },
+ {
+  "id": "C18-VENDOR",
+  "domain": "C18",
+  "source": "scripts/parity/upstream_guard.py",
+  "symbol": "check_vendor（scripts/parity/official/scripts/data-generation/*）",
+  "oracle": "UPSTREAM.json vendor 段 sha256（来自官方编排 commit d53f21a7）",
+  "positive": "真实仓库 VENDOR_SAME=PASS",
+  "negative": "tmp 副本 generate_dataset.py 改 1 字节 → FAIL",
+  "boundaries": "",
+  "nodeids": [
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_real_repo_vendor_shims_imports_deps_pass",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_vendor_changed_fails"
+  ],
+  "resource": "cpu",
+  "mutants": [],
+  "status": "verified"
+ },
+ {
+  "id": "C01-SHIMS",
+  "domain": "C01",
+  "source": "src/robomme_hard/UPSTREAM.json; scripts/parity/upstream_guard.py",
+  "symbol": "shims[] / check_shims",
+  "oracle": "git 跟踪的 hard 包文件按内容反推三行 shim 形态（注释指向 UPSTREAM.json、import importlib, sys、sys.modules 别名），不用路径公式；目标文件 sha256 与字节数对 git 对象独立复算",
+  "positive": "由内容反推的 {shim 路径: 别名目标} = 清单登记；每个 shim 形态与目标成立；守卫 SHIMS=PASS",
+  "negative": "改错别名目标 → body；删 shim → missing；多 2 行代码 → FAIL；测试侧逐行形态断言对多 1 行也会失败",
+  "boundaries": "守卫判据是「非注释行 > 3」，现行 shim 2 行代码，只多 1 行时守卫放行（已报主会话，未改生产代码）",
+  "nodeids": [
+   "tests/robomme_hard/static/test_copies_vs_upstream.py::test_shim_registry_equals_shim_files_on_disk",
+   "tests/robomme_hard/static/test_copies_vs_upstream.py::test_shim_form_and_target",
+   "tests/robomme_hard/static/test_copies_vs_upstream.py::test_shim_alias_form_negatives",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_shim_wrong_target_fails",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_shim_extra_code_lines_fail",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_shim_missing_fails"
+  ],
+  "resource": "cpu",
+  "mutants": [],
+  "status": "verified"
+ },
+ {
+  "id": "C01-ABS-IMPORT",
+  "domain": "C01",
+  "source": "scripts/parity/upstream_guard.py",
+  "symbol": "check_abs_import",
+  "oracle": "hard 自有文件的相对导入落在包内；绝对 robomme.* 只许 shim 目标或 parents",
+  "positive": "真实仓库 ABS_IMPORT=PASS",
+  "negative": "tmp 副本自有文件加非法绝对导入 robomme...vqa_options、加悬空相对导入 → FAIL",
+  "boundaries": "",
+  "nodeids": [
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_real_repo_vendor_shims_imports_deps_pass",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_illegal_absolute_import_fails",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_unresolved_relative_import_fails"
+  ],
+  "resource": "cpu",
+  "mutants": [],
+  "status": "verified"
+ },
+ {
+  "id": "C01-BORROWED-DEPS",
+  "domain": "C01",
+  "source": "scripts/parity/upstream_guard.py",
+  "symbol": "check_borrowed_deps",
+  "oracle": "官方源码上求 shim 目标的传递闭包，不得含 hard 包复制件",
+  "positive": "真实仓库 BORROWED_DEPS=PASS",
+  "negative": "清单拿掉 robomme.logging_utils 的 shim（重签）→ FailAwareWrapper 闭包命中复制件 → FAIL",
+  "boundaries": "",
+  "nodeids": [
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_real_repo_vendor_shims_imports_deps_pass",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_borrowed_dep_copied_instead_of_shimmed_fails"
+  ],
+  "resource": "cpu",
+  "mutants": [],
+  "status": "verified"
+ },
+ {
+  "id": "C18-COPIES-WHITELIST",
+  "domain": "C18",
+  "source": "src/robomme_hard/env_record_wrapper/{RecordWrapper,OraclePlannerDemonstrationWrapper,DemonstrationWrapper}.py",
+  "symbol": "与 1fadc0ec:src/robomme/env_record_wrapper 同名文件的逐行差异",
+  "oracle": "白名单按行精确列出：RecordWrapper 差 fail_safe_limit 2000→5000（连同 1 行注释换 4 行注释）与 vqa_options 一行 import；OraclePlanner 差一行 import；DemonstrationWrapper 逐字节相同",
+  "positive": "三个复制件差异恰好等于白名单",
+  "negative": "5000 改回 2000、多一行注释 → 差异不等于白名单；同文件差异为空",
+  "boundaries": "注释也算差异，改注释须同步白名单",
+  "nodeids": [
+   "tests/robomme_hard/static/test_copies_vs_upstream.py::test_copy_differs_from_official_exactly_by_whitelist",
+   "tests/robomme_hard/static/test_copies_vs_upstream.py::test_line_diff_detects_reverted_limit_and_extra_comment"
+  ],
+  "resource": "cpu",
+  "mutants": ["M03"],
+  "status": "verified"
+ },
+ {
+  "id": "C18-EVAL-HARD-DIFF",
+  "domain": "C18",
+  "source": "scripts/evaluation_hard.py",
+  "symbol": "与 scripts/evaluation.py 的逐行差异；BenchmarkEnvBuilder(...) 的 dataset／max_steps 关键字",
+  "oracle": "恰好 3 个单行 hunk 加 TASKS 之前 1 个纯插入块：import 包名、dataset=DATASET、max_steps=DATASET_MAX_STEPS[DATASET]；后两处为 BenchmarkEnvBuilder 调用的关键字参数；插入块只含两个赋值 DATASET_MAX_STEPS={\"hard-verify\": 1300, \"ood\": 1600}、DATASET=\"ood\"（1006 改名计划 R1：示例两段）",
+  "positive": "真实入口满足",
+  "negative": "判定器：多一行、少一行、两行连块、两个插入块均判形态不合",
+  "boundaries": "本阶段 ood 配 1600（1800 由后续子任务改）",
+  "nodeids": [
+   "tests/robomme_hard/static/test_entry_scripts.py::test_evaluation_hard_diff_is_three_single_line_hunks_and_dataset_block",
+   "tests/robomme_hard/static/test_entry_scripts.py::test_single_line_hunks_negatives"
+  ],
+  "resource": "cpu",
+  "mutants": ["M02"],
+  "status": "verified"
+ },
+ {
+  "id": "C18-EVAL-HARD-MAX-STEPS",
+  "domain": "C18",
+  "source": "scripts/evaluation_hard.py",
+  "symbol": "BenchmarkEnvBuilder(max_steps=...)",
+  "oracle": "按档步数查表 TIER_MAX_STEPS 已删除（1003 评估计划 1.1，原 Q16 了结）：步数上限由入口按数据集给出，ood 为 1600、hard-verify 为 1300；evaluation_hard.py 的数据集选择块给出两个接口 hard-verify↔1300、ood↔1600（默认 ood），xhard0 的用法是把 DATASET 改成 \"hard-verify\"",
+  "positive": "",
+  "negative": "",
+  "boundaries": "本块只断言形态（见 C18-EVAL-HARD-DIFF），不读查表、不钉数值",
+  "nodeids": [],
+  "resource": "cpu",
+  "mutants": [],
+  "status": "conditional"
+ },
+ {
+  "id": "C18-ENTRY-SET",
+  "domain": "C18",
+  "source": "scripts/*.py",
+  "symbol": "顶层入口集合（AGENTS.md P1）",
+  "oracle": "{dataset_replay, evaluation, run_example, evaluation_hard}.py",
+  "positive": "glob 集合相等",
+  "negative": "",
+  "boundaries": "",
+  "nodeids": ["tests/robomme_hard/static/test_entry_scripts.py::test_scripts_top_level_has_exactly_four_entries"],
+  "resource": "cpu",
+  "mutants": [],
+  "status": "verified"
+ },
+ {
+  "id": "C18-NO-TESTS-IMPORT",
+  "domain": "C18",
+  "source": "scripts/**/*.py; challenge_interface/**/*.py",
+  "symbol": "import 语句（AST）",
+  "oracle": "不得出现 tests／tests.* 的 import、from-import、import_module、__import__ 字面值",
+  "positive": "全部生产文件为零命中",
+  "negative": "6 种指向 tests 的写法必须命中；testscenario、相对 .tests、字符串里的 import 不误报",
+  "boundaries": "动态拼接的模块名不在静态检查能力内",
+  "nodeids": [
+   "tests/robomme_hard/static/test_entry_scripts.py::test_production_code_does_not_import_tests",
+   "tests/robomme_hard/static/test_entry_scripts.py::test_imports_of_tests_catches",
+   "tests/robomme_hard/static/test_entry_scripts.py::test_imports_of_tests_ignores_non_tests"
+  ],
+  "resource": "cpu",
+  "mutants": [],
+  "status": "verified"
+ },
+ {
+  "id": "C18-EPISODE-LIMITS",
+  "domain": "C18",
+  "source": "scripts/run_example.py",
+  "symbol": "EPISODE_LIMITS / DatasetType / TaskID",
+  "oracle": "src/robomme/env_metadata/<split>/record_dataset_*_metadata.json 的 record_count 与 episode 编号",
+  "positive": "每个 split 的每个任务 record_count = 上限、episode 恰为 0..上限-1，任务集合 = TaskID 去 All",
+  "negative": "",
+  "boundaries": "",
+  "nodeids": ["tests/robomme_hard/static/test_entry_scripts.py::test_episode_limits_match_official_metadata"],
+  "resource": "cpu",
+  "mutants": [],
+  "status": "verified"
+ },
+ {
+  "id": "C18-WHEEL",
+  "domain": "C18",
+  "source": "pyproject.toml",
+  "symbol": "[tool.hatch.build.targets.wheel] packages；[project] name／version",
+  "oracle": "git ls-files src/robomme src/robomme_hard；源码树字节",
+  "positive": "离线构建 wheel、tmp uv 环境 --no-deps 非 editable 安装：wheel 文件集合 = 跟踪文件集合，安装后逐字节相同；dist-info 名称版本一致且非 editable；仓库外 cwd 导入落在 tmp site-packages",
+  "negative": "",
+  "boundaries": "依赖借当前解释器 site-packages 只读挂 PYTHONPATH；离线装不了记 skip「未验证」",
+  "nodeids": [
+   "tests/robomme_hard/static/test_package.py::test_wheel_contents_equal_tracked_sources",
+   "tests/robomme_hard/static/test_package.py::test_installed_files_byte_identical_to_source",
+   "tests/robomme_hard/static/test_package.py::test_dist_info_metadata_and_not_editable",
+   "tests/robomme_hard/static/test_package.py::test_import_resolves_to_tmp_env_outside_repo"
+  ],
+  "resource": "cpu,slow",
+  "mutants": [],
+  "status": "verified"
+ },
+ {
+  "id": "C13-OFFICIAL-NAMES",
+  "domain": "C13",
+  "source": [
+   "scripts/eval-official/official_defs.py"
+  ],
+  "symbol": "OFFICIAL_NAMES 残留检查：scripts/、src/robomme_hard/、tests/ 下 git 跟踪的活代码（冻结配置、vendored 官方源码、三个上游入口、包内规格、UPSTREAM.json、*.md 除外）",
+  "oracle": "1006 改名计划第一部分一、第二部分八.2：旧名写法由测试独立列出（mme 标签／标识符、MME 名／标识符、mmesg、mmevla、test-hard、TEST_HARD 常量、test_hard0）；豁免只有官方家族名形式、official_defs.py 的 LEGACY_NAMES 段、标注「历史目录名」或「历史数据键」的行、XHARD0_IN_TEST_HARD 系列、测试自身",
+  "positive": "真实仓库 OFFICIAL_NAMES=PASS files=<n> hits=0；别名表段在 official_defs.py 恰一对且别处没有",
+  "negative": "15 种旧写法逐条被抓；官方名、家族名、XHARD0_IN_TEST_HARD、test_hard_parity 一类测试名、标注行不误报；别名表段只在 official_defs.py 豁免",
+  "boundaries": "*.md 不扫（现行文档由主会话另改）；只看文本，不判语义",
+  "nodeids": [
+   "tests/robomme_hard/static/test_official_names.py::test_official_names_no_legacy_residue",
+   "tests/robomme_hard/static/test_official_names.py::test_alias_block_present_and_closed",
+   "tests/robomme_hard/static/test_official_names.py::test_scan_catches_legacy_spellings",
+   "tests/robomme_hard/static/test_official_names.py::test_scan_ignores_official_and_whitelisted",
+   "tests/robomme_hard/static/test_official_names.py::test_alias_block_whitelist_only_in_alias_file",
+   "tests/robomme_hard/static/test_official_names.py::test_verdict_line_format"
+  ],
+  "resource": "cpu",
+  "mutants": [],
+  "status": "verified"
+ }
+]

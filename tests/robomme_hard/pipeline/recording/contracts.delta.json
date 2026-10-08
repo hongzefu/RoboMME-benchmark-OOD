@@ -1,0 +1,496 @@
+[
+  {
+    "id": "C10.01",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "RobommeRecordWrapper.step/close",
+    "oracle": "手写 8 步事件表：图像按 step 序号编码、关节读数=动作前 7 维、分割方块中心手算 (14,24)、waypoint 由四元数手算 rpy",
+    "positive": "6 条记录逐键逐值：action_t 与 obs_after_t 同条；obs/action/info/setup 键集合精确",
+    "negative": "reset 帧与 2 个 NO RECORD 步不入记录；跨相位 waypoint 被丢弃；外层切到在线时缓存清空",
+    "boundaries": "首条记录不是边界（NO RECORD 步已消耗边界）；is_completed 只在 task_index≥任务数时为真",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_closed_loop_h5_matches_event_table"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "M14a",
+      "T5-K2",
+      "T5-K3"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C10.02",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "RobommeRecordWrapper.close",
+    "oracle": "录像器不写任何 h5 属性",
+    "positive": "根、episode、timestep 及各子组 attrs 全空",
+    "negative": "植入根属性必失败",
+    "boundaries": "—",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_root_and_group_attrs_are_empty"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "M14b"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C10.03",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "RobommeRecordWrapper.close",
+    "oracle": "joint_action 字节等于输入；eef_action 有限；waypoint 有限 7 维或整条 NaN 哨兵",
+    "positive": "6 条记录逐位相等",
+    "negative": "写入 NaN 动作必失败",
+    "boundaries": "float64 (8,)",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_recorded_actions_finite_and_bit_exact"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "M14c"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C10.04",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "RobommeRecordWrapper.step/close: episode_success",
+    "oracle": "7 个手写场景的 (terminated, truncated, success, task_index) 序列与是否写 h5",
+    "positive": "终止且成功、先失败后成功 → 写",
+    "negative": "终止失败、全完成未终止、截断成功、未终止成功、先成功后失败 → 不写；同号旧组被替换或删除",
+    "boundaries": "is_completed 与成功互不替代；包装器原样透传 terminated/truncated/info",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_success_signals_do_not_substitute",
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_failed_episode_removes_preexisting_group"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "T5-K5"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C10.05",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "RobommeRecordWrapper.step: fail_safe_limit",
+    "oracle": "二分法行为测得两类的安全上限；数值本身归常量层",
+    "positive": "hard 上限严格大于官方；越限首次抛 FailsafeTimeout",
+    "negative": "越限后 truncated=True、terminated=False、成功不写 h5；reset 后重新武装",
+    "boundaries": "上限前一步不抛",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_failsafe_threshold_differs_only_in_hard_copy",
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_failsafe_raises_once_then_truncates_and_drops_success"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "T5-K5"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C10.06",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "RobommeRecordWrapper._init_fk_planner/_joint_action_to_ee_pose_dict",
+    "oracle": "FK 替身返回手写位姿；夹爪正指令取指令值、负指令取与指令无关的固定开度（只断言性质）",
+    "positive": "FK 可用时 eef_action=[q0,q1,q2,0,0,0,g]",
+    "negative": "FK 初始化失败：继续录制，eef_action 恒 7 维零",
+    "boundaries": "—",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_fk_failure_path_keeps_recording",
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_fk_success_path_with_cpu_stub"
+    ],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "verified"
+  },
+  {
+    "id": "C10.07",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "RobommeRecordWrapper.reset",
+    "oracle": "两局事件表手写",
+    "positive": "reset 清空 waypoint 缓存与边界记忆",
+    "negative": "现状：reset 不清 buffer 与 episode_success（直接断言成功标志带入第二局），不 close 直接开下一局会混入上一局记录",
+    "boundaries": "—",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_reset_clears_waypoint_and_boundary_caches",
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_reset_without_close_keeps_buffer_and_success_flag"
+    ],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "verified"
+  },
+  {
+    "id": "C10.08",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "RobommeRecordWrapper.close（二次调用）",
+    "oracle": "现状记录",
+    "positive": "失败局二次 close 无害",
+    "negative": "成功局二次 close 抛 ValueError（不幂等），已写 h5 不变",
+    "boundaries": "—",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_second_close_after_failed_episode_is_noop",
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_second_close_after_success_raises_but_keeps_file"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "T5-K6"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C10.09",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "RobommeRecordWrapper.step: _video_should_record",
+    "oracle": "现状记录",
+    "positive": "save_video=True 时逐步记录",
+    "negative": "save_video=False 时成功局只剩 setup（录像开关与 H5 耦合）",
+    "boundaries": "—",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_save_video_false_records_no_timesteps"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "T5-K2"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C10.10",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "_video_prepare_step_frames/_video_apply_overlays/_video_append_step_frame",
+    "oracle": "64×64 合成帧；红点、红框手算；文字区只断言性质（行多更高、有最小高度）",
+    "positive": "合成 5 块拼接、分割上色、红点位置、演示红框",
+    "negative": "输入帧（即写进 h5 的原像素）逐字节不变；尺寸不一致按首帧归一",
+    "boundaries": "文字区存在最小高度；None 目标被滤掉",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_prepare_step_frames_leaves_inputs_untouched",
+      "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_apply_overlays_border_and_text",
+      "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_append_step_frame_normalizes_size",
+      "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_episode_video_frames_and_name"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "T5-K3"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C10.11",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "_video_flush_episode_files/_video_build_filename_parts/close 命名",
+    "oracle": "文件名手算（含清洗与 __ALT__ 拼接）",
+    "positive": "成功/success_NO_OBJECT_ 命名、FailRecover 后缀",
+    "negative": "FAILED_/FAILED_NO_OBJECT_；空帧与关录像不写；编码器抛错被吞且 h5 照写",
+    "boundaries": "目标为空时 no_goal",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_flush_names",
+      "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_flush_skips_when_empty_or_disabled",
+      "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_flush_swallows_encoder_failure",
+      "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_failed_episode_video_prefix_and_no_h5",
+      "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_fail_recover_suffix",
+      "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_no_object_video_when_target_missing",
+      "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_encoder_failure_does_not_block_h5"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "T5-K6"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C10.12",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "_video_write_mp4（libx264）",
+    "oracle": "读回帧数 = 非 NO RECORD 步数",
+    "positive": "真实编码读回 4 帧",
+    "negative": "缺 ffmpeg 时 skip 记「未验证」",
+    "boundaries": "—",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_real_mp4_roundtrip"
+    ],
+    "resource": "cpu+ffmpeg（slow）",
+    "mutants": [],
+    "status": "verified"
+  },
+  {
+    "id": "C10.13",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "两份 RobommeRecordWrapper 的差异白名单（行为面）",
+    "oracle": "同一事件表两类写出的 h5 树逐键逐值比",
+    "positive": "低于上限时 h5 完全相同；hard 的 close 读 robomme_hard 的 vqa_options",
+    "negative": "判定器负例：值不同、缺键、属性不同、dtype 不同各报差异",
+    "boundaries": "—",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_official_and_hard_record_identical_h5",
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_hard_copy_reads_its_own_vqa_options"
+    ],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "verified"
+  },
+  {
+    "id": "C10.14",
+    "domain": "C10",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme_hard/env_record_wrapper/RecordWrapper.py"
+    ],
+    "symbol": "RobommeRecordWrapper.__init__/close 动作形态",
+    "oracle": "手写输入",
+    "positive": "7 维动作补 -1；CPU Tensor 写成数组；.h5 路径推导输出目录",
+    "negative": "None 动作写字符串 \"None\"；损坏 h5 删除重建；缺 dataset 拒绝",
+    "boundaries": "—",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_seven_dim_action_padded_and_tensor_converted",
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_none_action_written_as_string_and_resolver_skips_it",
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_corrupted_h5_is_recreated",
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_dataset_path_forms"
+    ],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "verified"
+  },
+  {
+    "id": "C11.01",
+    "domain": "C11",
+    "source": [
+      "src/robomme/env_record_wrapper/episode_dataset_resolver.py",
+      "scripts/dataset_replay.py"
+    ],
+    "symbol": "EpisodeDatasetResolver.get_step 与 dataset_replay._build_action_sequence",
+    "oracle": "同一手写乱序 h5 夹具 + 手写期望序列",
+    "positive": "四种模式两侧都等于手写期望；回放统一 float32",
+    "negative": "演示步、NaN 哨兵、形状不对、坏 JSON、空白 choice、缺 point 全过滤；判定器负例",
+    "boundaries": "数字序（含 10/11）、缺号、相邻去重而非全局去重",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_resolver_and_replay_agree_with_handwritten",
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_same_sequence_judge_has_teeth",
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_replay_rejects_unknown_mode"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "T5-K1",
+      "T5-K4"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C11.02",
+    "domain": "C11",
+    "source": [
+      "src/robomme/env_record_wrapper/episode_dataset_resolver.py"
+    ],
+    "symbol": "EpisodeDatasetResolver/list_episode_indices",
+    "oracle": "手写",
+    "positive": "episode 编号列表、路径两种写法、返回副本",
+    "negative": "缺文件、缺 episode（抛前已关文件）、负下标、未知模式、越界",
+    "boundaries": "close 幂等",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_resolver_api_edges"
+    ],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "verified"
+  },
+  {
+    "id": "C11.03",
+    "domain": "C11",
+    "source": [
+      "src/robomme/env_record_wrapper/episode_dataset_resolver.py",
+      "scripts/dataset_replay.py"
+    ],
+    "symbol": "resolver 与回放的已知分歧（现状记录）",
+    "oracle": "手写最小 h5",
+    "positive": "—",
+    "negative": "缺 joint 字段、\"None\" 字符串、7 维、dup 键、float32 以下差异五处两侧不一致",
+    "boundaries": "录像器正常输出不触发前四处",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_divergence_missing_joint_field",
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_divergence_none_string_action",
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_divergence_seven_dim_joint",
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_divergence_duplicate_suffix_key",
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_divergence_sub_float32_waypoint_change"
+    ],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "verified"
+  },
+  {
+    "id": "C11.04",
+    "domain": "C11",
+    "source": [
+      "scripts/dataset_replay.py"
+    ],
+    "symbol": "dataset_replay.process_episode",
+    "oracle": "替身 builder/环境按脚本返回",
+    "positive": "动作顺序、builder 参数、reset 帧红框、终态标签 success/timeout",
+    "negative": "动作用完未终止、step 抛错 → unknown；现状：obs=None 的错误局标 unknown；close 抛错外冒且不存录像",
+    "boundaries": "multi_choice 传字典",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_process_episode_order_and_outcome",
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_process_episode_multi_choice_passes_dicts",
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_process_episode_close_error_propagates",
+      "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_replay_save_video_real"
+    ],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "verified"
+  },
+  {
+    "id": "C11.05",
+    "domain": "C11",
+    "source": [
+      "src/robomme/env_record_wrapper/RecordWrapper.py",
+      "src/robomme/env_record_wrapper/episode_dataset_resolver.py",
+      "scripts/dataset_replay.py"
+    ],
+    "symbol": "录制 → 读回贯通",
+    "oracle": "主事件表手算的四模式序列",
+    "positive": "真实写出的 h5 经 resolver 得到手算序列；回放与 resolver 逐项一致",
+    "negative": "丢字段植入必失败",
+    "boundaries": "—",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_resolver_reads_recorded_episode",
+      "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_replay_sequence_equals_resolver_on_recorded_episode"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "M14a"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C08.01",
+    "domain": "C08",
+    "source": [
+      "src/robomme/env_record_wrapper/DemonstrationWrapper.py",
+      "src/robomme_hard/env_record_wrapper/DemonstrationWrapper.py"
+    ],
+    "symbol": "DemonstrationWrapper._augment_obs_and_info",
+    "oracle": "替身观测手写；每个开关新增键手写",
+    "positive": "18 组（全关/全开/单开/单关）键集合、dtype、shape、值；256 全组合 slow",
+    "negative": "输入不被原地改写；maniskill_obs 为原对象",
+    "boundaries": "stick 任务夹爪恒 0",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_augment.py::test_include_switches_daily",
+      "tests/robomme_hard/pipeline/recording/test_recording_augment.py::test_include_switches_all",
+      "tests/robomme_hard/pipeline/recording/test_recording_augment.py::test_stick_env_gripper_zero"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "T5-K7"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C08.02",
+    "domain": "C08",
+    "source": [
+      "src/robomme/env_record_wrapper/EndeffectorDemonstrationWrapper.py",
+      "src/robomme/env_record_wrapper/MultiStepDemonstrationWrapper.py",
+      "src/robomme/env_record_wrapper/OraclePlannerDemonstrationWrapper.py"
+    ],
+    "symbol": "四个动作空间 wrapper 的 step",
+    "oracle": "—",
+    "positive": "—",
+    "negative": "—",
+    "boundaries": "—",
+    "nodeids": [],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "planned"
+  },
+  {
+    "id": "C09.01",
+    "domain": "C09",
+    "source": [
+      "src/robomme/env_record_wrapper/DemonstrationWrapper.py",
+      "src/robomme_hard/env_record_wrapper/DemonstrationWrapper.py"
+    ],
+    "symbol": "DemonstrationWrapper._filter_no_record_from_step_batch",
+    "oracle": "手写 4 步 batch",
+    "positive": "保序过滤 NO RECORD（含首尾空白）",
+    "negative": "全过滤/无过滤/空/长度不符/非张量 → 原样返回",
+    "boundaries": "非等长字段保留",
+    "nodeids": [
+      "tests/robomme_hard/pipeline/recording/test_recording_augment.py::test_no_record_filter_keeps_order",
+      "tests/robomme_hard/pipeline/recording/test_recording_augment.py::test_no_record_filter_returns_input_unchanged",
+      "tests/robomme_hard/pipeline/recording/test_recording_augment.py::test_no_record_filter_rejects_malformed"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "T5-K8"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C09.02",
+    "domain": "C09",
+    "source": [
+      "src/robomme/env_record_wrapper/DemonstrationWrapper.py",
+      "src/robomme/robomme_env/utils/planner_denseStep.py"
+    ],
+    "symbol": "DemonstrationWrapper.reset/step/get_demonstration_trajectory、planner_denseStep",
+    "oracle": "—",
+    "positive": "—",
+    "negative": "—",
+    "boundaries": "—",
+    "nodeids": [],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "planned"
+  }
+]

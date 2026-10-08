@@ -1,0 +1,42 @@
+[
+ {
+  "id": "M01",
+  "target": "src/robomme/robomme_env/BinFill.py",
+  "method": "进程内替换：pathlib.Path.read_bytes／read_text 读到该文件时把中间 1 字节异或 0x01，不落盘（受保护目录）",
+  "expect_fail": [
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_src_robomme_bytes_equal_official_blobs_independently",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_real_repo_upstream_bytes_pass",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_main_check_strict_by_default"
+  ],
+  "self_check": "2026-10-04 本机实测：恰好上列 3 个失败，其余 73 过"
+ },
+ {
+  "id": "M02",
+  "target": "scripts/evaluation.py",
+  "method": "进程内替换：读到该文件时末尾追加一行 \"# mutant extra line\"，不落盘（上游入口）",
+  "expect_fail": [
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_real_repo_entry_scripts_pass",
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_main_check_strict_by_default",
+   "tests/robomme_hard/static/test_entry_scripts.py::test_evaluation_hard_diff_is_three_single_line_hunks_and_dataset_block"
+  ],
+  "self_check": "2026-10-04 本机实测：恰好上列 3 个失败，其余 73 过"
+ },
+ {
+  "id": "M03",
+  "target": "src/robomme_hard/env_record_wrapper/RecordWrapper.py",
+  "method": "进程内替换：读到该文件时 fail_safe_limit = 5000 改回 2000，不落盘",
+  "expect_fail": [
+   "tests/robomme_hard/static/test_copies_vs_upstream.py::test_copy_differs_from_official_exactly_by_whitelist[env_record_wrapper/RecordWrapper.py]"
+  ],
+  "self_check": "2026-10-04 本机实测：恰好上列 1 个失败，其余 75 过"
+ },
+ {
+  "id": "M04S",
+  "target": "src/robomme/robomme_env/BinFill.py + src/robomme_hard/UPSTREAM.json",
+  "method": "进程内替换（不落盘）：BinFill.py 读到的中间 1 字节异或 0x01，同时 UPSTREAM.json 读到的内容把该文件 sha 改成篡改后字节的 sha256 并按 canonical 规则重签——模拟「清单手改重签 + src/robomme 同步改动」",
+  "expect_fail": [
+   "tests/robomme_hard/static/test_upstream_bytes.py::test_src_robomme_bytes_equal_official_blobs_independently"
+  ],
+  "self_check": "2026-10-04 本机实测：恰好上列 1 个失败，其余 75 过；守卫正例 test_real_repo_upstream_bytes_pass 在此植入下仍通过，只有独立用例挡住"
+ }
+]

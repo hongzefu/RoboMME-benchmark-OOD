@@ -1,0 +1,99 @@
+{
+  "note": "T5 录制与读回块的具名植入。全部为测试进程内、不落盘的补丁（src/robomme 受保护，R9）；预期失败的用例以函数级 nodeid 给出，参数化用例至少一个实例失败。",
+  "mutants": [
+    {
+      "id": "M14a",
+      "target": "src/robomme/env_record_wrapper/RecordWrapper.py::RobommeRecordWrapper.close",
+      "method": "进程内把 h5py.Group.create_dataset 换成跳过 is_subgoal_boundary 的版本（录制丢一个 h5 字段）",
+      "expect_fail": [
+        "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_closed_loop_h5_matches_event_table",
+        "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_resolver_reads_recorded_episode"
+      ]
+    },
+    {
+      "id": "M14b",
+      "target": "src/robomme/env_record_wrapper/RecordWrapper.py::RobommeRecordWrapper.close",
+      "method": "进程内包一层 close：调用原 close 前写 h5_file.attrs['mutant']=1（改根属性）",
+      "expect_fail": [
+        "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_root_and_group_attrs_are_empty"
+      ]
+    },
+    {
+      "id": "M14c",
+      "target": "src/robomme/env_record_wrapper/RecordWrapper.py::RobommeRecordWrapper.close",
+      "method": "进程内包一层 close：把 buffer[0] 的 joint_action 第 0 维改成 NaN（写入非有限动作）",
+      "expect_fail": [
+        "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_recorded_actions_finite_and_bit_exact",
+        "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_closed_loop_h5_matches_event_table"
+      ]
+    },
+    {
+      "id": "T5-K1",
+      "target": "src/robomme/env_record_wrapper/episode_dataset_resolver.py::EpisodeDatasetResolver._build_indexes",
+      "method": "进程内先把 _timestep_indexes 按字符串排序再建索引（字典序代替数字序）",
+      "expect_fail": [
+        "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_resolver_and_replay_agree_with_handwritten"
+      ]
+    },
+    {
+      "id": "T5-K2",
+      "target": "src/robomme/env_record_wrapper/RecordWrapper.py::RobommeRecordWrapper._video_should_record",
+      "method": "进程内改为只看 save_video（去掉 NO RECORD 过滤）",
+      "expect_fail": [
+        "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_closed_loop_h5_matches_event_table",
+        "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_episode_video_frames_and_name"
+      ]
+    },
+    {
+      "id": "T5-K3",
+      "target": "src/robomme/env_record_wrapper/RecordWrapper.py::RobommeRecordWrapper._video_prepare_step_frames",
+      "method": "进程内在调用前把底图 [0,0] 写成 255（overlay 原地污染 h5 像素）",
+      "expect_fail": [
+        "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_prepare_step_frames_leaves_inputs_untouched",
+        "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_closed_loop_h5_matches_event_table"
+      ]
+    },
+    {
+      "id": "T5-K4",
+      "target": "scripts/dataset_replay.py::_build_action_sequence",
+      "method": "进程内对 waypoint 序列做全局去重",
+      "expect_fail": [
+        "tests/robomme_hard/pipeline/recording/test_recording_replay_diff.py::test_resolver_and_replay_agree_with_handwritten"
+      ]
+    },
+    {
+      "id": "T5-K5",
+      "target": "src/robomme/env_record_wrapper/RecordWrapper.py::RobommeRecordWrapper.step",
+      "method": "进程内包一层 step：info.success 为真即置 episode_success=True（不看 terminated）",
+      "expect_fail": [
+        "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_success_signals_do_not_substitute",
+        "tests/robomme_hard/pipeline/recording/test_recording_closed_loop.py::test_failsafe_raises_once_then_truncates_and_drops_success"
+      ]
+    },
+    {
+      "id": "T5-K6",
+      "target": "src/robomme/env_record_wrapper/RecordWrapper.py::RobommeRecordWrapper._video_flush_episode_files",
+      "method": "进程内恒以 success=True 调原函数（失败局丢 FAILED_ 前缀）",
+      "expect_fail": [
+        "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_flush_names",
+        "tests/robomme_hard/pipeline/recording/test_recording_video.py::test_failed_episode_video_prefix_and_no_h5"
+      ]
+    },
+    {
+      "id": "T5-K7",
+      "target": "src/robomme/env_record_wrapper/DemonstrationWrapper.py::DemonstrationWrapper._augment_obs_and_info",
+      "method": "进程内包一层：返回前删掉 front_depth_list",
+      "expect_fail": [
+        "tests/robomme_hard/pipeline/recording/test_recording_augment.py::test_include_switches_daily"
+      ]
+    },
+    {
+      "id": "T5-K8",
+      "target": "src/robomme/env_record_wrapper/DemonstrationWrapper.py::DemonstrationWrapper._filter_no_record_from_step_batch",
+      "method": "进程内改为原样返回 batch",
+      "expect_fail": [
+        "tests/robomme_hard/pipeline/recording/test_recording_augment.py::test_no_record_filter_keeps_order"
+      ]
+    }
+  ]
+}
