@@ -1,7 +1,7 @@
 """L1 契约：``BenchmarkEnvBuilder(dataset="hard-verify")`` 只含 xhard0，且不读规格根；按档步数查表已删除。
 
 ``hard-verify``（1003 评估计划 1.1）＝官方 test 元数据里每任务 ``difficulty=="hard"`` 的 12 局（原 episode
-3, 7, …, 47），按原 episode 升序编为 episode 0..11；与开关 ``XHARD0_IN_TEST_HARD`` 无关。
+3, 7, …, 47），按原 episode 升序编为 episode 0..11（xhard0 开关 ``XHARD0_IN_TEST_HARD`` 已随 H1 裁剪删除）。
 
 手段同 ``test_builder_800.py``：把 ``gym.make`` 换成「记录参数后抛哨兵异常」的替身，逐局调真实的
 ``make_env_for_episode``，不起任何仿真。期望值一律来自手写钉值（``test_constants``）与标准库 json 直接读官方
@@ -10,7 +10,7 @@ test 元数据，不读被测代码。规格读取函数全部打桩为「调用
 - 16 任务 × 12 局 = 192，逐局 kwargs 恰为 runtime 四项 + 官方 seed + ``difficulty="hard"``；
 - ``resolve_identity`` 字段集合与取值（无 candidate／规格摘要、不带 ``specs_root``）；
 - 官方 hard 子集被破坏（少一局、多一局、seed 重复）时构造即报错；
-- ``specs_root`` 被拒；
+- 构造函数没有 ``specs_root`` 形参，传入即 ``TypeError``；
 - 全仓 ``src/``、``scripts/``、``tests/`` 的 .py 里不再引用 ``TIER_MAX_STEPS``（S2 待清理名单除外，见下）。
 """
 from __future__ import annotations
@@ -42,8 +42,7 @@ SPEC_READERS = (
     ("hard_specs", "load_specs_root"),
     ("hard_specs", "specs_root"),
     ("hard_specs", "packaged_specs_path"),
-    ("hard_builder", "_root_specs"),
-    ("hard_builder", "_override_cells"),
+    ("hard_builder", "_packaged_specs"),
     ("hard_builder", "_ood_entries"),
 )
 
@@ -68,7 +67,7 @@ def recorder(monkeypatch):
 
 @pytest.fixture
 def spec_reads(monkeypatch, tmp_path):
-    """把规格读取入口全部换成「计数后抛错」的桩，并把规格根环境变量指向不存在的目录；返回调用记录。"""
+    """把规格读取入口全部换成「计数后抛错」的桩；返回调用记录。"""
     from robomme_hard.env_record_wrapper import hard_builder, hard_specs
 
     modules = {"hard_specs": hard_specs, "hard_builder": hard_builder}
@@ -79,7 +78,6 @@ def spec_reads(monkeypatch, tmp_path):
             raise AssertionError(f"hard-verify 不应读规格：调用了 {_name}")
 
         monkeypatch.setattr(modules[module_name], attr, boom)
-    monkeypatch.setenv(hard_specs.SPECS_ROOT_ENV, str(tmp_path / "no-such-specs-root"))
     return reads
 
 
@@ -103,12 +101,8 @@ def capture(builder, episode: int, calls: list) -> tuple[tuple, dict]:
     return calls[-1]
 
 
-@pytest.mark.parametrize("switch", [False, True], ids=["switch-off", "switch-on"])
-def test_hard_verify_every_episode(recorder, spec_reads, monkeypatch, switch):
-    """16 任务逐局 gym.make 参数与身份；开关 XHARD0_IN_TEST_HARD 开或关结果相同；全程不读规格。"""
-    from robomme_hard.env_record_wrapper import hard_specs
-
-    monkeypatch.setattr(hard_specs, "XHARD0_IN_TEST_HARD", switch)
+def test_hard_verify_every_episode(recorder, spec_reads):
+    """16 任务逐局 gym.make 参数与身份；全程不读规格。"""
     total = 0
     tasks = 0
     for task in TASKS:
@@ -134,14 +128,13 @@ def test_hard_verify_every_episode(recorder, spec_reads, monkeypatch, switch):
         tasks += 1
     assert spec_reads == []
     assert (tasks, total) == (N_TASKS_HARD0, TOTAL_HARD0)
-    if switch:  # 两种开关各跑一遍；只在最后一遍打印判定行
-        print(f"HARD0_INTERFACE=PASS tasks={tasks} per_task={XHARD0_PER_TASK} total={total} specs_reads={len(spec_reads)}")
+    print(f"HARD0_INTERFACE=PASS tasks={tasks} per_task={XHARD0_PER_TASK} total={total} specs_reads={len(spec_reads)}")
 
 
 def test_hard_verify_rejects_specs_root(spec_reads, tmp_path):
     cls = builder_cls()
     for root in (tmp_path, str(tmp_path), REPO / "src" / "robomme_hard" / "env_metadata" / "ood"):
-        with pytest.raises(ValueError, match="specs_root"):
+        with pytest.raises(TypeError, match="specs_root"):
             cls(env_id="StopCube", dataset="hard-verify", specs_root=root)
     with pytest.raises(ValueError):
         cls(env_id="StopCube", dataset="hard-verify", override_metadata_path=tmp_path)

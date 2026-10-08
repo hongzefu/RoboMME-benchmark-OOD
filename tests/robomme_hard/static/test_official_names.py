@@ -8,12 +8,13 @@ GroundSG 的 ``groundsg``、数据集接口 ``hard-verify``（原第二阶段接
 
 - 官方家族名形式：``mme-vla``、``mme_vla``、``MME-VLA``、``MME_VLA``、上游类名前缀 ``MMEVLAWebsocket``、``mme_vla_suite``
   （正则本身不匹配这些写法）；
-- 别名表本身：``scripts/eval-official/official_defs.py`` 里 ``# >>> LEGACY_NAMES`` 与 ``# <<< LEGACY_NAMES`` 之间的行；
+- 别名表本身：``tests/robomme_hard/contract/test_constants.py`` 里 ``# >>> LEGACY_NAMES`` 与 ``# <<< LEGACY_NAMES`` 之间的行
+  （本仓只剩构建器必须拒绝的两个旧数据集名；评估侧别名表 ``official_defs.py`` 随私有评估仓）；
 - 标注「历史目录名」（磁盘／NFS 真实路径）或「历史数据键」（已发布数据文件里的键）的行；
-- ``XHARD0_IN_TEST_HARD`` 系列（与冻结配置互相引用，正则不匹配）；
+- ``XHARD0_IN_TEST_HARD`` 系列（已删除符号的负例断言里仍会写到，正则不匹配）；
 - 本文件自身。
 
-不扫：冻结配置 ``scripts/configs/``、vendored 官方源码 ``scripts/parity/official/``、三个上游原样入口、包内规格数据
+不扫：三个上游原样入口、包内规格数据
 ``src/robomme_hard/env_metadata/``、上游字节清单 ``UPSTREAM.json``、说明文档 ``*.md``（现行文档由主会话另改）。
 
 判定行：``OFFICIAL_NAMES=PASS|FAIL files=<n> hits=<n>``，失败时逐条列出 ``<路径>:<行号>: <命中>``。
@@ -29,11 +30,11 @@ import pytest
 from tests.robomme_hard._support.loaders import REPO
 
 ROOTS = ("scripts", "src/robomme_hard", "tests")
-SKIP_PREFIX = ("scripts/configs/", "scripts/parity/official/", "src/robomme_hard/env_metadata/")
+SKIP_PREFIX = ("src/robomme_hard/env_metadata/",)
 SKIP_FILES = {"scripts/dataset_replay.py", "scripts/evaluation.py", "scripts/run_example.py",
               "src/robomme_hard/UPSTREAM.json", "tests/robomme_hard/static/test_official_names.py"}
 SKIP_SUFFIX = (".md", ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".mkv", ".npz", ".h5", ".pkl", ".ico", ".woff", ".woff2")
-ALIAS_FILE = "scripts/eval-official/official_defs.py"
+ALIAS_FILE = "tests/robomme_hard/contract/test_constants.py"
 ALIAS_BEGIN, ALIAS_END = "# >>> LEGACY_NAMES", "# <<< LEGACY_NAMES"
 LINE_MARKERS = ("历史目录名", "历史数据键")
 
@@ -115,7 +116,7 @@ def test_official_names_no_legacy_residue():
 
 
 def test_alias_block_present_and_closed():
-    """别名表段必须存在、成对、且只在 official_defs.py 里出现（全仓别名表只此一份）。"""
+    """别名表段必须存在、成对、且只在 test_constants.py 里出现（全仓别名表只此一份）。"""
     text = (REPO / ALIAS_FILE).read_text(encoding="utf-8")
     assert text.count(ALIAS_BEGIN) == 1 and text.count(ALIAS_END) == 1
     assert text.index(ALIAS_BEGIN) < text.index(ALIAS_END)

@@ -1,11 +1,12 @@
-"""L1 契约：唯一一份 V9 档位取值表（v8 方案第一部分表 1，V9 沿用），同时对三处核对：
+"""L1 契约：唯一一份 V9 档位取值表（v8 方案第一部分表 1，V9 沿用），对两处核对：
 
 1. 进程内各任务 ``native_blocks(cls)`` 给出的 ``decision``（按档位的新值取值）；
-2. 包内各档 header 的 ``sampling_config[task]``（逐字等于 1 的 ``{"decision", "native"}``，并按表取值）；
-3. 包内逐行规格：交付行 ``spec`` 里本局的实际取值（经生产读取函数 ``hard_regression.tier_dims``）。
+2. 包内各档 header 的 ``sampling_config[task]``（逐字等于 1 的 ``{"decision", "native"}``，并按表取值）。
 
+逐行规格实际取值的核对依赖 ``scripts/parity/hard_regression.py`` 的 ``tier_dims``，该工具与其断言随私有评估仓，
+本仓不测。
 表里定值写成整数，区间写成 ``(lo, hi)`` 闭区间（RouteStick 的段数、PatternLock 的节点数）。
-MoveCube、InsertPeg 不计取值维度（MoveCube 的区域与运动方式由 ``test_regression_on_packaged`` 的 movecube-layout 守）。
+MoveCube、InsertPeg 不计取值维度。
 本表是测试侧独立写下的期望，不读 ``hard_regression.V8_TIER_TABLE``。
 """
 from __future__ import annotations
@@ -15,7 +16,7 @@ import json
 
 import pytest
 
-from tests.robomme_hard._support.loaders import REPO, load_script
+from tests.robomme_hard._support.loaders import REPO
 from tests.robomme_hard.contract.test_constants import NEW_TIERS, V9_CELLS, XHARD4_ONLY
 
 ROOT = REPO / "src" / "robomme_hard" / "env_metadata" / "ood"
@@ -126,53 +127,6 @@ def test_header_sampling_config_equals_native_blocks_and_table(tier):
         assert header["sampling_config"][task] == {"decision": decision, "native": native}, task
         if task in TABLE:
             assert DECISION_READERS[task](header["sampling_config"][task]["decision"], tier) == TABLE[task][tier]
-
-
-def value_ok(got, want) -> bool:
-    if isinstance(want, tuple):
-        return isinstance(got, int) and want[0] <= got <= want[1]
-    return got == want
-
-
-def row_mismatches(rows, tier: str, tier_dims) -> list[str]:
-    """交付行逐局实际取值与表比；返回不符清单。"""
-    out = []
-    for row in rows:
-        if row["task"] not in TABLE or not (row["selected"] and (row["rollout"] or {}).get("status") == "ok"):
-            continue
-        got = tier_dims(row["task"], row["spec"])
-        want = TABLE[row["task"]][tier]
-        wrong = {dim: (got.get(dim), value) for dim, value in want.items() if not value_ok(got.get(dim), value)}
-        if wrong or set(got) != set(want):
-            out.append(f"{row['task']}/{tier}#{row['candidate']}:{wrong}")
-    return out
-
-
-@pytest.fixture(scope="module")
-def tier_dims():
-    return load_script("parity/hard_regression.py").tier_dims
-
-
-@pytest.mark.parametrize("tier", NEW_TIERS)
-def test_packaged_rows_match_table(tier, tier_dims):
-    lines = (ROOT / tier / "specs.jsonl").read_text(encoding="utf-8").splitlines()
-    rows = [json.loads(line) for line in lines[1:] if line.strip()]
-    assert row_mismatches(rows, tier, tier_dims) == []
-    checked = {(r["task"], tier) for r in rows if r["task"] in TABLE and r["selected"]}
-    assert checked == {key for key in VALUED_CELLS if key[1] == tier}
-
-
-def test_row_mismatches_negative(tier_dims):
-    """判定器负例：把一局 PickXtimes 的次数改成表外值、RouteStick 段数改出区间，都被抓到。"""
-    lines = (ROOT / "xhard1" / "specs.jsonl").read_text(encoding="utf-8").splitlines()
-    rows = [json.loads(line) for line in lines[1:]]
-    pick = next(r for r in rows if r["task"] == "PickXtimes" and r["selected"])
-    route = next(r for r in rows if r["task"] == "RouteStick" and r["selected"])
-    pick, route = _norm(pick), _norm(route)
-    assert row_mismatches([pick, route], "xhard1", tier_dims) == []
-    pick["spec"]["objects"]["num_repeats"] = TABLE["PickXtimes"]["xhard1"]["times"] + 1
-    route["spec"]["objects"]["L"] = TABLE["RouteStick"]["xhard1"]["segments"][1] + 1
-    assert len(row_mismatches([pick, route], "xhard1", tier_dims)) == 2
 
 
 def test_decision_reader_negative():

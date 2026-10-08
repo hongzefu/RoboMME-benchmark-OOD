@@ -4,7 +4,7 @@
 - 逐份 ``load_specs``、整根 ``load_specs_root`` 通过；
 - 逐行：``spec.task == row.task``，``spec.identity`` 的 task／seed／difficulty／episode 与行一致，
   header ``sampling_config`` 键集合等于 ``tasks``，带 ``exec_steps`` 的行不超过执行步上限；
-- 全部 1518 行 seed 全局唯一，且与官方元数据（train／val／test 与 hard 包 train）的 seed 不相交。
+- 全部 1518 行 seed 全局唯一，且与官方元数据（train／val／test）的 seed 不相交（hard 包已不带 train 元数据）。
 
 规格行用标准库 json 直接读（不经被测的读取函数），被测函数只在「通过校验」的用例里调用。
 """
@@ -32,7 +32,6 @@ from tests.robomme_hard.contract.test_constants import (
 ROOT = REPO / "src" / "robomme_hard" / "env_metadata" / "ood"
 PIN = Path(__file__).with_name("packaged_specs.sha256")
 OFFICIAL_META = REPO / "src" / "robomme" / "env_metadata"
-HARD_META = REPO / "src" / "robomme_hard" / "env_metadata" / "train"
 
 
 def read_pins(path: Path = PIN) -> dict[str, str]:
@@ -193,7 +192,7 @@ def test_row_problems_negative(raw):
 
 def official_seeds() -> set[int]:
     seeds = set()
-    for path in sorted(OFFICIAL_META.rglob("*.json")) + sorted(HARD_META.glob("*.json")):
+    for path in sorted(OFFICIAL_META.rglob("*.json")):
         for record in json.loads(path.read_text(encoding="utf-8"))["records"]:
             seeds.add(int(record["seed"]))
     return seeds

@@ -12,7 +12,8 @@
 
 格的枚举与清理前同口径扫描 ``docs/validation/test-redesign-20261003/records/reset_sweep.py`` 相同：
 遍历 ``BenchmarkEnvBuilder.get_task_list()``；xhard0 取官方 ``test`` 集里 hard 子集的首局
-（``hard_specs.XHARD0_EPISODES[0]``）；新值档按 ``dataset="ood"`` 的 episode 顺序取每档首局。
+（``hard_specs.XHARD0_EPISODES[0]``，即 ``dataset="hard-verify"`` 的 episode 0；本仓构建器不再接受 ``dataset="test"``）；
+新值档按 ``dataset="ood"`` 的 episode 顺序取每档首局。
 收集阶段只做 CPU 上的元数据／规格读取，不构建场景、不初始化 GPU；单进程顺序跑，每格结束 ``env.close()``。
 
 每格断言（逐项对照该扫描的实测记录 ``reset-sweep.jsonl``，59 格全部 ok）：
@@ -70,13 +71,13 @@ def _enumerate_cells() -> list[tuple[str, str, int, str]]:
     """与 reset_sweep.py 同口径枚举 (任务, dataset, episode, 档)；只读元数据与规格，不建场景。"""
     cells: list[tuple[str, str, int, str]] = []
     for task in BenchmarkEnvBuilder.get_task_list():
-        cells.append((task, "test", hard_specs.XHARD0_EPISODES[0], hard_specs.XHARD0))
+        cells.append((task, "hard-verify", 0, hard_specs.XHARD0))  # hard-verify 第 0 局 = 原 episode XHARD0_EPISODES[0]
         builder = BenchmarkEnvBuilder(env_id=task, dataset="ood", action_space="joint_angle")
         seen: set[str] = set()
         for episode in range(builder.get_episode_num()):
             tier = builder.resolve_episode(episode)[1]
             if tier == hard_specs.XHARD0 or tier in seen:
-                continue  # xhard0 统一取官方 test 集（开关 XHARD0_IN_TEST_HARD 打开时也不重复）
+                continue  # 防御：ood 不含 xhard0，xhard0 统一由上面的 hard-verify 格覆盖
             seen.add(tier)
             cells.append((task, "ood", episode, tier))
     return cells
@@ -125,8 +126,10 @@ def test_reset_cell(task: str, dataset: str, episode: int, tier: str) -> None:
         max_steps=1300 if tier == hard_specs.XHARD0 else 1600,  # xhard0 取官方默认 1300，新值档取 EXEC_CAP 1600
     )
     if tier == hard_specs.XHARD0:
-        expected_seed, expected_difficulty = builder.resolve_episode(episode)
-        assert expected_difficulty == "hard"
+        expected_seed, resolved_tier = builder.resolve_episode(episode)
+        assert resolved_tier == hard_specs.XHARD0
+        assert builder.resolve_identity(episode)["source_episode"] == hard_specs.XHARD0_EPISODES[0]
+        expected_difficulty = "hard"  # xhard0 走官方原生 hard 分支：gym.make 收到 difficulty="hard"
         row = None
     else:
         identity = builder.resolve_identity(episode)

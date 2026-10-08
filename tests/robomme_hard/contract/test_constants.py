@@ -6,8 +6,12 @@
 几类读不到模块级常量的值（挑战接口的重试间隔、录像器的函数局部阈值）用最小行为探针测出数值后再与钉值比，
 探针方法写在各用例的 docstring 里。
 
-按档步数查表 ``TIER_MAX_STEPS`` 已删除（1003 评估计划 1.1，原 Q16 随之了结）：评估步数上限由入口按数据集传
-``max_steps``（``ood`` 1600、``hard-verify`` 1300），本文件只钉生成侧的 ``EXEC_CAP``，并断言查表不再存在。
+按档步数查表 ``TIER_MAX_STEPS`` 已删除（1003 评估计划 1.1，原 Q16 随之了结）：评估步数上限由入口
+``scripts/evaluation_ood.py`` 按数据集传 ``max_steps``（``ood`` 1800、``hard-verify`` 1300，钉值见
+``DATASET_MAX_STEPS``），本文件另钉交付侧的 ``EXEC_CAP``（1600），并断言查表不再存在。
+
+本仓只保留评估侧：xhard0 开关 ``XHARD0_IN_TEST_HARD``、规格根环境变量 ``SPECS_ROOT_ENV``、hard 包 train 元数据与
+生成侧冻结口径（``_freeze``）都已删除，相应钉值随之删去；``test_no_generation_switches`` 断言它们不再存在。
 """
 from __future__ import annotations
 
@@ -21,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from tests.robomme_hard._support.loaders import REPO, load_script
+from tests.robomme_hard._support.loaders import REPO
 
 # =============================================================================
 # 钉值（全套件唯一一处业务常量字面值）
@@ -67,10 +71,13 @@ TOTAL = 800
 #: xhard0 每任务 12 局（官方 test 的 hard 子集，原 episode 3,7,…,47）
 XHARD0_PER_TASK = 12
 XHARD0_EPISODES = (3, 7, 11, 15, 19, 23, 27, 31, 35, 39, 43, 47)
-#: 开关 ROBOMME_HARD_XHARD0_IN_TEST_HARD=1：800 + 16 任务 × 12 局
-TOTAL_WITH_XHARD0 = 992
-PER_TASK_WITH_XHARD0 = 62
-XHARD0_SWITCH_ENV = "ROBOMME_HARD_XHARD0_IN_TEST_HARD"
+#: hard-verify：16 任务 × 12 局
+TOTAL_HARD_VERIFY = 192
+#: 本构建器只认这两个数据集，缺省 ood
+DATASETS = ("hard-verify", "ood")
+DEFAULT_DATASET = "ood"
+#: 评估入口 ``scripts/evaluation_ood.py`` 按数据集传的步数上限
+DATASET_MAX_STEPS = {"hard-verify": 1300, "ood": 1800}
 #: 执行步上限（生成侧抽样与交付的上限）
 EXEC_CAP = 1600
 #: 规格回放时记录点（``source="record"``）GPU 生成与 CPU 离线的浮点容差：≤ 此值计 recorded_drift（U-13 方案甲）
@@ -102,30 +109,20 @@ PACKAGED_ROWS_TOTAL = 1518
 PACKAGED_SELECTED = {"xhard1": 272, "xhard2": 272, "xhard3": 92, "xhard4": 144, "xhard5": 20}
 #: 包内规格结果段里 error_type == exec_over_cap 的行数（实测 0）
 PACKAGED_EXEC_OVER_CAP = 0
-#: 固定检查集：V9 43 格 × 3 = 129；xhard0 16 任务 × 1 档 × 3 = 48
-GATE_V9_PER_CELL = 3
-GATE_V9_TOTAL = 129
-GATE_V9_SCHEMA = "gate-set-v9/2"
-GATE_X0_PER_TASK = 3
-GATE_X0_TOTAL = 48
-GATE_X0_SCHEMA = "gate-set-xhard0/1"
-#: MoveCube xhard4 50 局 × 2 段 × 3 物体 = 300 点；运动方式 0/1/2 配额 17/17/16
-MOVECUBE_POINTS = 300
-MOVECUBE_WAYS = {0: 17, 1: 17, 2: 16}
-#: 规格冻结（``scripts/injection-dev/_freeze.py``）的 V9 口径：MoveCube xhard4 候选 80、逐方式配额同 MOVECUBE_WAYS；
-#: v8 抽签接受率表、未列任务的默认接受率与 reset 安全系数；v8 默认候选表合计
-FREEZE_V9_CANDIDATES = {("MoveCube", "xhard4"): 80}
-FREEZE_V8_DRAW_ACCEPT = {"VideoPlaceButton": 0.46, "VideoPlaceOrder": 0.47, "VideoRepick": 0.54,
-                         "ButtonUnmaskSwap": 0.57, "PickHighlight": 0.65, "SwingXtimes": 0.97}
-FREEZE_V8_DRAW_ACCEPT_DEFAULT = 0.97
-FREEZE_V8_RESET_SAFETY = 1.5
-FREEZE_V8_CANDIDATES_TOTAL = 1425
 #: 官方元数据：每 split 16 个文件、每文件局数
 OFFICIAL_SPLIT_FILES = 16
 OFFICIAL_SPLIT_EPISODES = {"train": 100, "val": 50, "test": 50}
-#: hard 包四个 Unmask 任务的 train 元数据各 400 条
-HARD_TRAIN_TASKS = ("ButtonUnmask", "ButtonUnmaskSwap", "VideoUnmask", "VideoUnmaskSwap")
-HARD_TRAIN_EPISODES = 400
+#: 本仓已删除、不得再出现的生成侧／开关符号：(模块, 名字)
+REMOVED_SYMBOLS = (
+    ("hard_specs", "XHARD0_IN_TEST_HARD"), ("hard_specs", "xhard0_prefix"), ("hard_specs", "SPECS_ROOT_ENV"),
+    ("hard_builder", "HARD_TRAIN_TASKS"), ("hard_builder", "HARD_METADATA_ROOT"), ("hard_builder", "_HARD_DATASETS"),
+    ("hard_builder", "_ALLOWED_ACTION_SPACES"), ("hard_builder", "_override_cells"), ("hard_builder", "_root_specs"),
+)
+#: 数据集接口改名前的旧名（1006 改名计划 R1；构建器必须拒绝）。全仓旧名别名表只此一段，
+#: ``tests/robomme_hard/static/test_official_names.py`` 对段内豁免、段外照抓。
+# >>> LEGACY_NAMES
+LEGACY_DATASET_NAMES = ("test-hard0", "test-hard")
+# <<< LEGACY_NAMES
 #: 挑战接口
 CHALLENGE_MAX_STEPS_DEFAULT = 1500
 CHALLENGE_ACTION_SHAPES = {"joint_angle": (8,), "ee_pose": (7,), "waypoint": (7,)}
@@ -150,19 +147,6 @@ def hard_specs():
     from robomme_hard.env_record_wrapper import hard_specs as hs
 
     return hs
-
-
-def fresh_hard_specs(monkeypatch, switch: str | None):
-    """按文件路径另执行一份 hard_specs（不登记进 sys.modules），用于观察导入时读环境变量的开关。"""
-    if switch is None:
-        monkeypatch.delenv(XHARD0_SWITCH_ENV, raising=False)
-    else:
-        monkeypatch.setenv(XHARD0_SWITCH_ENV, switch)
-    path = REPO / "src" / "robomme_hard" / "env_record_wrapper" / "hard_specs.py"
-    spec = importlib.util.spec_from_file_location("_contract_fresh_hard_specs", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def recording_fakes():
@@ -202,18 +186,20 @@ def test_v9_cell_count_per_task_and_total():
     assert hs.V9_PER_TASK == PER_TASK
 
 
-def test_xhard0_switch_default_off_and_prefix(monkeypatch):
-    """导入时读开关：未设或设 0 → 关、前置 0 局；设 1 → 开、前置 12 局。当前进程的 hard_specs 默认关。"""
-    assert hard_specs().XHARD0_IN_TEST_HARD is False
-    off = fresh_hard_specs(monkeypatch, None)
-    assert off.XHARD0_IN_TEST_HARD is False and off.xhard0_prefix() == 0
-    zero = fresh_hard_specs(monkeypatch, "0")
-    assert zero.XHARD0_IN_TEST_HARD is False and zero.xhard0_prefix() == 0
-    on = fresh_hard_specs(monkeypatch, "1")
-    assert on.XHARD0_IN_TEST_HARD is True and on.xhard0_prefix() == XHARD0_PER_TASK
-    # 开关打开时每任务 12 + 50，16 任务合计 992（builder 实际局数在 test_builder_800 里逐任务核对）
-    assert on.xhard0_prefix() + PER_TASK == PER_TASK_WITH_XHARD0
-    assert N_TASKS * PER_TASK_WITH_XHARD0 == TOTAL_WITH_XHARD0
+def test_no_generation_switches():
+    """xhard0 开关、规格根环境变量、hard 包 train 元数据与生成侧入口都已删除：模块不再导出这些符号，
+    ``env_metadata`` 下只有 ``ood``；hard-verify 局数 16 × 12 = 192、ood 16 × 50 = 800。"""
+    from robomme_hard.env_record_wrapper import hard_builder
+
+    modules = {"hard_specs": hard_specs(), "hard_builder": hard_builder}
+    present = [f"{m}.{name}" for m, name in REMOVED_SYMBOLS if hasattr(modules[m], name)]
+    assert present == []
+    meta = REPO / "src" / "robomme_hard" / "env_metadata"
+    assert sorted(p.name for p in meta.iterdir() if p.is_dir()) == ["ood"]
+    assert N_TASKS * XHARD0_PER_TASK == TOTAL_HARD_VERIFY
+    assert N_TASKS * PER_TASK == TOTAL
+    assert hard_builder.OOD == DEFAULT_DATASET
+    assert set(hard_builder._ALLOWED_DATASETS) == set(DATASETS)
 
 
 def test_xhard0_constants():
@@ -304,8 +290,6 @@ def test_task_list_everywhere_equal():
     assert tuple(hs.ALL_TASKS) == TASKS
     assert tuple(Official.get_task_list()) == TASKS
     assert tuple(Hard.get_task_list()) == TASKS
-    seed_layout = load_script("injection-dev/seed_layout.py")
-    assert tuple(seed_layout.ALL_TASKS) == TASKS
 
 
 def test_registered_ids_equal_task_set():
@@ -478,23 +462,6 @@ def test_fail_safe_limit(kind, tmp_path):
     limit = RECORD_FAIL_SAFE_LIMIT[kind]
     assert _failsafe_raises(kind, tmp_path, limit - 1) is False
     assert _failsafe_raises(kind, tmp_path, limit) is True
-
-
-# =============================================================================
-# 规格冻结的 V9 口径（_freeze 模块常量）
-# =============================================================================
-
-
-def test_freeze_v9_constants():
-    """``_freeze`` 的 V9 冻结口径逐项等于钉值：MoveCube xhard4 逐方式配额 17／17／16、候选 80，
-    v8 抽签接受率表、默认接受率 0.97、reset 安全系数 1.5，以及 v8 默认候选表合计 1425。"""
-    fz = load_script("injection-dev/_freeze.py")
-    assert fz.V9_MOVECUBE_QUOTA_BY_WAY == MOVECUBE_WAYS
-    assert fz.V9_CANDIDATES == FREEZE_V9_CANDIDATES
-    assert fz.V8_DRAW_ACCEPT == FREEZE_V8_DRAW_ACCEPT
-    assert fz.V8_DRAW_ACCEPT_DEFAULT == FREEZE_V8_DRAW_ACCEPT_DEFAULT
-    assert fz.V8_RESET_SAFETY == FREEZE_V8_RESET_SAFETY
-    assert sum(fz.V8_DEFAULT_CANDIDATES.values()) == FREEZE_V8_CANDIDATES_TOTAL
 
 
 # =============================================================================
