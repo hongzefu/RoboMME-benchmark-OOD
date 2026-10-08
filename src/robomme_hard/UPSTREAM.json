@@ -1,7 +1,5 @@
 {
- "manifest_sha256": "b3c9a2d0d2721489e096f2b50eb2c110649d8da566963c4beb1c349c38b641f4",
- "orchestration_commit": "d53f21a7947d2d8daf6e3e8bad9f59b4f89a77fa",
- "orchestration_tree": "1d4c13697f0c5fbd7a8b05e01c196c984a07406c",
+ "manifest_sha256": "b5062e8021678a20737e6f92861b4cdeb5a468af534da4d11994da294cfa7b1b",
  "parents": [
   "robomme.env_record_wrapper.episode_config_resolver"
  ],
@@ -259,10 +257,5 @@
  "src_commit": "1fadc0ec50316b60ddcfd8e82ac62ef2b70c18f9",
  "src_tree": "3006988fed0a708e7dcba906fb663f2475dc8d34",
  "upstream_url": "https://github.com/RoboMME/robomme_benchmark",
- "vendor": {
-  "scripts/parity/official/scripts/data-generation/compare_joint_actions.py": "46fcd5b8833974ecf423dc0f180c047811632aab3d70d8866b23c29e0bac2ad9",
-  "scripts/parity/official/scripts/data-generation/generate_dataset.py": "8700ccf91e19135b6766b094630816219d59d9360777b54fd95cd7bb81ab68b3",
-  "scripts/parity/official/scripts/data-generation/validate_generated_dataset_contract.py": "cc6830f4b80714e1964f1e7cef6ddfb152f629d8e974e57e550f0fc028715130",
-  "scripts/parity/official/scripts/data-generation/write_generation_report.py": "53bcfbc91588b927ddb01b8e9163da47ac8713ffae1a1e7c25300bae5dd343f1"
- }
+ "vendor": {}
 }

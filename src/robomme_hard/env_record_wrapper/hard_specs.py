@@ -1,7 +1,7 @@
 """ood 四档规格（``env_metadata/ood/xhardN/specs.jsonl``）的读取、封套校验与回注绑定摘要。
 
-由 ``scripts/parity/v4_specs.py`` 下沉而来（0927 计划第二部分 §1.2）；抽签与冻结留在
-``scripts/injection-dev/``，本模块只放评估侧与生成侧都要用的纯函数，不导入仿真。
+由旧仓对拍设施里的 V4 规格读写模块下沉而来（0927 计划第二部分 §1.2）；抽签与冻结属于旧仓的生成链路，
+不随本包发布。本模块只放读取与校验规格要用的纯函数，不导入仿真。
 
 jsonl 一行分「签」与「结果」两段（0927 计划第一部分 §5.3；现行唯一格式 ``schema="hard-specs/4"``）：
 
@@ -11,8 +11,11 @@ jsonl 一行分「签」与「结果」两段（0927 计划第一部分 §5.3；
 ``delivery_sha256`` 另盖「哪几局是正式交付」：排序后的
 ``(task, tier, candidate, seed, spec_sha256, rollout.h5_sha256)``，只取 ``selected`` 且 ``rollout.status=="ok"`` 的行。
 
-xhard0（官方 hard 12 局）是否前置在 ood 里由 ``XHARD0_IN_TEST_HARD`` 决定：V9 定稿默认关（每任务 50 局、
-16 任务 800 局），环境变量 ``ROBOMME_HARD_XHARD0_IN_TEST_HARD=1`` 可恢复 12 + 50。
+``ood`` 永远只含新值五档 xhard1～xhard5（16 任务 × 50 局 = 800）；xhard0（官方 test 的 hard 12 局）
+只在 ``hard-verify`` 里出现（16 任务 × 12 局 = 192），不再前置到 ``ood``。
+
+``seed_for``、``V8_SEED_OFFSETS``、``identity_sha256``、``delivery_sha256`` 是校验依赖：``load_specs`` 读包内规格时
+要按它们重算 seed 公式与两个身份散列，故保留（不是生成入口）。
 """
 
 from __future__ import annotations
@@ -21,7 +24,6 @@ import copy
 import hashlib
 import json
 import math
-import os
 import warnings
 from pathlib import Path
 from typing import Any
@@ -38,18 +40,8 @@ XHARD0 = "xhard0"
 BUILDER_TIERS = (XHARD0, *TIERS)
 #: xhard0 每任务 12 局＝官方 test 元数据 difficulty=="hard" 的原 episode 3,7,…,47（只作核对值，筛选按 difficulty）
 XHARD0_PER_TASK = 12
-#: xhard0（官方 hard 12 局）是否前置在 ood 里。V9 定稿默认关（每任务恰 50 局、16 任务 800 局）；
-#: 设环境变量 ROBOMME_HARD_XHARD0_IN_TEST_HARD=1 可恢复为 12 + 50（xhard0 源码、常量与清单全部保留）。
-XHARD0_IN_TEST_HARD: bool = os.environ.get("ROBOMME_HARD_XHARD0_IN_TEST_HARD", "0") == "1"
-
-
-def xhard0_prefix() -> int:
-    """ood 里排在新值档前面的 xhard0 局数：开关开为 XHARD0_PER_TASK，关为 0。"""
-    return XHARD0_PER_TASK if XHARD0_IN_TEST_HARD else 0
-
-
 XHARD0_EPISODES = tuple(range(3, 48, 4))
-#: 历史 V4/V5 单档名。seed 规则 v5 已删除；``scripts/parity/train_split_runner.py`` 在 jobs 不带 seed_rule 时
+#: 历史 V4/V5 单档名。seed 规则 v5 已删除；旧仓对拍设施的 train 拆分运行器在 jobs 不带 seed_rule 时
 #: 仍以它为期望难度（V9／xhard0 生成的 jobs 均带 seed_rule 或走官方元数据分支，不经该缺省），故保留常量。
 DIFFICULTY = "xhard"
 #: 回注绑定：只记录不回注的观测值（SpecRecorder.record）允许的浮点差（用户 U-13 方案甲，红线 R22，不做参数）。
@@ -75,7 +67,7 @@ V8_SEED_OFFSETS = {"xhard1": 16_000_000, "xhard2": 18_000_000, "xhard3": 20_000_
 TIER_SEED_OFFSETS: dict[str, dict[str, int]] = {"v8": V8_SEED_OFFSETS}
 SEED_PROFILES = tuple(TIER_SEED_OFFSETS)
 MAX_ATTEMPTS = 100
-#: 16 任务规范序（与 scripts/injection-dev/seed_layout.py::ALL_TASKS 逐字相同；src 不反向依赖 scripts）
+#: 16 任务规范序（与旧仓生成链路 seed 公式模块里的 ``ALL_TASKS`` 逐字相同；env_code 取它的 1-indexed 位置）
 ALL_TASKS = (
     "PickXtimes", "StopCube", "SwingXtimes", "BinFill", "VideoUnmaskSwap", "VideoUnmask",
     "ButtonUnmaskSwap", "ButtonUnmask", "VideoRepick", "VideoPlaceButton", "VideoPlaceOrder",
@@ -488,8 +480,7 @@ def load_specs_root(root: str | Path, expected_cells: dict[tuple[str, str], int]
     * ``expected_cells[key] ≤ cell_table[key]``；
     * 每格 header ``delivery_per_cell[task]`` 等于 ``expected_cells`` 的值；
     * 每格 ``selected`` 行数等于 ``expected_cells`` 的值（相等，不是 ≤）。只数 ``selected``，不看 rollout 结果；
-      正式交付（``delivered``：selected 且 rollout ok）的逐格核对由 ``hard_regression.py delivery-set`` 的
-      ``V8_DELIVERY_SET`` 负责；
+      正式交付（``delivered``：selected 且 rollout ok）的逐格核对由 builder 构造 ``ood`` 时逐格断言；
     * 同任务跨档 seed 两两不交（比全部规格行，不只 selected）。
 
     返回 ``{tier: (header, rows)}``：键只含涉及的档位、按 ``TIERS`` 顺序；
@@ -544,18 +535,16 @@ def load_specs_root(root: str | Path, expected_cells: dict[tuple[str, str], int]
     return out
 
 
-#: 规格根覆盖（0928 方案第二部分 §1.1）：设了即从该目录读 xhard{1..5}/specs.jsonl（按 TIERS），缺省读包内
-SPECS_ROOT_ENV = "ROBOMME_HARD_SPECS_ROOT"
+#: 包内规格根：``env_metadata/ood/xhard{1..5}/specs.jsonl``（按 TIERS）。builder 只读它，不接受外部规格根。
 PACKAGED_SPECS_ROOT = Path(__file__).resolve().parents[1] / "env_metadata" / "ood"
 _ANNOUNCED_ROOTS: set[str] = set()
 
 
 def specs_root(override: str | Path | None = None) -> Path:
-    """规格根：显式参数 > 环境变量 ``ROBOMME_HARD_SPECS_ROOT`` > 包内。非包内时打印一次 ``SPECS_ROOT=``。"""
-    import os
+    """规格根：显式参数 > 包内（不读环境变量）。非包内时打印一次 ``SPECS_ROOT=``。
 
-    chosen = override if override is not None else os.environ.get(SPECS_ROOT_ENV)
-    root = Path(chosen).resolve() if chosen else PACKAGED_SPECS_ROOT
+    ``override`` 形参保留给直接读取单个规格根的调用方（如测试夹具），builder 一律走包内根。"""
+    root = Path(override).resolve() if override is not None else PACKAGED_SPECS_ROOT
     if root != PACKAGED_SPECS_ROOT and str(root) not in _ANNOUNCED_ROOTS:
         _ANNOUNCED_ROOTS.add(str(root))
         print(f"SPECS_ROOT={root}", flush=True)
