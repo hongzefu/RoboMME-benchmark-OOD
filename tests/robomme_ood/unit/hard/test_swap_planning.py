@@ -1,8 +1,8 @@
-"""V9 实际走的交换规划：内环 S5 均衡（``utils/swap_uniform.py``）、内环 reset 预规划的回放复核
-（``unmask_swap_xhard.plan_inner_swaps_v6``）、外环 O4 均衡（``balanced_pair_groups`` 与
-``plan_distractor_swaps_balanced``）、以及交换时间窗与路径的小工具。
+"""Swap planning actually used by V9: inner-loop S5 balancing (``utils/swap_uniform.py``), replay re-check of inner-loop reset pre-planning
+(``unmask_swap_xhard.plan_inner_swaps_v6``), outer-loop O4 balancing (``balanced_pair_groups`` and
+``plan_distractor_swaps_balanced``), and small helpers for swap time windows and paths.
 
-纯函数用手写小图；外环规划用包内正式局离线建场得到的真实内环窗口与干扰布局。
+Pure functions use small hand-written graphs; outer-loop planning uses real inner-loop windows and distractor layouts built offline from the in-package formal episodes.
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def _count(pairs, n):
     return [c.get(i, 0) for i in range(n)]
 
 
-# ── 可行槽对图 ─────────────────────────────────────────────────────────────────
+# -- feasible slot-pair graph -----------------------------------------------------------------
 
 
 def test_graph_helpers_on_hand_graph():
@@ -75,7 +75,7 @@ def test_s5_same_seed_same_plan():
 def test_s5_single_edge_cannot_avoid_undo():
     adj = SU.slot_pair_graph(3, lambda a, b: (a, b) == (0, 1))
     assert SU.plan_balanced_swaps(adj, 1, _gen(0)).pairs in ([(0, 1)], [(1, 0)])
-    assert SU.plan_balanced_swaps(adj, 2, _gen(0)) is None, "禁止立即撤销时第二次无候选"
+    assert SU.plan_balanced_swaps(adj, 2, _gen(0)) is None, "with immediate undo forbidden, the second swap has no candidate"
     assert len(SU.plan_balanced_swaps(adj, 2, _gen(0), forbid_undo=False).pairs) == 2
 
 
@@ -87,15 +87,15 @@ def test_s5_degenerate_inputs():
 
 
 def test_verify_tracks_slots_through_swaps():
-    """槽 0-1、1-2 可行，0-2 不可行。对象 0、1 先交换后：对象 0 在槽 1、对象 1 在槽 0。
-    此时交换对象 (0,2) 占槽 (1,2) 可行；交换对象 (1,2) 占槽 (0,2) 不可行。"""
+    """Slots 0-1 and 1-2 are feasible, 0-2 is infeasible. After objects 0 and 1 swap: object 0 is in slot 1, object 1 in slot 0.
+    Then swapping objects (0,2) occupies slots (1,2), feasible; swapping objects (1,2) occupies slots (0,2), infeasible."""
     adj = SU.slot_pair_graph(3, lambda a, b: (a, b) in {(0, 1), (1, 2)})
     ok, _ = SU.verify_swap_sequence(adj, [(0, 1), (0, 2)])
     assert ok == []
     bad, _ = SU.verify_swap_sequence(adj, [(0, 1), (1, 2)])
-    assert len(bad) == 1 and "不可行" in bad[0]
+    assert len(bad) == 1 and "infeasible" in bad[0]
     undo, stats = SU.verify_swap_sequence(adj, [(0, 1), (1, 0)])
-    assert stats.undo == 1 and any("撤销" in p for p in undo)
+    assert stats.undo == 1 and any("undo" in p for p in undo)
     oob, _ = SU.verify_swap_sequence(adj, [(0, 3), (1, 1)])
     assert len(oob) == 2
 
@@ -116,7 +116,7 @@ def test_parse_inner_cfg_accepts_packaged_and_rejects_variants():
             SU.parse_inner_swap_plan_cfg({**cfg, key: bad})
 
 
-# ── 内环 reset 预规划：回放冻结序列时的复核 ─────────────────────────────────────
+# -- inner-loop reset pre-planning: re-check when replaying a frozen sequence -------------------------------------
 
 
 @pytest.mark.parametrize("task", ["VideoUnmaskSwap", "ButtonUnmaskSwap"])
@@ -134,7 +134,7 @@ def test_inner_plan_replay_rejects_immediate_undo(task):
             World.build(task, "xhard1", 0, spec=bad)
 
 
-# ── 外环 O4 ──────────────────────────────────────────────────────────────────
+# -- outer loop O4 ------------------------------------------------------------------
 
 
 def test_balanced_pair_groups_orders_by_max_then_sum_and_defers_last():
@@ -157,7 +157,7 @@ def test_outer_plan_on_real_windows(task):
     for k, (o, p) in enumerate(plan.pairs):
         assert 0 <= o < p < n
         if k and plan.fallbacks[k] == 0 and n > 2:
-            assert (o, p) != plan.pairs[k - 1], "评分最小组里不会出现上一窗的同一对"
+            assert (o, p) != plan.pairs[k - 1], "the minimum-score group never contains the previous window's pair"
     assert len(plan.final_xy) == n
 
 
@@ -171,7 +171,7 @@ def test_parse_outer_cfg_lane_must_match_collision_model():
         UX.parse_distractor_swap_cfg({**cfg, "smooth": False})
 
 
-# ── 时间窗与路径小工具 ─────────────────────────────────────────────────────────
+# -- time window and path helpers ---------------------------------------------------------
 
 
 def test_scaled_window_steps():
