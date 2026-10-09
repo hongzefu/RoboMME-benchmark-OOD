@@ -1,6 +1,6 @@
 """植入（变异）执行器：读取全部 ``tests/robomme_ood/**/mutants.json``，逐项植入语义错误，核对指定用例因之失败。
 
-归类（详见同目录 README.md）：
+归类：
 - A 文本替换／数据改写：在 tmp 隔离副本里落盘改源码（每个 old 恰好命中 1 次，否则记 not_applied），受保护的
   ``src/robomme`` 与三个上游入口一律拒绝落盘（红线 R9，记 no_recipe）；
 - B 进程内插件：``tests/robomme_ood/unit/hard/mutants_plugin.py``（T4_MUTANT，配 ``plugins/t4_status.py``）或

@@ -205,12 +205,12 @@
    "scripts/"
   ],
   "symbol": "scripts/ 文件集合",
-  "oracle": "恰好五个文件 {dataset_replay.py, evaluation.py, run_example.py, evaluation_ood.py, README_ood.md}，无子目录；工作区与 git ls-files 两边一致",
+  "oracle": "恰好四个文件 {dataset_replay.py, evaluation.py, run_example.py, evaluation_ood.py}，无子目录；工作区与 git ls-files 两边一致",
   "positive": "集合相等",
   "negative": "",
   "boundaries": "",
   "nodeids": [
-   "tests/robomme_ood/static/test_entry_scripts.py::test_scripts_has_exactly_five_files"
+   "tests/robomme_ood/static/test_entry_scripts.py::test_scripts_has_exactly_four_files"
   ],
   "resource": "cpu",
   "mutants": [],

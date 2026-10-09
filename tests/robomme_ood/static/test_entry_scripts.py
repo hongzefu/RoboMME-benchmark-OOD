@@ -3,7 +3,7 @@
 - ``evaluation_ood.py`` 与官方 ``016ac1c4`` 的 ``scripts/evaluation.py``（经 ``git show`` 读，不读工作区）恰好差白名单
   四处：3 个单行 hunk（import、``dataset=DATASET``、``max_steps=DATASET_MAX_STEPS[DATASET]``）加 1 个纯插入块
   （``TASKS`` 之前的数据集选择块：``hard-verify``↔1300、``ood``↔1800，默认 ``ood``）。
-- ``scripts/`` 恰好五个文件：官方三入口加 ``evaluation_ood.py``、``README_ood.md``，没有子目录。
+- ``scripts/`` 恰好四个文件：官方三入口加 ``evaluation_ood.py``，没有子目录。
 - ``scripts/``、``challenge_interface/`` 与 ``src/robomme_ood/`` 的生产代码不 import ``tests``（AST 收集 import 语句，L0 允许）。
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ from tests.robomme_ood.contract.test_constants import DATASET_MAX_STEPS, DEFAULT
 SCRIPTS = REPO / "scripts"
 #: 官方 RoboMME/robomme_benchmark 的锚点 commit（本仓自它分出；完整 40 位 sha）
 OFFICIAL_COMMIT = "016ac1c4ef3df2b88488abc19db08f3de83647b5"
-SCRIPTS_SET = {"dataset_replay.py", "evaluation.py", "run_example.py", "evaluation_ood.py", "README_ood.md"}
+SCRIPTS_SET = {"dataset_replay.py", "evaluation.py", "run_example.py", "evaluation_ood.py"}
 PRODUCTION_DIRS = (REPO / "scripts", REPO / "challenge_interface", REPO / "src" / "robomme_ood")
 
 
@@ -116,8 +116,8 @@ def test_single_line_hunks_negatives():
 # ---------------------------------------------------------------- 入口清单
 
 
-def test_scripts_has_exactly_five_files():
-    """``scripts/`` 只有五个文件、没有子目录（对拍、生成、评估编排工具都在私有评估仓）。"""
+def test_scripts_has_exactly_four_files():
+    """``scripts/`` 只有四个文件、没有子目录（对拍、生成、评估编排工具都在私有评估仓）。"""
     entries = [p for p in SCRIPTS.iterdir() if p.name != "__pycache__"]  # 按路径加载脚本时解释器会写字节码缓存
     assert {p.name for p in entries} == SCRIPTS_SET
     assert [p.name for p in entries if p.is_dir()] == []

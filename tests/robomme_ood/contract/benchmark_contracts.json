@@ -1848,12 +1848,12 @@
         "scripts/"
       ],
       "symbol": "scripts/ 文件集合",
-      "oracle": "恰好五个文件 {dataset_replay.py, evaluation.py, run_example.py, evaluation_ood.py, README_ood.md}，无子目录；工作区与 git ls-files 两边一致",
+      "oracle": "恰好四个文件 {dataset_replay.py, evaluation.py, run_example.py, evaluation_ood.py}，无子目录；工作区与 git ls-files 两边一致",
       "positive": "集合相等",
       "negative": "",
       "boundaries": "",
       "nodeids": [
-        "tests/robomme_ood/static/test_entry_scripts.py::test_scripts_has_exactly_five_files"
+        "tests/robomme_ood/static/test_entry_scripts.py::test_scripts_has_exactly_four_files"
       ],
       "resource": "cpu",
       "mutants": [],
@@ -4490,10 +4490,6 @@
     ]
   },
   "exempt": {
-    "src/robomme_ood/README.md": {
-      "category": "说明文档",
-      "reason": "包说明文档，非可执行代码；字节随 wheel 由 C18-WHEEL 核对。"
-    },
     "challenge_interface/__init__.py": {
       "category": "包标记与路径设置 shim",
       "reason": "空文件，只作包标记。"
@@ -4501,10 +4497,6 @@
     "challenge_interface/readme.md": {
       "category": "说明文档",
       "reason": "挑战接口说明文档，非可执行代码。"
-    },
-    "scripts/README_ood.md": {
-      "category": "说明文档",
-      "reason": "ood 评估入口说明文档，非可执行代码。"
     }
   },
   "optional_keys": [
