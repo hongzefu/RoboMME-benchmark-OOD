@@ -1,7 +1,7 @@
-"""ButtonUnmask 新值档真值表（xhard1～xhard4）：先按按钮揭示 → 依次抓起「藏着第 k 种颜色方块的容器」并放下。
+"""ButtonUnmask new-value tier truth table (xhard1-xhard4): press the button to reveal first → then pick up "the container hiding the cube of the k-th color" in order and put it down.
 
-错误与边界：跳过按钮直接抓对的容器不推进（按钮项不判失败）；按钮之后抓错容器、抬干扰容器即失败；
-按钮按下深度为零不算按下，按到行程底才算。抓取次数取自本档。
+Errors and boundaries: skipping the button and picking the right container directly does not advance (the button item does not judge failure); after the button, picking the wrong container or lifting a distractor container fails;
+a button press depth of zero does not count as pressed, only pressing to the bottom of travel does. Pick count comes from this tier.
 """
 from __future__ import annotations
 

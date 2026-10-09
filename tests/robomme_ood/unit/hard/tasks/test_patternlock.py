@@ -1,7 +1,7 @@
-"""PatternLock 新值档真值表（xhard1～xhard3）：执行段从起点出发按演示的同一按钮序列完整重走为成功。
+"""PatternLock new-value tier truth table (xhard1-xhard3): in the execution segment, starting from the start point, fully retracing the same button sequence as the demonstration is success.
 
-错误与边界：跳过一个节点（直接碰下下个按钮）即失败；在同一按钮上停留多步只记一次（去抖）；
-重走中途碰到路径外的按钮即失败；失败后保持失败。路径取自本局（包内规格回放）。
+Errors and boundaries: skipping a node (touching the button after next directly) fails; staying several steps on the same button counts once (debounce);
+touching a button off the path during the retrace fails; failure is latched. The path comes from this episode (packaged spec replay).
 """
 from __future__ import annotations
 

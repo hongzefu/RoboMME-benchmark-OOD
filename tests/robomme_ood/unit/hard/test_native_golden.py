@@ -1,6 +1,6 @@
-"""原三档（easy／medium／hard）离线导出摘要等于金标准（取代旧测试里的「原三档逐字不变」AST 锁）。
+"""Offline export digests of the original three tiers (easy/medium/hard) equal the golden file (replaces the old tests' "original tiers verbatim unchanged" AST lock).
 
-金标准 ``native_golden.json`` 的生成方式见 ``native_golden.py``（在维护计划 BASE 上生成）。
+How the golden file ``native_golden.json`` is generated: see ``native_golden.py`` (generated on maintenance plan BASE).
 """
 from __future__ import annotations
 
@@ -21,27 +21,27 @@ def test_golden_covers_all_tasks_tiers_and_seeds():
 
 
 def test_golden_errors_raised_in_production_code():
-    """金标准里的异常条目必须注明抛出点模块且在 ``robomme_ood`` 内——替身（``tests.*``）自身的错误不能被钉成契约。"""
+    """Exception entries in the golden file must name the raise-site module and it must be inside ``robomme_ood``; errors of the stand-ins themselves (``tests.*``) must not be pinned as a contract."""
     errors = {k: v for k, v in GOLD["digests"].items() if v.startswith("error:")}
     for k, v in errors.items():
         name, sep, module = v[len("error:"):].partition("@")
         assert sep and name, (k, v)
         assert module.startswith("robomme_ood."), (k, v)
-    # 现状只有 VPO medium／hard 种子 101 两条（V4 H2 / K2：原三档布局失败表现为 TypeError）
+    # currently only two entries, VPO medium/hard seed 101 (V4 H2 / K2: original-tier layout failure shows up as TypeError)
     assert set(errors) == {"VideoPlaceOrder/medium/101", "VideoPlaceOrder/hard/101"}
 
 
 def test_raise_site_module_distinguishes_test_double():
-    """负例：测试模块里抛出的异常，抛出点记为测试模块名，不会被误记成 ``robomme_ood``。"""
+    """Negative case: for an exception raised in a test module, the raise site is recorded as the test module name and never misrecorded as ``robomme_ood``."""
     try:
-        raise TypeError("替身错误")
+        raise TypeError("stand-in error")
     except TypeError as exc:
         assert NG.raise_site_module(exc) == __name__
         assert not NG.raise_site_module(exc).startswith("robomme_ood.")
 
 
 def test_digest_depends_on_seed():
-    """负例：摘要对种子敏感——同任务同档两个种子的摘要不相同（异常局除外），否则金标准抓不住布局变化。"""
+    """Negative case: digests are seed-sensitive; two seeds of the same task and tier give different digests (except exception episodes), otherwise the golden file cannot catch layout changes."""
     d = GOLD["digests"]
     for t in O.ALL_TASKS:
         for tier in NG.NATIVE_TIERS:

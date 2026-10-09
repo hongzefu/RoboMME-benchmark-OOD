@@ -1,21 +1,21 @@
-"""L4 仿真冒烟：官方 ``robomme`` 包 1 次 ``make`` + ``reset``（``ee_pose``，全部 ``include_*`` 打开），再发 1 步不可达 ee 动作。
+"""L4 simulation smoke: one ``make`` + ``reset`` of the official ``robomme`` package (``ee_pose``, all ``include_*`` enabled), then one unreachable ee action step.
 
-规模：本文件 1 次 reset；连同 ``test_reset_matrix.py`` 的 ``xhard0 16 任务 × 1 局 + xhard1～5 共 43 格 × 1 局 = 59``
-次，每次运行 ``tests/robomme_ood/sim`` 共 ``59 + 1 = 60`` 次 reset、0 条轨迹生成，属用户长期授权（计划
-``1003-code-test-maintenance-todo.md`` 的 Q8）。只能这样运行（先 ``nvidia-smi`` 选空闲卡）::
+Scale: 1 reset in this file; together with ``xhard0 16 tasks × 1 episode + xhard1-5 43 cells × 1 episode = 59`` in ``test_reset_matrix.py``,
+each run of ``tests/robomme_ood/sim`` does ``59 + 1 = 60`` resets and 0 trajectory generations, covered by the user's standing authorization (plan
+``1003-code-test-maintenance-todo.md`` Q8). Run only like this (pick an idle GPU with ``nvidia-smi`` first)::
 
-    CUDA_VISIBLE_DEVICES=<空闲卡> uv run --no-sync python -m pytest tests/robomme_ood/sim --allow-sim-reset -q
+    CUDA_VISIBLE_DEVICES=<idle GPU> uv run --no-sync python -m pytest tests/robomme_ood/sim --allow-sim-reset -q
 
-官方行为必须在不导入 ``robomme_ood`` 的进程里取（hard 包导入即接管 16 个环境 id），因此真实调用放在
-``official_probe.py`` 的独立子进程里，这里只解析其输出并断言。
+Official behavior must be obtained in a process that does not import ``robomme_ood`` (importing the hard package takes over the 16 environment ids), so the real call lives in
+a separate subprocess in ``official_probe.py``; here we only parse its output and assert.
 
-断言：
-- 子进程未加载 ``robomme_ood``，环境类来自官方 ``robomme.robomme_env``，包装链为官方的
-  ``FailAwareWrapper → EndeffectorDemonstrationWrapper → DemonstrationWrapper → TimeLimitWrapper → OrderEnforcing → 任务类``；
-- 深度图逐帧 ``(256,256,1) int16``，相机外参逐帧 ``(3,4) float32``，内参 ``(3,3) float32``，全部 obs 列表等长；
-- ``available_multi_choices`` 为非空列表，每项恰有 ``label``／``action``／``need_parameter`` 三键，类型为 str／str／bool；
-- 不可达 ee 动作只做 IK：``status == "error"``、错误信息来自 ``EndeffectorDemonstrationWrapper`` 的 IK 失败分支
-  （含 ``IK failed``，不是 FailAwareWrapper 兜住的异常），obs 为空、``terminated`` 为真。
+Assertions:
+- the subprocess did not load ``robomme_ood``, the env class comes from official ``robomme.robomme_env``, and the wrapper chain is the official
+  ``FailAwareWrapper → EndeffectorDemonstrationWrapper → DemonstrationWrapper → TimeLimitWrapper → OrderEnforcing → task class``;
+- depth is ``(256,256,1) int16`` per frame, camera extrinsics ``(3,4) float32`` per frame, intrinsics ``(3,3) float32``, all obs lists have equal length;
+- ``available_multi_choices`` is a non-empty list, each item has exactly the three keys ``label``/``action``/``need_parameter`` with types str/str/bool;
+- the unreachable ee action only does IK: ``status == "error"``, the error message comes from the IK-failure branch of ``EndeffectorDemonstrationWrapper``
+  (contains ``IK failed``, not an exception caught by FailAwareWrapper), obs is empty and ``terminated`` is true.
 """
 from __future__ import annotations
 
@@ -43,19 +43,19 @@ def probe() -> dict:
     )
     lines = [x for x in proc.stdout.splitlines() if x.startswith("PROBE_JSON=")]
     assert proc.returncode == 0 and len(lines) == 1, (
-        f"官方探针退出码 {proc.returncode}\nstdout 末尾：\n{proc.stdout[-3000:]}\nstderr 末尾：\n{proc.stderr[-3000:]}"
+        f"official probe exit code {proc.returncode}\nstdout tail:\n{proc.stdout[-3000:]}\nstderr tail:\n{proc.stderr[-3000:]}"
     )
     return json.loads(lines[0].removeprefix("PROBE_JSON="))
 
 
 def test_official_reset_and_unreachable_ee_step(probe: dict) -> None:
-    # —— 官方包、官方链 ——
+    # —— official package, official chain ——
     assert probe["robomme_ood_loaded"] is False
     assert probe["env_module"].startswith("robomme.robomme_env"), probe["env_module"]
     assert probe["chain"] == OFFICIAL_CHAIN
     assert probe["status"] == "ongoing"
 
-    # —— 观测：五个常驻键 + 全部 include_* 打开后的可选键 ——
+    # —— observations: five permanent keys + optional keys with all include_* enabled ——
     expected_obs = {
         "front_rgb_list", "wrist_rgb_list", "joint_state_list", "eef_state_list", "gripper_state_list",
         "maniskill_obs", "front_depth_list", "wrist_depth_list", "front_camera_extrinsic_list",
@@ -72,7 +72,7 @@ def test_official_reset_and_unreachable_ee_step(probe: dict) -> None:
     for key in ("front_camera_intrinsic", "wrist_camera_intrinsic"):
         assert probe["intrinsic_desc"][key] == {"shape": [3, 3], "dtype": "float32"}, key
 
-    # —— 多选项 ——
+    # —— multiple choices ——
     choices = probe["available_multi_choices"]
     assert isinstance(choices, list) and choices, choices
     for opt in choices:
@@ -81,7 +81,7 @@ def test_official_reset_and_unreachable_ee_step(probe: dict) -> None:
         assert isinstance(opt["action"], str) and opt["action"]
         assert isinstance(opt["need_parameter"], bool)
 
-    # —— 不可达 ee 动作：只做 IK，返回 error ——
+    # —— unreachable ee action: IK only, returns error ——
     step = probe["step"]
     assert step["status"] == "error", step
     assert "IK failed" in (step["error_message"] or ""), step

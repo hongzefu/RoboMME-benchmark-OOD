@@ -1,10 +1,10 @@
-"""T4 植入插件（tests/robomme_ood/unit/hard/mutants_plugin.py）的配套状态插件：不改该插件文件，只在它运行前后加两道核对。
+"""Companion status plugin for the T4 mutation plugin (tests/robomme_ood/unit/hard/mutants_plugin.py): does not modify that plugin file, only adds two checks around it.
 
-- 先于 mutants_plugin 的 pytest_configure（tryfirst）：把它的 ``_redefine`` 换成「源码片段必须恰好命中 1 次」的版本
-  （原版只要求至少 1 次，且只替换第一处）；不满足时记 applied=false 并抛错，会话中止、不会有任何用例被计为抓到；
-- pytest_sessionstart（此时 mutants_plugin 的 pytest_configure 已走完且未抛错）：记 applied=true。
+- Before mutants_plugin's pytest_configure (tryfirst): replace its ``_redefine`` with a version requiring the source fragment to match exactly once
+  (the original only requires at least once and replaces only the first match); if violated, record applied=false and raise, aborting the session so no test is counted as caught;
+- pytest_sessionstart (by then mutants_plugin's pytest_configure has finished without raising): record applied=true.
 
-状态写到 MUT_STATUS_FILE（JSON）；未设 T4_MUTANT 时本插件不做任何事。
+Status is written to MUT_STATUS_FILE (JSON); this plugin does nothing when T4_MUTANT is unset.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def _write(applied: bool, reason: str | None) -> None:
 def pytest_configure(config):
     if not _NAME:
         return
-    import mutants_plugin  # 与 -p mutants_plugin 是同一个模块对象
+    import mutants_plugin  # same module object as -p mutants_plugin
 
     orig = mutants_plugin._redefine
 
@@ -38,16 +38,16 @@ def pytest_configure(config):
         src = textwrap.dedent(inspect.getsource(getattr(holder, qualname)))
         n = src.count(old)
         if n != 1:
-            reason = f"{qualname} 植入片段命中 {n} 次：{old!r}"
+            reason = f"{qualname} mutation fragment matched {n} times: {old!r}"
             _write(False, reason)
             raise AssertionError(reason)
         return orig(mod, qualname, old, new, cls=cls)
 
     mutants_plugin._redefine = checked
-    _write(False, "植入未完成")  # 先写失败态；植入正常走完才在 pytest_sessionstart 里改成成功
+    _write(False, "mutation not completed")  # write the failure state first; only switched to success in pytest_sessionstart once mutation completes
 
 
 def pytest_sessionstart(session):
-    # mutants_plugin 的 pytest_configure 已经跑完且未抛错，植入才算生效
+    # mutants_plugin's pytest_configure has finished without raising, so the mutation is in effect
     if _NAME:
         _write(True, None)

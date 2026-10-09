@@ -1,6 +1,6 @@
-"""RouteStick 落点随机游走（``utils/route.generate_dynamic_walk``）：拓扑、回退规则、配置守卫与确定性。
+"""RouteStick stop random walk (``utils/route.generate_dynamic_walk``): topology, backtracking rule, config guards and determinism.
 
-期望用性质表达（每步只到相邻节点；禁止回退时除端点外不立刻折返；同一种子同一序列），不复刻抽样过程。
+Expectations are expressed as properties (each step only moves to an adjacent node; with backtracking forbidden, no immediate reversal except at endpoints; same seed same sequence), without replicating the sampling process.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def test_no_backtracking_reverses_only_at_endpoints(seed):
     path = generate_dynamic_walk(NODES, steps=40, allow_backtracking=False, generator=_gen(seed), walk_config=WALK)
     idx = [NODES.index(v) for v in path]
     for a, b, c in zip(idx, idx[1:], idx[2:]):
-        if a == c:  # 立刻折返
+        if a == c:  # immediate reversal
             assert b in (0, len(NODES) - 1), (a, b, c)
 
 
@@ -43,7 +43,7 @@ def test_same_seed_same_walk_and_explicit_start():
     b = generate_dynamic_walk(NODES, steps=20, generator=_gen(3), walk_config=WALK)
     assert a == b
     c = generate_dynamic_walk(NODES, steps=5, start_idx=4, generator=_gen(3), walk_config=WALK)
-    assert c[0] == NODES[4] and c[1] == NODES[3], "从末端出发第一步只能往回走"
+    assert c[0] == NODES[4] and c[1] == NODES[3], "starting from the end, the first step can only go back"
 
 
 @pytest.mark.parametrize("bad", [

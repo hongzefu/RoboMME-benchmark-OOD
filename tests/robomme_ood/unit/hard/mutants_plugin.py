@@ -1,6 +1,6 @@
-"""T4 植入自检插件：按环境变量 T4_MUTANT 在测试进程内（不落盘）改坏一处生产逻辑。
+"""T4 mutation self-check plugin: breaks one piece of production logic in the test process (not written to disk) according to the environment variable T4_MUTANT.
 
-用法：PYTHONPATH 加上本目录，pytest -p mutants_plugin，T4_MUTANT=<名字>。
+Usage: add this directory to PYTHONPATH, pytest -p mutants_plugin, T4_MUTANT=<name>.
 """
 from __future__ import annotations
 
@@ -12,11 +12,11 @@ import textwrap
 
 
 def _redefine(mod, qualname, old, new, cls=None):
-    """把 mod（或 cls）里名为 qualname 的函数源码做一次替换后在 mod 的全局里重新定义；返回 (旧对象, 新对象)。"""
+    """Apply one replacement to the source of the function named qualname in mod (or cls) and redefine it in mod's globals; return (old object, new object)."""
     holder = cls if cls is not None else mod
     orig = getattr(holder, qualname)
     src = textwrap.dedent(inspect.getsource(orig))
-    assert src.count(old) >= 1, f"植入点没找到：{qualname}: {old!r}"
+    assert src.count(old) >= 1, f"mutation point not found: {qualname}: {old!r}"
     src = src.replace(old, new, 1)
     ns = dict(mod.__dict__)
     exec(compile(src, f"<mutant {mod.__name__}.{qualname}>", "exec"), ns)
@@ -82,5 +82,5 @@ def pytest_configure(config):
         px = importlib.import_module("robomme_ood.robomme_env.PickXtimes")
         px.NATIVE_SAMPLING["positions"]["button"]["center_xy"] = [-0.19, 0]
     else:
-        raise SystemExit(f"未知植入 {name}")
+        raise SystemExit(f"unknown mutation {name}")
     print(f"T4_MUTANT_APPLIED={name}", flush=True)

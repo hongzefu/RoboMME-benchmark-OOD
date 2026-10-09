@@ -1,9 +1,9 @@
-"""进程内（不落盘）植入插件：按环境变量 MUT_INPROC=<块>:<编号> 在测试进程里改坏一处生产逻辑。
+"""In-process (not written to disk) mutation plugin: breaks one piece of production logic in the test process according to the environment variable MUT_INPROC=<block>:<id>.
 
-覆盖 mutants.json 里只给出文字描述、目标在受保护的 ``src/robomme``／三个上游入口（红线 R9，只许进程内）
-或须在导入后改常量的植入。每项实现照抄该块作者在 mutants.json 里的描述；未设 MUT_INPROC 时本插件不做任何事。
+Covers mutants.json entries that only have a text description, whose target is the protected ``src/robomme`` / the three upstream entry scripts (red line R9, in-process only),
+or that must change constants after import. Each implementation copies the block author's description in mutants.json; this plugin does nothing when MUT_INPROC is unset.
 
-用法：``pytest -p tests.robomme_ood.mutation.plugins.mut_inproc``，环境变量 ``MUT_INPROC=pipeline/recording:M14a``。
+Usage: ``pytest -p tests.robomme_ood.mutation.plugins.mut_inproc``, environment variable ``MUT_INPROC=pipeline/recording:M14a``.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ TASKS = ["BinFill", "PickXtimes", "SwingXtimes", "VideoRepick", "VideoUnmask", "
          "MoveCube", "PatternLock", "RouteStick"]
 
 
-# ───────────────────────────── 静态块（tests/robomme_ood/static）：改 pathlib 读到的字节 ─────────────────────────────
+# ───────────────────────────── Static block (tests/robomme_ood/static): change the bytes read through pathlib ─────────────────────────────
 
 
 def _flip_mid(data: bytes) -> bytes:
@@ -66,7 +66,7 @@ def _install_read_patch(root: pathlib.Path, key: str) -> None:
                 return _flip_mid(data)
             if key == "M02":
                 return data + b"# mutant extra line\n"
-            assert data.count(b"fail_safe_limit = 5000") == 1, "M03 植入点没找到"
+            assert data.count(b"fail_safe_limit = 5000") == 1, "M03 mutation point not found"
             return data.replace(b"fail_safe_limit = 5000", b"fail_safe_limit = 2000")
 
         def mutate(path: pathlib.Path, data_fn):
@@ -86,14 +86,14 @@ def _install_read_patch(root: pathlib.Path, key: str) -> None:
     pathlib.Path.read_text = read_text
 
 
-# ───────────────────────────── 契约块（tests/robomme_ood/contract）：导入后改常量／包装函数 ─────────────────────────────
+# ───────────────────────────── Contract block (tests/robomme_ood/contract): change constants / wrap functions after import ─────────────────────────────
 
 
 def _contract(key: str) -> None:
     from robomme_ood.env_record_wrapper import hard_builder, hard_specs as hs
 
     if key == "M07":
-        hs.V9_CELLS[("PickXtimes", "xhard1")] += 1  # EXPECTED_CELLS／CELL_TABLES["v9"] 是同一对象
+        hs.V9_CELLS[("PickXtimes", "xhard1")] += 1  # EXPECTED_CELLS / CELL_TABLES["v9"] is the same object
     elif key == "M10":
         orig = hard_builder._ood_entries
 
@@ -108,7 +108,7 @@ def _contract(key: str) -> None:
         raise KeyError(key)
 
 
-# ───────────────────────────── 录制块（tests/robomme_ood/pipeline/recording） ─────────────────────────────
+# ───────────────────────────── Recording block (tests/robomme_ood/pipeline/recording) ─────────────────────────────
 
 
 def _rec_mods():
@@ -182,7 +182,7 @@ def _recording(key: str) -> None:
 
         old = os.environ.get("CUDA_VISIBLE_DEVICES")
         mod = load_script("dataset_replay.py")
-        # 入口脚本导入时会写 CUDA_VISIBLE_DEVICES；原先没设就删掉，设过就还原
+        # The entry script writes CUDA_VISIBLE_DEVICES on import; delete it if it was originally unset, otherwise restore it
         if old is None:
             os.environ.pop("CUDA_VISIBLE_DEVICES", None)
         else:
@@ -240,7 +240,7 @@ def _recording(key: str) -> None:
         raise KeyError(key)
 
 
-# ───────────────────────────── 官方任务单元块（tests/robomme_ood/unit/robomme） ─────────────────────────────
+# ───────────────────────────── Official task unit block (tests/robomme_ood/unit/robomme) ─────────────────────────────
 
 
 def _everywhere(name, value) -> None:
@@ -254,31 +254,31 @@ def _everywhere(name, value) -> None:
 
 def _unit_robomme(key: str) -> None:
     sef = importlib.import_module("robomme.robomme_env.utils.subgoal_evaluate_func")
-    if key == "T3-M01":  # 按钮深度严格大于 → 大于等于
+    if key == "T3-M01":  # button depth strictly greater -> greater or equal
         def is_button_pressed(self, obj):
             return bool(sef.get_button_depth(self, obj=obj) >= 0.005)
         _everywhere("is_button_pressed", is_button_pressed)
-    elif key == "T3-M02":  # 失败条件全部失效
+    elif key == "T3-M02":  # all failure conditions disabled
         sef._coerce_failure_result = lambda value: False
-    elif key == "T3-M03":  # 放到目标的水平阈值 0.05 → 0.06
+    elif key == "T3-M03":  # horizontal threshold for placing on target 0.05 -> 0.06
         def is_obj_dropped_onto(self, obj, target):
             import torch
             o, t = obj.pose.p[0], target.pose.p[0]
             d = torch.sqrt((o[0] - t[0]) ** 2 + (o[1] - t[1]) ** 2)
             return bool(d <= 0.06 and sef.is_obj_dropped(self, obj))
         _everywhere("is_obj_dropped_onto", is_obj_dropped_onto)
-    elif key == "T3-M04":  # StopCube 停止窗口永远算对
+    elif key == "T3-M04":  # StopCube stop window always counts as correct
         _everywhere("correct_timestep", lambda self, time_range=None, stop_timestep=None: True)
-    elif key == "T3-M05":  # 交换不发生
+    elif key == "T3-M05":  # swap never happens
         for t in ("VideoUnmaskSwap", "ButtonUnmaskSwap", "VideoRepick", "VideoPlaceButton", "VideoPlaceOrder"):
             setattr(importlib.import_module(f"robomme.robomme_env.{t}"), "swap_flat_two_lane", lambda *a, **k: None)
-    elif key == "T3-M06":  # reset 不再过滤 NO RECORD
+    elif key == "T3-M06":  # reset no longer filters NO RECORD
         dw = importlib.import_module("robomme.env_record_wrapper.DemonstrationWrapper")
         dw.DemonstrationWrapper._filter_no_record_from_step_batch = lambda self, batch: batch
-    elif key == "T3-M07":  # 元数据查不到
+    elif key == "T3-M07":  # metadata not found
         ecr = importlib.import_module("robomme.env_record_wrapper.episode_config_resolver")
         ecr.get_episode_metadata = lambda index, task, episode: None
-    elif key == "T3-M08":  # RouteStick 方向判反
+    elif key == "T3-M08":  # RouteStick direction inverted
         rs = importlib.import_module("robomme.robomme_env.RouteStick").RouteStick
         orig = rs.direction_fail
         flip = {"clockwise": "counterclockwise", "counterclockwise": "clockwise"}
@@ -289,10 +289,10 @@ def _unit_robomme(key: str) -> None:
             a, b, d = judge_direction_list
             return orig(self, [a, b, flip.get(d, d)])
         rs.direction_fail = direction_fail
-    elif key == "T3-M09":  # FailAwareWrapper 不再把异常转成 status=error
+    elif key == "T3-M09":  # FailAwareWrapper no longer converts exceptions to status=error
         fa = importlib.import_module("robomme.env_record_wrapper.FailAwareWrapper").FailAwareWrapper
         fa.step = lambda self, action: self.env.step(action)
-    elif key == "T3-M10":  # 一次调用推进两项
+    elif key == "T3-M10":  # one call advances two items
         orig = sef.sequential_task_check
 
         def sequential_task_check(self, tasks, allow_subgoal_change_this_timestep):
@@ -306,7 +306,7 @@ def _unit_robomme(key: str) -> None:
         raise KeyError(key)
 
 
-# ───────────────────────────── 包装器块（tests/robomme_ood/unit/wrappers）：按源码替换后重定义方法 ─────────────────────────────
+# ───────────────────────────── Wrapper block (tests/robomme_ood/unit/wrappers): redefine methods after source replacement ─────────────────────────────
 
 
 def _func_source(module_name, owner, attr) -> str:
@@ -326,7 +326,7 @@ def _mutate_func(module_name, owner, attr, repl) -> None:
     ns["gym"] = importlib.import_module("gymnasium")
     exec(compile(src, f"<mutant {attr}>", "exec"), ns)
     tmp = ns[attr]
-    # 以真实模块字典作全局，保证测试对模块属性的 monkeypatch 仍对植入后的函数生效
+    # Use the real module dict as globals so tests' monkeypatch of module attributes still applies to the mutated function
     if "gym" not in mod.__dict__:
         mod.__dict__["gym"] = ns["gym"]
     new = types.FunctionType(tmp.__code__, mod.__dict__, tmp.__name__, tmp.__defaults__, tmp.__closure__)
@@ -341,7 +341,7 @@ _DW = "robomme.env_record_wrapper.DemonstrationWrapper"
 _SWAP_CONCAT = ("concat_step_batches([demo_batch, init_batch])", "concat_step_batches([init_batch, demo_batch])")
 _ANY_EXC = ("except screw_failure_exc as exc:", "except Exception as exc:")
 
-#: 键 → (模块, 类或 None, 方法名, [(old, new), ...])
+#: key -> (module, class or None, method name, [(old, new), ...])
 _WRAPPERS = {
     "T10-W1": ("robomme.env_record_wrapper.EndeffectorDemonstrationWrapper", "EndeffectorDemonstrationWrapper", "step",
                [("ik_solutions[0][:7]", "ik_solutions[-1][:7]")]),
@@ -366,17 +366,17 @@ _WRAPPERS = {
 }
 
 
-# ───────────────────────────── 植入前预校验：植入点必须存在且（片段型）恰好命中 1 次 ─────────────────────────────
+# ───────────────────────────── Pre-mutation check: mutation point must exist and (fragment type) match exactly once ─────────────────────────────
 
 
 def _count_reason(where: str, text, frag) -> str | None:
     n = text.count(frag)
-    return None if n == 1 else f"{where} 植入片段命中 {n} 次：{frag!r}"
+    return None if n == 1 else f"{where} mutation fragment matched {n} times: {frag!r}"
 
 
 def _missing(obj, *attrs) -> str | None:
     lacking = [a for a in attrs if not hasattr(obj, a)]
-    return f"{getattr(obj, '__name__', obj)} 缺属性 {lacking}" if lacking else None
+    return f"{getattr(obj, '__name__', obj)} missing attributes {lacking}" if lacking else None
 
 
 def _first(*reasons) -> str | None:
@@ -384,29 +384,29 @@ def _first(*reasons) -> str | None:
 
 
 def _precheck(root: pathlib.Path, block: str, key: str) -> str | None:
-    """返回 None 表示可以植入；否则返回不能植入的原因（不改任何东西）。"""
+    """Return None if the mutation can be applied; otherwise return the reason it cannot (changes nothing)."""
     if block == "static":
         binfill = root / "src/robomme/robomme_env/BinFill.py"
         if key in ("M01", "M04S") and (not binfill.is_file() or binfill.stat().st_size == 0):
-            return f"{binfill} 不存在或为空"
+            return f"{binfill} missing or empty"
         if key == "M02":
             p = root / "scripts/evaluation.py"
-            return None if p.is_file() else f"{p} 不存在"
+            return None if p.is_file() else f"{p} does not exist"
         if key == "M03":
             p = root / "src/robomme_ood/env_record_wrapper/RecordWrapper.py"
-            return _count_reason(str(p), p.read_bytes(), b"fail_safe_limit = 5000") if p.is_file() else f"{p} 不存在"
+            return _count_reason(str(p), p.read_bytes(), b"fail_safe_limit = 5000") if p.is_file() else f"{p} does not exist"
         if key == "M04S":
             import json
 
             m = json.loads((root / "src/robomme_ood/UPSTREAM.json").read_bytes())
             if "manifest_sha256" not in m or "src/robomme/robomme_env/BinFill.py" not in m.get("robomme_files", {}):
-                return "UPSTREAM.json 缺 manifest_sha256 或 BinFill.py 条目"
+                return "UPSTREAM.json lacks manifest_sha256 or the BinFill.py entry"
         return None
     if block == "contract":
         from robomme_ood.env_record_wrapper import hard_builder, hard_specs as hs
 
         if key == "M07":
-            return None if ("PickXtimes", "xhard1") in hs.V9_CELLS else "V9_CELLS 缺 (PickXtimes, xhard1)"
+            return None if ("PickXtimes", "xhard1") in hs.V9_CELLS else "V9_CELLS lacks (PickXtimes, xhard1)"
         return _missing(hard_builder, "_ood_entries")
     if block == "pipeline/recording":
         if key == "M14a":
@@ -414,13 +414,13 @@ def _precheck(root: pathlib.Path, block: str, key: str) -> str | None:
 
             srcs = [inspect.getsource(m) for m in _rec_mods()]
             return _first(_missing(h5py.Group, "create_dataset"),
-                          *(None if "is_subgoal_boundary" in s else "RecordWrapper 源码里没有 is_subgoal_boundary"
+                          *(None if "is_subgoal_boundary" in s else "RecordWrapper source has no is_subgoal_boundary"
                             for s in srcs))
         if key == "T5-K1":
             from robomme.env_record_wrapper.episode_dataset_resolver import EpisodeDatasetResolver as R
 
             return _first(_missing(R, "_build_indexes"),
-                          None if "_timestep_indexes" in inspect.getsource(R) else "解析器没有 _timestep_indexes")
+                          None if "_timestep_indexes" in inspect.getsource(R) else "parser has no _timestep_indexes")
         if key == "T5-K4":
             text = (root / "scripts/dataset_replay.py").read_text(encoding="utf-8")
             return _count_reason("scripts/dataset_replay.py", text, "def _build_action_sequence(")
@@ -435,7 +435,7 @@ def _precheck(root: pathlib.Path, block: str, key: str) -> str | None:
             for m in _rec_mods():
                 params = list(inspect.signature(m.RobommeRecordWrapper._video_flush_episode_files).parameters)
                 if params != ["self", "success", "video_prefix", "filename_suffix"]:
-                    return f"_video_flush_episode_files 签名变了：{params}"
+                    return f"_video_flush_episode_files signature changed: {params}"
         return reason
     if block == "unit/robomme":
         sef = importlib.import_module("robomme.robomme_env.utils.subgoal_evaluate_func")
@@ -468,14 +468,14 @@ def _precheck(root: pathlib.Path, block: str, key: str) -> str | None:
         mod, owner, attr, repl = _WRAPPERS[key]
         src = _func_source(mod, owner, attr)
         return _first(*(_count_reason(f"{mod}.{owner}.{attr}", src, old) for old, _ in repl))
-    return f"未知块 {block}"
+    return f"unknown block {block}"
 
 
-# 每块的植入时机沿用该块作者自检时的钩子：静态／契约／录制在 pytest_configure，官方单元与包装器在 pytest_sessionstart。
+# Each block's mutation timing follows the hook the block author used in self-checks: static/contract/recording in pytest_configure, official unit and wrappers in pytest_sessionstart.
 CONFIGURE_BLOCKS = {"static", "contract", "pipeline/recording"}
 SESSIONSTART_BLOCKS = {"unit/robomme", "unit/wrappers"}
 
-#: 本插件能执行的全部键（执行器据此把 mutants.json 的条目归到 B 类）。
+#: All keys this plugin can execute (the runner uses this to classify mutants.json entries as class B).
 SUPPORTED = (
     {f"static:{k}" for k in ("M01", "M02", "M03", "M04S")}
     | {f"contract:{k}" for k in ("M07", "M10")}
@@ -487,7 +487,7 @@ SUPPORTED = (
 
 
 def _write_status(applied: bool, reason: str | None) -> None:
-    """把植入是否真正生效写到 MUT_STATUS_FILE；执行器只有读到 applied=true 才会把失败计为抓到。"""
+    """Write whether the mutation actually took effect to MUT_STATUS_FILE; the runner only counts failures as caught when it reads applied=true."""
     path = os.environ.get("MUT_STATUS_FILE")
     if path:
         import json
@@ -500,10 +500,10 @@ def _apply(config) -> None:
     block, _, key = KEY.partition(":")
     try:
         reason = _precheck(pathlib.Path(str(config.rootpath)), block, key)
-    except Exception as exc:  # 预校验自身出错同样视为不能植入
-        reason = f"预校验异常 {type(exc).__name__}: {exc}"
+    except Exception as exc:  # an error in the pre-check itself also counts as not applicable
+        reason = f"pre-check exception {type(exc).__name__}: {exc}"
     if reason:
-        # 不植入、不中断会话：用例照原版跑，执行器据状态文件记为 not_applied
+        # do not mutate, do not abort the session: tests run as original, and the runner records not_applied from the status file
         _write_status(False, reason)
         print(f"MUT_INPROC_NOT_APPLIED={KEY} {reason}", flush=True)
         return
@@ -521,7 +521,7 @@ def _apply(config) -> None:
         else:
             raise KeyError(KEY)
     except Exception as exc:
-        _write_status(False, f"植入异常 {type(exc).__name__}: {exc}")
+        _write_status(False, f"mutation exception {type(exc).__name__}: {exc}")
         raise
     _write_status(True, None)
     print(f"MUT_INPROC_APPLIED={KEY}", flush=True)
@@ -530,8 +530,8 @@ def _apply(config) -> None:
 def pytest_configure(config):
     if KEY:
         if KEY not in SUPPORTED:
-            _write_status(False, f"未知植入 {KEY}")
-            raise SystemExit(f"未知植入 {KEY}")
+            _write_status(False, f"unknown mutation {KEY}")
+            raise SystemExit(f"unknown mutation {KEY}")
         if KEY.partition(":")[0] in CONFIGURE_BLOCKS:
             _apply(config)
 

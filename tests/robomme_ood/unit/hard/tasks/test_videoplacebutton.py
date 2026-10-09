@@ -1,8 +1,8 @@
-"""VideoPlaceButton 新值档真值表（xhard1、xhard2）：执行段把被问方块放到「按钮前最后一次／按钮后第一次」放过的那个目标台。
+"""VideoPlaceButton new-value tier truth table (xhard1, xhard2): in the execution segment place the asked cube on the target stand it was "last placed on before the button / first placed on after the button".
 
-答案由演示段实际发生的放置事件按手写规则推出（before → 按钮前该方块最后落到的目标台；after → 按钮后第一次），
-目标台在演示收尾时会交换位置，答案跟随台的身份。错误与边界：before／after 反转、放到答案台交换前所在位置上
-现在的台、执行段抓别的方块均为失败。
+The answer is derived by hand-written rules from the placement events that actually happened in the demonstration segment (before → the last target stand the cube landed on before the button; after → the first after the button);
+target stands swap positions at the end of the demonstration, and the answer follows the stand's identity. Errors and boundaries: swapping before/after, placing on the stand now at the answer stand's pre-swap position,
+and picking another cube in the execution segment are all failures.
 """
 from __future__ import annotations
 
@@ -49,10 +49,10 @@ def test_place_onto_answer_target_succeeds(world, tier, k):
     assert _place(w, answer) == {"success": True, "fail": False}
 
 
-#: 选格（T12 实测，xhard1／xhard2 各前 8 个正式局）：before／after 反转在第 0 局即可构造（8/8 局都可）；
-#: 「答案台交换前位置上现在的台」只在部分局存在（xhard1 第 1、4、6 局，xhard2 第 2、4、5 局），
-#: 原先固定取第 0 局时该分支两档都不成立、断言空转。下面按档钉确定能触发的局，并把触发条件写成前置断言：
-#: 包内规格若变动使条件不再成立，用例响亮失败而不是静默空转。
+#: Cell choice (measured in T12, first 8 formal episodes each of xhard1/xhard2): the before/after swap can be built in episode 0 (possible in 8/8 episodes);
+#: "the stand now at the answer stand's pre-swap position" exists only in some episodes (xhard1 episodes 1, 4, 6; xhard2 episodes 2, 4, 5);
+#: when episode 0 was used for everything, this branch held in neither tier and the assertion was vacuous. Below, episodes that can trigger it are pinned per tier, and the trigger condition is written as a precondition assertion:
+#: if the packaged specs change so the condition no longer holds, the test fails loudly instead of silently doing nothing.
 SWAP_K = {"xhard1": 0, "xhard2": 0}
 OLD_POS_K = {"xhard1": 1, "xhard2": 2}
 
@@ -62,7 +62,7 @@ def test_before_after_swapped_fails(world, tier):
     w = world(tier, SWAP_K[tier])
     log = DD.run_demo(w)
     answer, mirror = _answer(w, log)
-    assert mirror is not answer, "选格失效：本局按钮前后放的是同一个台，before／after 反转无从区分，须重选 SWAP_K"
+    assert mirror is not answer, "cell choice invalid: the same stand was used before and after the button in this episode, so before/after swap cannot be distinguished; reselect SWAP_K"
     assert _place(w, mirror) == {"success": False, "fail": True}
 
 
@@ -74,7 +74,7 @@ def test_answer_old_position_and_wrong_cube_fail(world, tier):
     answer, _ = _answer(w, log)
     impostor = bin_at(w, pre[answer.name], w.env.targets)
     assert impostor is not None and impostor is not answer, \
-        "选格失效：答案台交换前的位置上现在没有别的台，须重选 OLD_POS_K"
+        "cell choice invalid: no other stand is now at the answer stand's pre-swap position; reselect OLD_POS_K"
     assert _place(w, impostor) == {"success": False, "fail": True}
     w = World.build(TASK, tier)
     DD.run_demo(w)

@@ -1,8 +1,8 @@
-"""InsertPeg 新值档真值表（V9 只交付 xhard4）：执行段抓起演示里那根杆的同一端，从演示的那一侧把另一端插进孔。
+"""InsertPeg new-value tier truth table (V9 delivers only xhard4): in the execution segment pick up the same end of the peg used in the demonstration and insert the other end into the hole from the demonstrated side.
 
-演示段（抓起、插入、复位、静止 100 步）在 CPU 世界里按任务表对象走完；执行段：
-正例 = 抬起抓取端（离夹爪更近）→ 插入端到孔中心、夹爪在要求的一侧 → 成功；
-错误与边界：抓另一端即失败；夹爪在反方向一侧插入即失败；抓别的杆即失败；两端离夹爪等距不算抓起（严格 ``<``）。
+The demonstration segment (pick up, insert, reset, stay still 100 steps) is walked through in the CPU world following the task table objects; execution segment:
+positive = lift the grasp end (closer to the gripper) → insertion end to the hole center with the gripper on the required side → success;
+errors and boundaries: grasping the other end fails; inserting with the gripper on the opposite side fails; grasping another peg fails; both ends equidistant from the gripper does not count as picked up (strict ``<``).
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def world():
 
 
 def _lift_end(w, end, other_z=0.12):
-    """抬起杆的一端（夹爪就在这一端），另一端略低。"""
+    """Lift one end of the peg (the gripper is at this end), the other end slightly lower."""
     x, y, _ = w.xyz(end)
     w.move(end, (x, y, LIFT))
     w.agent.held = end
@@ -34,7 +34,7 @@ def _lift_end(w, end, other_z=0.12):
 
 
 def _insert(w, side_sign):
-    """插入：插入端移到孔中心，抓取端在孔外 0.1 m；夹爪在孔的 y 侧 ``side_sign`` 方向。"""
+    """Insert: move the insertion end to the hole center, the grasp end 0.1 m outside the hole; the gripper is on the ``side_sign`` y side of the hole."""
     env = w.env
     bx, by, bz = w.xyz(env.box)
     w.move(env.insert_target, (bx, by, bz))
@@ -54,11 +54,11 @@ def _demo(w):
             _lift_end(w, env.grasp_target)
         elif name.startswith("Insert the peg"):
             _insert(w, -env.direction)
-        else:  # 复位与静止
+        else:  # reset and stay still
             w.agent.held = None
             w.agent.robot.set_qpos(reset_panda.get_reset_panda_param("qpos"))
         assert w.step()["fail"] is False, name
-    raise AssertionError("演示段未走完")
+    raise AssertionError("demonstration segment not finished")
 
 
 @pytest.mark.parametrize("tier", TIERS)
@@ -99,7 +99,7 @@ def test_other_peg_and_equidistant_ends(world, tier):
     assert w.step() == {"success": False, "fail": True}
     w = World.build(TASK, tier)
     _demo(w)
-    # 两端关于夹爪对称、坐标取 float32 精确可表示的 ±1/16 m：两端到夹爪等距，严格 < 不成立 → 不算抓起
+    # both ends symmetric about the gripper, coordinates ±1/16 m exactly representable in float32: both ends equidistant from the gripper, strict < does not hold → not picked up
     w.move(w.env.grasp_target, (2.0 ** -4, 0.0, LIFT))
     w.move(w.env.insert_target, (-(2.0 ** -4), 0.0, LIFT))
     w.tcp_to((0.0, 0.0, LIFT))

@@ -1,5 +1,5 @@
-"""ButtonUnmask 新值档（xhard1～xhard4）：与 VideoUnmask 同一套布局断言（容器、藏物、干扰物、抓取次数），
-外加按钮；包内规格回放与自导出。"""
+"""ButtonUnmask new-value tiers (xhard1-xhard4): the same layout assertions as VideoUnmask (containers, hidden objects, distractors, pick count),
+plus buttons; packaged spec replay and self-export."""
 from __future__ import annotations
 
 import pytest

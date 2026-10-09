@@ -1,6 +1,6 @@
-"""植入执行器的结果记录插件：把每个用例各阶段的结局与异常类型、收集错误写到 MUT_OUTCOME_FILE（JSON）。
+"""Outcome recorder plugin for the mutation runner: writes each test's per-phase outcome, exception type and collection errors to MUT_OUTCOME_FILE (JSON).
 
-只在环境变量 MUT_OUTCOME_FILE 存在时生效；不改任何被测行为。
+Active only when the MUT_OUTCOME_FILE environment variable is set; does not change any behavior under test.
 """
 from __future__ import annotations
 
@@ -24,12 +24,12 @@ def pytest_runtest_makereport(item, call):
     exc = call.excinfo.typename if call.excinfo is not None else None
     top_file = None
     if call.excinfo is not None and rep.failed:
-        # 异常栈顶（最内层帧，即抛出点）所在文件，相对仓库根；执行器据此排除植入插件自身抛出的失败
+        # File of the top stack frame (innermost frame, i.e. the raise site), relative to the repo root; the runner uses it to exclude failures raised by the mutation plugin itself
         try:
             path = str(call.excinfo.traceback[-1].path)
             root = str(item.config.rootpath)
             top_file = os.path.relpath(path, root) if os.path.isabs(path) and path.startswith(root + os.sep) else path
-        except Exception:  # 拿不到栈顶时留空，执行器按「来源不明」不计抓到
+        except Exception:  # leave empty when the top frame is unavailable; the runner treats it as "unknown source" and does not count it as caught
             top_file = None
     msg = None
     if rep.failed and rep.longrepr is not None:

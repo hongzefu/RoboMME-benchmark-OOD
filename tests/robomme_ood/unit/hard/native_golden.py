@@ -1,31 +1,31 @@
-"""原三档（easy／medium／hard）离线导出摘要的计算与金标准生成。
+"""Computation of offline export digests for the original three tiers (easy/medium/hard) and golden file generation.
 
-摘要 = 对 16 任务 × 3 档 × 种子 ``SEEDS``，按评估链参数（runtime 四项 + seed + difficulty，不传
-sampling_config 与规格，即原生分支）离线跑真实 ``_load_scene`` + 两次 ``_initialize_episode``，取导出规格文档的
-``hard_specs.digest``（剔除键序影响的 canonical JSON 的 sha256）。
+Digest = for 16 tasks × 3 tiers × seeds ``SEEDS``, with the evaluation chain's parameters (four runtime items + seed + difficulty, without
+sampling_config or spec, i.e. the native branch) run the real ``_load_scene`` + two ``_initialize_episode`` offline and take the exported spec document's
+``hard_specs.digest`` (sha256 of canonical JSON, removing key-order effects).
 
-建场抛异常的记 ``error:<异常类名>@<抛出点模块>``，抛出点模块取 traceback 最内层帧所在模块的 ``__name__``，
-用来区分异常来自生产代码（``robomme_ood.*``）还是来自测试替身（``tests.*``，如 ``offline_scene``）；
-``test_native_golden.py`` 断言金标准里所有异常条目的抛出点都在 ``robomme_ood`` 内。
+Scene-build exceptions are recorded as ``error:<exception class name>@<raise-site module>``, where the raise-site module is the ``__name__`` of the module of the innermost traceback frame,
+to distinguish exceptions from production code (``robomme_ood.*``) from those of test stand-ins (``tests.*``, e.g. ``offline_scene``);
+``test_native_golden.py`` asserts that the raise site of every exception entry in the golden file is inside ``robomme_ood``.
 
-现有两条异常条目 ``VideoPlaceOrder/medium/101``、``VideoPlaceOrder/hard/101`` 的出处（T12 实测）：
-真实 ``spawn_random_target`` 布局失败抛 RuntimeError → ``VideoPlaceOrder._load_scene`` 内
-``raise _SceneGenError(...)`` 因名字 ``SceneGenerationError`` 被 ``from .utils import *`` 遮蔽成同名子模块而抛
-TypeError（模块不可调用）→ 外层 ``except _SceneGenError:`` 再抛 TypeError（except 子句不是异常类），
-最内层帧在 ``robomme_ood.robomme_env.VideoPlaceOrder._load_scene``，不是替身自身的错误。这是有意保留的官方现状：
-见 ``src/robomme_ood/robomme_env/VideoPlaceOrder.py`` 的注释「V4 H2」（xhard 分支改用真正的异常类，原三档
-行为逐字不变），以及 ``docs/plans/0922-newtask-release-v4-plan.md`` 决策表 K2（「只在 xhard 修，原三档仍
-TypeError，H2」）。
+Origin of the two existing exception entries ``VideoPlaceOrder/medium/101`` and ``VideoPlaceOrder/hard/101`` (measured in T12):
+the real ``spawn_random_target`` layout fails and raises RuntimeError → inside ``VideoPlaceOrder._load_scene``
+``raise _SceneGenError(...)`` raises TypeError (module not callable) because the name ``SceneGenerationError`` is shadowed by ``from .utils import *`` into a same-named submodule
+→ the outer ``except _SceneGenError:`` raises TypeError again (the except clause is not an exception class),
+and the innermost frame is in ``robomme_ood.robomme_env.VideoPlaceOrder._load_scene``, not an error of the stand-in itself. This is deliberately kept official behavior:
+see the "V4 H2" comment in ``src/robomme_ood/robomme_env/VideoPlaceOrder.py`` (the xhard branch uses a real exception class, original-tier
+behavior unchanged verbatim), and decision K2 in ``docs/plans/0922-newtask-release-v4-plan.md`` ("fix only in xhard, original tiers still
+TypeError, H2").
 
-金标准文件 ``native_golden.json`` 最初在维护计划 BASE（``93014f27``）上生成；T12 为异常条目补抛出点模块，
-在 ``6db45911`` 上重新生成（``git diff 93014f27 6db45911 -- src/robomme_ood`` 为空，生产代码与原 BASE
-逐字节相同），96 条中 94 条非异常摘要与原文件逐条相同::
+The golden file ``native_golden.json`` was first generated on maintenance plan BASE (``93014f27``); T12 added raise-site modules to the exception entries
+and regenerated it on ``6db45911`` (``git diff 93014f27 6db45911 -- src/robomme_ood`` is empty, production code byte-identical to the original BASE);
+94 of the 96 non-exception digests are identical entry by entry to the original file::
 
-    UV_PROJECT_ENVIRONMENT=<主检出 .venv> PYTHONPATH=<worktree>/src:<worktree> \\
+    UV_PROJECT_ENVIRONMENT=<main checkout .venv> PYTHONPATH=<worktree>/src:<worktree> \\
         uv run --no-sync python -m tests.robomme_ood.unit.hard.native_golden --write
 
-之后生产代码改动若改变了原三档的任何取值点、随机流消费、异常类型或异常抛出点，``test_native_golden.py`` 即失败；
-确属有意的改动须重新生成并在提交说明里写明原因。
+Afterwards, if a production code change alters any value site, random stream consumption, exception type or exception raise site of the original three tiers, ``test_native_golden.py`` fails;
+intentional changes must regenerate the file and state the reason in the commit message.
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def key(task: str, tier: str, seed: int) -> str:
 
 
 def raise_site_module(exc: BaseException) -> str:
-    """异常 traceback 最内层帧所在模块的 ``__name__``（区分生产代码与测试替身）。"""
+    """``__name__`` of the module of the innermost traceback frame (distinguishes production code from test stand-ins)."""
     tb = exc.__traceback__
     if tb is None:
         return "?"
@@ -62,7 +62,7 @@ def summarize(task: str, tier: str, seed: int) -> str:
         with cpu_world():
             env = O.make_offline(task, seed=seed, difficulty=tier)
             World.from_env(env)
-    except Exception as exc:  # noqa: BLE001 — 异常类型与抛出点本身就是被钉住的行为
+    except Exception as exc:  # noqa: BLE001 -- the exception type and raise site are themselves the pinned behavior
         return f"error:{type(exc).__name__}@{raise_site_module(exc)}"
     doc = env._spec.to_dict()
     if doc["spec_kind"] != "native-parity/1":

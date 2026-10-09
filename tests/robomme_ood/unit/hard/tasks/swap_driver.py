@@ -1,4 +1,4 @@
-"""两个 Swap 任务真值表的公共流程：经真实 ``step`` 走完揭示与全部交换窗口，再按藏物关系抓放。"""
+"""Shared flow for the two Swap task truth tables: go through the reveal and all swap windows via the real ``step``, then pick and place by the hiding relation."""
 from __future__ import annotations
 
 import numpy as np
@@ -9,9 +9,9 @@ OK = {"success": False, "fail": False}
 
 
 def run_through_swaps(w, before_swaps=None):
-    """经任务类真实 ``step`` 推进到最后一个交换窗口结束之后；``before_swaps(w)`` 在第一个交换窗口前调用一次。
+    """Advance through the task class's real ``step`` until after the last swap window ends; ``before_swaps(w)`` is called once before the first swap window.
 
-    返回：每个被藏方块在交换前的俯视位置（交换前最后一步读取）。
+    Returns: the top-view position of each hidden cube before the swaps (read at the last step before swapping).
     """
     env = w.env
     w.still()
@@ -24,12 +24,12 @@ def run_through_swaps(w, before_swaps=None):
             if before_swaps is not None:
                 before_swaps(w)
         out = w.step()
-        assert out["fail"] is False, f"第 {int(env.elapsed_steps)} 步提前失败"
+        assert out["fail"] is False, f"step {int(env.elapsed_steps)} failed early"
     return origin
 
 
 def bins_in_order(w):
-    """第 k 次抓取的容器：藏着第 k 种颜色方块的那个（交换之后按几何判定）。"""
+    """Container for the k-th pick: the one hiding the cube of the k-th color (judged geometrically after the swaps)."""
     cubes = D.colour_cubes(w.env)[: w.env.pick_times]
     return [D.bin_hiding(w, c, w.env.spawned_bins) for c in cubes]
 

@@ -1,4 +1,4 @@
-"""BinFill 新值档：离线真实 ``_load_scene`` 的方块数与配额、同色成团上限、包内规格回放与自导出。"""
+"""BinFill new-value tiers: cube count and quotas of the real offline ``_load_scene``, same-color cluster cap, packaged spec replay and self-export."""
 from __future__ import annotations
 
 import itertools
@@ -51,22 +51,22 @@ def test_cube_counts_quota_and_spacing(tier, k):
     for c, cubes in by_color.items():
         assert 0 <= targets[c] <= len(cubes), c
         assert getattr(env, f"{c}_cubes_in_bin") == 0
-    # 手算：方块不相交的必要条件，中心距 ≥ 2 × 半边长
+    # by hand: necessary condition for disjoint cubes, center distance ≥ 2 × half side length
     xy = [a.pose.p[0, :2].numpy().astype(np.float64) for a in env.all_cubes]
     assert min(np.linalg.norm(a - b) for a, b in itertools.combinations(xy, 2)) >= 2 * env.cube_half_size - 1e-6
-    # 语言序列只列有配额的颜色，数量与配额一致
+    # the language sequence lists only colors with a quota, counts match the quotas
     assert dict(env.binfill_language_sequence) == {c: n for c, n in targets.items() if n > 0}
-    # 成团上限：未走兜底时，记录的最大同色团不超过本档上限
+    # cluster cap: when the fallback was not taken, the recorded largest same-color cluster does not exceed this tier's cap
     objs = row["spec"]["objects"]
     if not objs["color_mix_fallback"]:
         assert objs["color_mix_max_component"] <= cfg["color_mix"]["max_component"]
 
 
-# ── 纯函数 _max_same_color_component：手写小表 ───────────────────────────────
+# ── pure function _max_same_color_component: hand-written small tables ───────────────────────────────
 
 
 def test_same_color_component_link_is_inclusive():
-    """三块同色排成一列、相邻间距恰为 link：``<= link`` 即相连 → 团大小 3；略大于 link → 各自成团。"""
+    """Three same-color cubes in a row with adjacent spacing exactly link: ``<= link`` means connected → cluster size 3; slightly more than link → separate clusters."""
     link = 0.09
     xy = [(0.0, 0.0), (link, 0.0), (2 * link, 0.0)]
     assert BF._max_same_color_component(xy, ["r", "r", "r"], link) == 3
@@ -76,7 +76,7 @@ def test_same_color_component_link_is_inclusive():
 
 def test_same_color_component_ignores_other_colors_and_empty():
     xy = [(0.0, 0.0), (0.05, 0.0), (0.10, 0.0), (0.15, 0.0)]
-    # 红-蓝-红-红：中间的蓝块不桥接两个红块（0→2 相距 0.10 > 0.09）
+    # red-blue-red-red: the blue cube in the middle does not bridge two red cubes (0→2 distance 0.10 > 0.09)
     assert BF._max_same_color_component(xy, ["r", "b", "r", "r"], 0.09) == 2
     assert BF._max_same_color_component([], [], 0.09) == 0
     with pytest.raises(ValueError):

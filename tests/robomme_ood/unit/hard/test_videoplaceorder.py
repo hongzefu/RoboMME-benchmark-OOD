@@ -1,4 +1,4 @@
-"""VideoPlaceOrder 新值档（xhard1、xhard2）：演示方块数、每块访问次数、「第 k 次放置」答案绑定，包内规格回放与自导出。"""
+"""VideoPlaceOrder new-value tiers (xhard1, xhard2): demonstration cube count, visits per cube, "k-th placement" answer binding, packaged spec replay and self-export."""
 from __future__ import annotations
 
 import pytest
@@ -41,16 +41,16 @@ def test_demo_visits_and_kth_answer(tier, k):
     assert sorted(len(v) for v in visits) == sorted(sub["visit_counts"])
     for seq in visits:
         assert all(t in env.targets for t in seq)
-        assert all(a is not b for a, b in zip(seq, seq[1:])), "同一方块连续两次放同一目标"
-    # 答案：被问方块的访问序列里第 which_in_subset 次放置的目标（时间序，不是空间序）
-    # （两块的访问序列可能相同，所以按规格记录的被问方块序号取，不按内容反查）
+        assert all(a is not b for a, b in zip(seq, seq[1:])), "the same cube placed on the same target twice in a row"
+    # answer: the target of the which_in_subset-th placement in the asked cube's visit sequence (temporal order, not spatial order)
+    # (two cubes may have identical visit sequences, so use the asked cube index recorded in the spec rather than reverse lookup by content)
     ans = row["spec"]["objects"]["answer_demo_index"]
     assert env.target_cube is env.demo_cubes[ans]
     assert env.which_targets_to_pick == visits[ans]
     assert 1 <= env.which_in_subset <= len(env.which_targets_to_pick)
     assert env.target_target is env.which_targets_to_pick[env.which_in_subset - 1]
     assert set(env.targets_not_true) == set(env.targets) - {env.target_target}
-    # 演示总放置次数 = 各块访问次数之和；放回原位策略下每个演示块各有一个落点
+    # total demonstration placements = sum of visits per cube; under the return-to-origin policy each demonstration cube has one landing spot
     assert env.target_placement_count == sum(len(v) for v in visits)
     if sub["demo_return_policy"] == "return_to_origin":
         assert len(env.xhard_home_sites) == len(env.demo_cubes)

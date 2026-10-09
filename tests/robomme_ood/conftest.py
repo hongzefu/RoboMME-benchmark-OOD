@@ -1,4 +1,4 @@
-"""根 conftest：只放全套件共享的路径夹具。资源守卫与 --allow-sim-reset 在 tests/robomme_ood/_support/resource_policy.py。"""
+"""Root conftest: holds only path fixtures shared by the whole suite. Resource guard and --allow-sim-reset live in tests/robomme_ood/_support/resource_policy.py."""
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,1 +1,1 @@
-"""植入（变异）执行器：读取各测试块的 mutants.json，逐项在隔离副本或测试进程内植入语义错误并核对指定用例失败。"""
+"""Mutation runner: reads each test block's mutants.json, injects each semantic bug in an isolated copy or in the test process, and checks that the designated tests fail."""

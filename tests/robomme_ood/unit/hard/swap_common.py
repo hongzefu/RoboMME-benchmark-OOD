@@ -1,4 +1,4 @@
-"""VideoUnmaskSwap／ButtonUnmaskSwap 共用的布局断言：内环交换次数与时间窗、抓取次数、干扰容器与外环交换。"""
+"""Layout assertions shared by VideoUnmaskSwap/ButtonUnmaskSwap: inner-loop swap count and time windows, pick count, distractor containers and outer-loop swaps."""
 from __future__ import annotations
 
 from collections import Counter
@@ -16,7 +16,7 @@ def check_swap_layout(task, tier, k):
     assert lo <= env.swap_times <= hi
     plo, phi = dec["pick_count_range"][tier]
     assert plo <= env.pick_times <= phi
-    # 三个有色方块各藏在一个选中的容器下，选中的容器互不相同
+    # the three colored cubes are each hidden under a selected container; selected containers are all distinct
     assert len(env.cube_bin_pairs) == 3
     for cube, b in env.cube_bin_pairs:
         assert U.hidden_under(cube, [b]) == [b], cube.name
@@ -24,7 +24,7 @@ def check_swap_layout(task, tier, k):
     assert env.target_bin in env.spawned_bins and env.target_cube in env.spawned_dynamic_cubes
     U.assert_distractors_match_decision(env, sub["distractor"])
     U.assert_containers_disjoint(list(env.spawned_bins) + list(env.distractor_bins))
-    # 内环：每次交换两个不同容器，不立刻撤销上一次；时间窗首尾相接、等长、从 swap_window_start 起
+    # inner loop: each swap involves two different containers and does not immediately undo the previous one; time windows are contiguous, equal length, starting at swap_window_start
     pairs = [tuple(p) for p in row["spec"]["actions"]["predicted_inner_swap_pairs"]]
     assert len(pairs) == env.swap_times
     assert all(a != b for a, b in pairs)
@@ -34,7 +34,7 @@ def check_swap_layout(task, tier, k):
     assert len(sched) == env.swap_times and sched[0][2] == env.swap_window_start
     assert all(s[3] == t[2] for s, t in zip(sched, sched[1:]))
     assert {s[3] - s[2] for s in sched} == {env.swap_window_steps}
-    # 外环：每次交换两个不同干扰容器，次数与内环相同；参与次数按交换对重数后与记录一致
+    # outer loop: each swap involves two different distractor containers, same count as the inner loop; participation counts by swap-pair multiplicity match the record
     outer = [tuple(p) for p in row["spec"]["actions"]["distractor_swap_pairs"]]
     assert len(outer) == env.swap_times
     assert all(a != b and 0 <= a < len(env.distractor_bins) and 0 <= b < len(env.distractor_bins) for a, b in outer)

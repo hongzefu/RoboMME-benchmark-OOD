@@ -1,13 +1,13 @@
-"""按格（任务 × V9 交付档）的公共断言：包内规格回放、自导出、篡改负例。
+"""Per-cell (task × V9 delivered tier) shared assertions: packaged spec replay, self-export, tampering negative cases.
 
-* 包内回放：该格前 3 个正式局（builder 同序：``delivered`` 且按 candidate 升序）的 ``spec`` 作
-  ``native_episode_spec``，按评估链参数（``seed``、``difficulty``、header 内嵌 ``sampling_config``）离线跑真实
-  ``_load_scene`` 与两次 ``_initialize_episode``（评估链 make + reset 的真实次数）——每个回注点的原抽样必须与
-  冻结值逐位相等（``value()`` 记录的 mismatch 为空）；生产摘要 ``spec_binding`` 的 ``injected_mismatch == 0``、
-  ``unused == 0``、``mode == "replay"``、``spec_sha256`` 等于行上的 ``spec_sha256``。
-* 自导出：同一 seed 不传规格导出，导出文档的每个取值点与包内规格相同（记录点允许 ``RECORDED_FLOAT_TOL``，
-  这是 GPU 生成与 CPU 离线的 float32 尾差，取自生产常量），再把导出文档回放，回注点零不等。
-* 篡改负例：把一个回注点的冻结值改掉再回放，必须被记成 mismatch（或在回放时被生产复核拒绝）。
+* Packaged replay: the ``spec`` of the first 3 formal episodes of the cell (same order as builder: ``delivered`` in ascending candidate order) is used as
+  ``native_episode_spec``; with the evaluation chain's parameters (``seed``, ``difficulty``, header-embedded ``sampling_config``) the real
+  ``_load_scene`` and two ``_initialize_episode`` calls (the real count of evaluation chain make + reset) run offline; the original draw at every injection point must equal
+  the frozen value bit for bit (mismatches recorded by ``value()`` are empty); the production summary ``spec_binding`` has ``injected_mismatch == 0``,
+  ``unused == 0``, ``mode == "replay"``, and ``spec_sha256`` equal to the row's ``spec_sha256``.
+* Self-export: export with the same seed and no spec; every value site of the exported document equals the packaged spec (record points allow ``RECORDED_FLOAT_TOL``,
+  the float32 tail difference between GPU generation and CPU offline, taken from a production constant); then replay the exported document with zero mismatches at injection points.
+* Tampering negative case: change the frozen value of one injection point and replay; it must be recorded as a mismatch (or rejected by production re-checks during replay).
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def spec_leaves(spec: dict) -> dict:
 
 
 def close(a, b, tol: float) -> bool:
-    """树形逐值比较：数值差 ≤ tol，结构与非数值严格相等。"""
+    """Tree-wise value comparison: numeric difference ≤ tol, structure and non-numerics strictly equal."""
     if isinstance(a, bool) or isinstance(b, bool):
         return a == b
     if isinstance(a, (int, float)) and isinstance(b, (int, float)):
@@ -55,7 +55,7 @@ def close(a, b, tol: float) -> bool:
 
 
 def value_mismatches(env) -> list[dict]:
-    """回注点（``value()``）上的不等；记录点（``record()``）的尾差单独看。"""
+    """Mismatches at injection points (``value()``); tail differences of record points (``record()``) are looked at separately."""
     rec = env._spec
     spec_paths = {t["path"] for t in rec.trace if t["source"] == "spec"}
     return [m for m in rec.mismatches if m["path"] in spec_paths]
@@ -69,7 +69,7 @@ def unused_paths(env) -> list[str]:
 
 @functools.lru_cache(maxsize=None)
 def replayed(task: str, tier: str, k: int):
-    """第 k 个正式局的离线回放（缓存；调用方只读）。"""
+    """Offline replay of the k-th formal episode (cached; callers read only)."""
     header, rows = O.delivered_rows(task, tier, REPLAY_ROWS)
     row = rows[k]
     with cpu_world():
@@ -96,17 +96,17 @@ def check_packaged_replay(task: str, tier: str, k: int) -> None:
     assert binding["injected_mismatch"] == 0
     assert binding["recorded_max_abs"] <= RECORDED_FLOAT_TOL
     assert binding["spec_sha256"] == row["spec_sha256"] == spec_sha256(row["spec"])
-    assert binding["unused"] == 0, f"规格里有、本局没消费：{unused_paths(env)}"
+    assert binding["unused"] == 0, f"in the spec but not consumed by this episode: {unused_paths(env)}"
 
 
 def check_self_export(task: str, tier: str, k: int) -> None:
     row, env, doc = exported(task, tier, k)
     assert env._spec.mode == "export" and env._spec.mismatches == []
     got, want = spec_leaves(doc), spec_leaves(row["spec"])
-    assert set(got) == set(want), f"取值点集合不同：多 {sorted(set(got) - set(want))} 少 {sorted(set(want) - set(got))}"
+    assert set(got) == set(want), f"value site sets differ: extra {sorted(set(got) - set(want))} missing {sorted(set(want) - set(got))}"
     diff = [p for p in got if not close(got[p], want[p], RECORDED_FLOAT_TOL)]
-    assert diff == [], f"离线导出与包内规格不符：{diff[:5]}"
-    # 导出文档回放：CPU→CPU，回注点零不等，记录点也逐位相等
+    assert diff == [], f"offline export does not match the packaged spec: {diff[:5]}"
+    # replay of the exported document: CPU→CPU, zero mismatches at injection points, record points also equal bit for bit
     with cpu_world():
         env2 = World.build(task, tier, k, spec=copy.deepcopy(doc)).env
     assert env2._spec.mismatches == []
@@ -115,11 +115,11 @@ def check_self_export(task: str, tier: str, k: int) -> None:
 
 
 def first_value_path(env) -> str:
-    """第一个回注点路径（取自生产 trace，不在测试里写死）。"""
+    """Path of the first injection point (taken from the production trace, not hard-coded in tests)."""
     for t in env._spec.trace:
         if t["source"] == "spec":
             return t["path"]
-    raise AssertionError("本局没有回注点")
+    raise AssertionError("this episode has no injection point")
 
 
 def _perturb(value):
@@ -136,7 +136,7 @@ def _perturb(value):
         return {**value, k: _perturb(value[k])}
     if isinstance(value, str):
         return value + "_x"
-    raise AssertionError(f"无法篡改 {value!r}")
+    raise AssertionError(f"cannot tamper with {value!r}")
 
 
 def _set(tree: dict, path: str, value) -> None:
@@ -155,7 +155,7 @@ def _get(tree: dict, path: str):
 
 
 def check_tamper_detected(task: str, tier: str) -> None:
-    """负例：第一个回注点被篡改后回放，生产代码必须记 mismatch 或直接拒绝。"""
+    """Negative case: after tampering with the first injection point and replaying, production code must record a mismatch or reject outright."""
     row, env = replayed(task, tier, 0)
     path = first_value_path(env)
     bad = copy.deepcopy(row["spec"])
@@ -166,13 +166,13 @@ def check_tamper_detected(task: str, tier: str) -> None:
     except (SceneGenerationError, EpisodeSpecError, ValueError, AssertionError):
         return
     paths = [m["path"] for m in value_mismatches(env2)]
-    assert path in paths, f"篡改 {path} 未被发现：{paths}"
+    assert path in paths, f"tampering with {path} not detected: {paths}"
     assert spec_binding(env2)["injected_mismatch"] >= 1
 
 
 def replay_cases(*tasks: str, slow_from: int | None = None):
-    """(task, tier, k) 参数：tier 取各任务 V9 实际交付档；``slow_from`` 起的行标 slow
-    （只用于重型 Swap 任务，控制日常门禁耗时，不删断言）。"""
+    """(task, tier, k) parameters: tier is each task's actually delivered V9 tier; rows from ``slow_from`` on are marked slow
+    (only for the heavy Swap tasks, to control daily gate time; no assertions removed)."""
     import pytest
 
     out = []

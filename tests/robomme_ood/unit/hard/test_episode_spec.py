@@ -1,8 +1,8 @@
-"""每局规格的导出／回注（``utils/episode_spec.SpecRecorder``）与回注绑定摘要（``hard_specs.spec_binding``，非分层路径）。
+"""Per-episode spec export/injection (``utils/episode_spec.SpecRecorder``) and the injection binding summary (``hard_specs.spec_binding``, non-tiered path).
 
-手写小规格做输入：导出模式返回抽样值并记录；回注模式一定返回冻结值、不等记 mismatch（新值模式带
-decision_key 归因）；规格类别与难度不符、任务不符即拒；``record`` 的观测点按 1e-5 容差（生产常量
-``RECORDED_FLOAT_TOL``）分成 recorded_drift 与 injected_mismatch，等于容差算尾差；``unused`` 数未被访问的取值点。
+Hand-written small specs as input: export mode returns and records the sampled value; injection mode always returns the frozen value and records a mismatch on inequality (new-value mode attributes it with
+decision_key); spec kind not matching the difficulty or a task mismatch is rejected; ``record`` observation points are split by the 1e-5 tolerance (production constant
+``RECORDED_FLOAT_TOL``) into recorded_drift and injected_mismatch, equal to the tolerance counts as tail difference; ``unused`` counts value sites never accessed.
 """
 from __future__ import annotations
 
@@ -69,9 +69,9 @@ def test_native_mode_mismatch_has_no_attribution_field():
 
 
 @pytest.mark.parametrize("spec,difficulty,task", [
-    (_spec(kind=SPEC_KIND), TIER, "T"),  # 原值规格喂新值档
-    (_spec(kind=SPEC_KIND_NEWVALUE), "hard", "T"),  # 新值规格喂原三档
-    (_spec(), TIER, "Other"),  # 任务不符
+    (_spec(kind=SPEC_KIND), TIER, "T"),  # original-value spec fed to a new-value tier
+    (_spec(kind=SPEC_KIND_NEWVALUE), "hard", "T"),  # new-value spec fed to an original tier
+    (_spec(), TIER, "Other"),  # task mismatch
     ("not a dict", TIER, "T"),
 ])
 def test_replay_rejects_wrong_kind_or_task(spec, difficulty, task):
@@ -93,7 +93,7 @@ def test_replay_does_not_alias_input():
 
 
 def test_recorded_drift_tolerance_is_inclusive():
-    """观测点：差恰等于容差 → recorded_drift；略大于容差 → injected_mismatch；回注点任何不等都算 injected。"""
+    """Observation points: difference exactly equal to the tolerance → recorded_drift; slightly above → injected_mismatch; any inequality at an injection point counts as injected."""
     tol = RECORDED_FLOAT_TOL
     rec = SpecRecorder(_spec(layout={"a": 0.0, "b": 0.0, "c": [1.0, 2.0]}), "T", difficulty=TIER)
     rec.record("layout.a", tol)
@@ -104,7 +104,7 @@ def test_recorded_drift_tolerance_is_inclusive():
     assert b["recorded_max_abs"] == pytest.approx(tol)
     rec2 = SpecRecorder(_spec(layout={"a": 0.0}), "T", difficulty=TIER)
     rec2.value("layout.a", tol / 10)
-    assert spec_binding(_env(rec2))["injected_mismatch"] == 1, "回注点没有容差"
+    assert spec_binding(_env(rec2))["injected_mismatch"] == 1, "injection points have no tolerance"
 
 
 def test_record_structure_mismatch_is_injected_not_drift():
@@ -124,7 +124,7 @@ def test_unused_counts_unconsumed_leaves_and_prefix_consumption():
     spec = _spec(layout={"a": 1, "b": {"x": 1, "y": 2}}, objects={"n": 3}, actions={"z": 0})
     rec = SpecRecorder(spec, "T", difficulty=TIER)
     rec.value("layout.a", 1)
-    rec.value("layout.b", {"x": 1, "y": 2})  # 整棵子树作为一个取值点消费
+    rec.value("layout.b", {"x": 1, "y": 2})  # the whole subtree is consumed as one value site
     assert sorted(rec.leaf_paths()) == ["actions.z", "layout.a", "layout.b.x", "layout.b.y", "objects.n"]
     b = spec_binding(_env(rec))
     assert b["unused"] == 2 and b["mode"] == "replay"

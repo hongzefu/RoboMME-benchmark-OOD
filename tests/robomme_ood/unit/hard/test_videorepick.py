@@ -1,4 +1,4 @@
-"""VideoRepick 新值档（xhard1、xhard2）：同色方块数与间距、交换次数与均衡、重复次数，包内规格回放与自导出。"""
+"""VideoRepick new-value tiers (xhard1, xhard2): same-color cube count and spacing, swap count and balance, repeat count, packaged spec replay and self-export."""
 from __future__ import annotations
 
 import itertools
@@ -45,7 +45,7 @@ def test_cubes_swaps_and_repeats(tier, k):
     lay = dec[tier]["layout"]
     cubes = env.spawned_cubes
     assert len(cubes) == lay["cube_count"]
-    # 手算：两两中心距 ≥ 本档下限；全部落在区域内
+    # by hand: pairwise center distance ≥ this tier's lower bound; all within the region
     assert min(np.linalg.norm(_xy(a) - _xy(b)) for a, b in itertools.combinations(cubes, 2)) \
         >= lay["min_center_dist_m"] - 1e-6
     c, h = lay["region_center"], lay["region_half_size"]
@@ -56,7 +56,7 @@ def test_cubes_swaps_and_repeats(tier, k):
     assert rep["low"] <= env.num_repeats < rep["high_exclusive"]
     sw = dec["swap"][tier]
     assert sw["swap_min"] <= env.swap_times <= sw["swap_max"]
-    # 交换计划：每次是两个不同容器；不立刻撤销上一次；参与次数按交换对重数后与记录一致，且极差 ≤ 记录的 range
+    # swap plan: each swap involves two different containers; does not immediately undo the previous one; participation counts by swap-pair multiplicity match the record, and range ≤ the recorded range
     pairs = [(p["initiator"], p["partner"]) for _, p in sorted(row["spec"]["actions"]["swap_pairs"].items(),
                                                              key=lambda kv: int(kv[0]))]
     assert len(pairs) == env.swap_times
@@ -68,7 +68,7 @@ def test_cubes_swaps_and_repeats(tier, k):
     plan = row["spec"]["objects"]["swap_plan"]
     assert [counts.get(f"bin_{i}", 0) for i in range(len(cubes))] == plan["counts"]
     assert max(plan["counts"]) - min(plan["counts"]) == plan["range"] <= s5["accept_range"]
-    # 时间窗：首尾相接、等长
+    # time windows: contiguous, equal length
     sched = env.swap_schedule
     assert len(sched) == env.swap_times
     assert all(s[3] == t[2] for s, t in zip(sched, sched[1:]))

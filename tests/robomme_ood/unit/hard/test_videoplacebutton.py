@@ -1,4 +1,4 @@
-"""VideoPlaceButton 新值档（xhard1、xhard2）：目标盘数、演示方块、按钮前后额外放置、答案绑定，包内规格回放与自导出。"""
+"""VideoPlaceButton new-value tiers (xhard1, xhard2): target plate count, demonstration cubes, extra placements before/after the button, answer binding, packaged spec replay and self-export."""
 from __future__ import annotations
 
 import pytest
@@ -41,11 +41,11 @@ def test_targets_demo_and_extra_places(tier, k):
     assert len(env.demo_extra_place_after) == sub["extra_place_after"]
     for cube, target in env.demo_extra_place_before + env.demo_extra_place_after:
         assert cube in env.demo_cubes and target in env.targets
-    # 演示放置序列：每步 (演示块序号, 目标序号) 合法，总数即 target_placement_count
+    # demonstration placement sequence: each step (demo cube index, target index) is valid, total equals target_placement_count
     seq = row["spec"]["actions"]["place_sequence"]
     assert len(seq) == env.target_placement_count
     assert all(0 <= c < len(env.demo_cubes) and 0 <= t < len(env.targets) for c, t in seq)
-    # 答案目标在目标盘里，「错误目标」恰是其余全部
+    # the answer target is among the target plates, and the "wrong targets" are exactly all the others
     assert env.target_target in env.targets
     assert set(env.targets_not_true) == set(env.targets) - {env.target_target}
     assert env.target_target_language in ("before", "after")
