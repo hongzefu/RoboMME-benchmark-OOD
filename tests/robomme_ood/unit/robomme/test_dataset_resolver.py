@@ -1,11 +1,11 @@
-"""官方 EpisodeDatasetResolver 的纯读取逻辑（C11 resolver 部分；录制→读回闭环归 T5 的 tests/robomme_ood/pipeline/recording）。
+"""Pure reading logic of the official EpisodeDatasetResolver (C11 resolver part; the record -> read-back loop belongs to T5's tests/robomme_ood/pipeline/recording).
 
-在 tmp_path 手写微型 h5（字段名与官方 doc/h5_data_format.md 一致），期望按手写表逐项得出：
-- timestep 按数字排序（timestep_10 在 timestep_9 之后）；演示帧（info/is_video_demo）一律不进在线索引；
-- joint：7 维补 -1 到 8 维、"None" 字符串 → None；
-- waypoint：只去「相邻重复」（A,A,B,A → A,B,A），非有限或形状不是 (7,) 的跳过且不打断相邻比较；
-- multi_choice：只取 is_subgoal_boundary 为真且 JSON 合法（choice 非空字符串、带 point）的帧，按时间序；
-- 越界／负下标／未知模式 → None；缺文件 FileNotFoundError；缺 episode KeyError；close 幂等。
+Hand-written tiny h5 files in tmp_path (field names match official doc/h5_data_format.md); expected results per a hand-written table:
+- timesteps sorted numerically (timestep_10 after timestep_9); demo frames (info/is_video_demo) never enter the online index;
+- joint: 7 dims padded with -1 to 8 dims, "None" string -> None;
+- waypoint: only "adjacent duplicates" removed (A,A,B,A -> A,B,A); non-finite or non-(7,) shapes are skipped without breaking adjacency comparison;
+- multi_choice: only frames with is_subgoal_boundary true and valid JSON (non-empty choice string, with point), in time order;
+- out of range/negative index/unknown mode -> None; missing file FileNotFoundError; missing episode KeyError; close is idempotent.
 """
 from __future__ import annotations
 
@@ -44,15 +44,15 @@ def h5file(tmp_path):
     path = tmp_path / f"record_dataset_{ENV}.h5"
     with h5py.File(path, "w") as f:
         ep = f.create_group("episode_0")
-        _ts(ep, 0, demo=True, joint=np.full(8, 9.0), waypoint=WP_B)                      # 演示帧：全部忽略
+        _ts(ep, 0, demo=True, joint=np.full(8, 9.0), waypoint=WP_B)                      # demo frame: ignored entirely
         _ts(ep, 1, joint=np.arange(7, dtype=np.float64), eef=[1, 2, 3, 4, 5, 6, -1], waypoint=WP_A,
             boundary=True, choice=json.dumps({"choice": "a", "point": [10, 20]}))
         _ts(ep, 2, joint="None", waypoint=WP_A, boundary=False, choice=json.dumps({"choice": "b", "point": [1, 2]}))
         _ts(ep, 9, joint=np.arange(8, dtype=np.float64), waypoint=[np.nan] * 7, boundary=True,
-            choice=json.dumps({"choice": "", "point": [0, 0]}))                           # 空 choice 不收
+            choice=json.dumps({"choice": "", "point": [0, 0]}))                           # empty choice not collected
         _ts(ep, 10, joint=np.arange(3, dtype=np.float64), waypoint=WP_B, boundary=True,
-            choice=json.dumps({"choice": "c"}))                                           # 缺 point 不收
-        _ts(ep, 11, waypoint=[1.0] * 6, boundary=True, choice="not json")                 # 形状不对、非 JSON
+            choice=json.dumps({"choice": "c"}))                                           # missing point not collected
+        _ts(ep, 11, waypoint=[1.0] * 6, boundary=True, choice="not json")                 # wrong shape, not JSON
         _ts(ep, 12, waypoint=WP_A, boundary=True, choice=json.dumps({"choice": "c", "point": None}))
         f.create_group("episode_3")
         f.create_group("episode_10")
@@ -62,7 +62,7 @@ def h5file(tmp_path):
 
 def test_list_episode_indices_numeric_sorted(h5file):
     assert list_episode_indices(ENV, h5file.parent) == [0, 3, 10]
-    assert list_episode_indices(ENV, h5file) == [0, 3, 10]  # 直接给 .h5 路径也行
+    assert list_episode_indices(ENV, h5file) == [0, 3, 10]  # passing the .h5 path directly also works
 
 
 def test_joint_steps_skip_demo_and_pad(h5file):
@@ -71,7 +71,7 @@ def test_joint_steps_skip_demo_and_pad(h5file):
         assert r.get_step("joint_angle", 1) is None                      # "None"
         np.testing.assert_array_equal(r.get_step("joint_angle", 2), np.arange(8))   # timestep_9
         np.testing.assert_array_equal(r.get_step("joint_angle", 3), [0, 1, 2, -1, -1, -1, -1, -1])  # timestep_10
-        assert r.get_step("joint_angle", 4) is None                      # timestep_11 无 joint
+        assert r.get_step("joint_angle", 4) is None                      # timestep_11 has no joint
         assert r.get_step("joint_angle", 99) is None and r.get_step("joint_angle", -1) is None
 
 
@@ -84,7 +84,7 @@ def test_ee_pose_reads_eef_action(h5file):
 def test_waypoint_adjacent_dedup_only(h5file):
     with EpisodeDatasetResolver(ENV, 0, h5file.parent) as r:
         got = [r.get_step("waypoint", i) for i in range(4)]
-    # 在线帧依次：A(1) A(2) nan(9) B(10) 坏形状(11) A(12) → 相邻去重 A,B,A
+    # online frames in order: A(1) A(2) nan(9) B(10) bad-shape(11) A(12) -> adjacent dedup A,B,A
     np.testing.assert_array_equal(got[0], WP_A)
     np.testing.assert_array_equal(got[1], WP_B)
     np.testing.assert_array_equal(got[2], WP_A)
@@ -96,9 +96,9 @@ def test_multi_choice_boundary_and_valid_json_only(h5file):
         cmds = [r.get_step("multi_choice", i) for i in range(3)]
         first = r.get_step("multi_choice", 0)
         first["choice"] = "mutated"
-        assert r.get_step("multi_choice", 0)["choice"] == "a"  # 返回副本
+        assert r.get_step("multi_choice", 0)["choice"] == "a"  # returns a copy
     assert cmds[0] == {"choice": "a", "point": [10, 20]}
-    assert cmds[1] == {"choice": "c", "point": None}   # 有 point 键即可（值可为 None）
+    assert cmds[1] == {"choice": "c", "point": None}   # having the point key is enough (value may be None)
     assert cmds[2] is None
 
 
@@ -114,7 +114,7 @@ def test_missing_file_and_episode(tmp_path, h5file):
         list_episode_indices(ENV, tmp_path / "nowhere")
     with pytest.raises(KeyError, match="episode_7"):
         EpisodeDatasetResolver(ENV, 7, h5file.parent)
-    with h5py.File(h5file, "a"):  # 缺 episode 时已关闭文件：能以追加模式再打开
+    with h5py.File(h5file, "a"):  # the file is closed after a missing episode: can be reopened in append mode
         pass
 
 

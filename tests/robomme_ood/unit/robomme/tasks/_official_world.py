@@ -1,22 +1,22 @@
-"""官方包 16 个任务的 CPU 离线世界（只供 tests/robomme_ood/unit/robomme/tasks/ 使用）。
+"""CPU offline world for the 16 tasks of the official package (for tests/robomme_ood/unit/robomme/tasks/ only).
 
-做法：
-- 任务类的真实 ``__init__``、``_load_scene``、``_initialize_episode``、``evaluate``、``step`` 全部照跑；
-- 只替换「建真实物体」的那一层：任务模块命名空间里的 ``TableSceneBuilder``、``build_button``、
-  ``spawn_random_cube`` 等 builder 换成返回 CPU 替身 actor 的假函数；``highlight_obj``／``highlight_position``
-  （只建可视高亮）换成空操作；``sapien.render.RenderMaterial``（CPU 下实测段错误）换成占位材质；
-- ``mani_skill`` 的 ``BaseEnv.__init__`` 换成惰性桩（不建场景、不碰 GPU），``BaseEnv.step`` 换成与真实
-  ``BaseEnv.step`` 同一次序的最小版本：elapsed_steps 加一 → ``evaluate()`` → terminated = success | fail；
-- 机器人换成 ``FakeAgent``：tcp 位置、关节 qpos/qvel、当前抓着谁，全部由测试显式摆放。
+Approach:
+- the task classes' real ``__init__``, ``_load_scene``, ``_initialize_episode``, ``evaluate`` and ``step`` all run as-is;
+- only the "build real objects" layer is replaced: builders in the task module namespace such as ``TableSceneBuilder``, ``build_button``,
+  ``spawn_random_cube`` are swapped for fakes returning CPU actor doubles; ``highlight_obj``/``highlight_position``
+  (build visual highlights only) become no-ops; ``sapien.render.RenderMaterial`` (segfaults on CPU in practice) becomes a placeholder material;
+- ``mani_skill``'s ``BaseEnv.__init__`` is replaced by a lazy stub (no scene, no GPU), and ``BaseEnv.step`` by a minimal version in the same order as the real
+  ``BaseEnv.step``: elapsed_steps += 1 -> ``evaluate()`` -> terminated = success | fail;
+- the robot is replaced by ``FakeAgent``: tcp position, joint qpos/qvel and what is currently grasped are all placed explicitly by the test.
 
-所有替换都只在 ``OfficialWorld`` 上下文内生效、退出即还原（进入中途抛异常也会回滚已替换项），不改任何文件
-（R9：受保护的 src/robomme 只做进程内、可恢复的替换）。
+All replacements take effect only inside the ``OfficialWorld`` context and are restored on exit (an exception midway through entering also rolls back what was replaced); no files are changed
+(R9: the protected src/robomme only gets in-process, recoverable replacements).
 
-关于资源守卫：上下文内 ``BaseEnv.__init__``（守卫装的拦截函数）被临时换成惰性桩。这样做安全的前提是：
-① 任务实例的 ``scene`` 是 ``FakeScene``，任务模块里所有会碰真实场景的 builder 都已换成替身；
-② 任务模块的 ``sapien`` 名字换成只透出 ``Pose`` 与占位 ``RenderMaterial`` 的代理，渲染系统不会被初始化；
-③ 退出上下文后拦截函数原样恢复（见 ``test_official_world_guard``）。不满足这三条时不得复用本上下文。
-摆放高度与判定阈值统一取自钉值文件 ``tests/robomme_ood/unit/robomme/official_thresholds.py``。
+About the resource guard: inside the context ``BaseEnv.__init__`` (the interceptor installed by the guard) is temporarily replaced by a lazy stub. This is safe provided that:
+(1) the task instance's ``scene`` is a ``FakeScene`` and every builder in the task module that would touch a real scene has been replaced by a double;
+(2) the task module's ``sapien`` name is replaced by a proxy exposing only ``Pose`` and a placeholder ``RenderMaterial``, so the render system is never initialized;
+(3) the interceptor is restored as-is after leaving the context (see ``test_official_world_guard``). Do not reuse this context if these three do not hold.
+Placement heights and thresholds all come from the pin file ``tests/robomme_ood/unit/robomme/official_thresholds.py``.
 """
 from __future__ import annotations
 
@@ -34,15 +34,15 @@ from robomme.robomme_env.utils import reset_panda
 from tests.robomme_ood.unit.robomme import official_thresholds as T
 
 STICK_TASKS = ("PatternLock", "RouteStick")
-# 机器人基座位置（真实 Panda 在 TableSceneBuilder 里放在 x=-0.615）；只用于 InsertPeg 判「近端／远端」
+# robot base position (the real Panda is placed at x=-0.615 in TableSceneBuilder); used only by InsertPeg to judge "near end/far end"
 ROBOT_BASE_XYZ = (-0.615, 0.0, 0.0)
 
 
-# --------------------------------------------------------------------------- 替身 actor
+# --------------------------------------------------------------------------- Actor doubles
 
 
 def _to_pose(pose_like) -> Pose:
-    """sapien.Pose／mani_skill Pose／(p, q) 统一成带 batch 维的 mani_skill Pose。"""
+    """Normalize sapien.Pose/mani_skill Pose/(p, q) into a mani_skill Pose with a batch dim."""
     if isinstance(pose_like, Pose):
         return Pose.create_from_pq(pose_like.p.clone().reshape(1, 3).float(), pose_like.q.clone().reshape(1, 4).float())
     if isinstance(pose_like, sapien.Pose):
@@ -55,7 +55,7 @@ def _to_pose(pose_like) -> Pose:
 
 
 class FakeActor:
-    """只有名字与位姿的 actor；位姿形状与真实 actor 相同（p: (1,3) float32，q: (1,4)）。"""
+    """Actor with only a name and a pose; pose shapes match real actors (p: (1,3) float32, q: (1,4))."""
 
     dof = 0
 
@@ -65,7 +65,7 @@ class FakeActor:
         if half is not None:
             self._cube_half_size = float(half)
 
-    def __repr__(self):  # 便于断言失败时读
+    def __repr__(self):  # easier to read on assertion failure
         return f"<FakeActor {self.name} {self.xyz.round(3).tolist()}>"
 
     @property
@@ -97,7 +97,7 @@ class FakeActor:
 
 
 class FakeButton(FakeActor):
-    """按钮：``get_qpos`` 返回 ``[[-depth]]``（真实关节向负方向为按下）。"""
+    """Button: ``get_qpos`` returns ``[[-depth]]`` (the real joint moves negative when pressed)."""
 
     def __init__(self, name, xyz):
         super().__init__(name, xyz)
@@ -108,7 +108,7 @@ class FakeButton(FakeActor):
 
 
 class FakePeg(FakeActor):
-    """peg 本体 + 头尾两个 link；本体 set_pose 时头尾沿 x 方向跟随（真实 peg 是头尾固连的关节体）。"""
+    """Peg body + head and tail links; on body set_pose the head and tail follow along x (the real peg is an articulated body with head and tail fixed)."""
 
     def __init__(self, name, xyz, length):
         super().__init__(name, xyz)
@@ -183,11 +183,11 @@ class _FakeMaterial:
         pass
 
 
-# --------------------------------------------------------------------------- 假 builder
+# --------------------------------------------------------------------------- Fake builders
 
 
 def _free_xy(env, center, min_dist=0.1):
-    """在 center 附近找一个与已摆放替身相距 > min_dist 的位置（确定性，不消耗随机数）。"""
+    """Find a position near center at distance > min_dist from already placed doubles (deterministic, consumes no random numbers)."""
     placed = getattr(env, "_fake_placed", [])
     cx, cy = float(center[0]), float(center[1])
     step = 0.11
@@ -199,7 +199,7 @@ def _free_xy(env, center, min_dist=0.1):
             placed.append((x, y))
             env._fake_placed = placed
             return x, y
-    raise AssertionError("离线世界摆不下更多替身")
+    raise AssertionError("offline world cannot fit more doubles")
 
 
 def _center_of(value, default=(0.0, 0.0)):
@@ -211,9 +211,9 @@ def _center_of(value, default=(0.0, 0.0)):
 
 def fake_build_button(self, center_xy, *, generator=None, name="button", randomize=True, randomize_range=(0.1, 0.4),
                       **_ignored):
-    """按钮替身。官方任务调用时总会显式给 center_xy；randomize_range 的默认值同官方 build_button 签名。"""
+    """Button double. Official tasks always pass center_xy explicitly; the randomize_range default matches the official build_button signature."""
     cx, cy = float(center_xy[0]), float(center_xy[1])
-    if randomize:  # 与真实 build_button 消耗同样的随机数，保持后续抽样流位置不变
+    if randomize:  # consume the same random numbers as the real build_button, keeping the subsequent sampling stream position unchanged
         off = torch.rand(2, generator=generator) - 0.5
         cx += float(off[0]) * float(randomize_range[0])
         cy += float(off[1]) * float(randomize_range[1])
@@ -288,11 +288,11 @@ def _noop(*a, **k):
 
 
 def _inert_base_init(self, *args, **kwargs):
-    """BaseEnv.__init__ 的惰性桩：不建场景、不碰渲染与 GPU。"""
+    """Lazy stub for BaseEnv.__init__: builds no scene, touches no rendering or GPU."""
 
 
 def _fake_base_step(self, action):
-    """与 mani_skill BaseEnv.step 同一次序：elapsed_steps += 1 → evaluate → terminated = success | fail。"""
+    """Same order as mani_skill BaseEnv.step: elapsed_steps += 1 -> evaluate -> terminated = success | fail."""
     self._elapsed_steps = self._elapsed_steps + 1
     info = {"elapsed_steps": self._elapsed_steps}
     info.update(self.evaluate())
@@ -322,7 +322,7 @@ def task_module(task: str):
 
 
 class OfficialWorld:
-    """上下文管理器：装上离线世界的全部替换，退出时逐项还原。"""
+    """Context manager: installs all offline-world replacements and restores them one by one on exit."""
 
     def __init__(self, task: str):
         self.task = task
@@ -343,7 +343,7 @@ class OfficialWorld:
             self._swap(BaseEnv, "__init__", _inert_base_init)
             self._swap(BaseEnv, "step", _fake_base_step)
         except BaseException:
-            self._restore()  # 装到一半失败：回滚已替换项再重抛
+            self._restore()  # failed while half installed: roll back replaced items, then re-raise
             raise
         return self
 
@@ -364,22 +364,22 @@ class OfficialWorld:
         env.scene = FakeScene()
         env.agent = FakeAgent(stick=self.task in STICK_TASKS)
         env._elapsed_steps = torch.zeros(1, dtype=torch.int32)
-        # DemonstrationWrapper 构造时即设 use_demonstrationwrapper=True；演示录制标志在线段为 False
-        # （在线段每步都允许切换子目标，与真实评估同一配置）
+        # DemonstrationWrapper sets use_demonstrationwrapper=True at construction; the demo recording flag is False in the online segment
+        # (subgoal switching is allowed on every step in the online segment, same configuration as real evaluation)
         env.use_demonstrationwrapper = True
         env.demonstration_record_traj = False
         env._load_scene({})
         env._initialize_episode(torch.arange(1), {})
-        # 真实 BaseEnv.reset 末尾取观测时经 get_info 调一次 evaluate（MoveCube 的 task_list 就建在 evaluate 里）
+        # the real BaseEnv.reset calls evaluate once via get_info when taking the observation at the end (MoveCube's task_list is built inside evaluate)
         env.evaluate()
         return Episode(env)
 
 
 class Episode:
-    """一局离线环境 + 摆放世界的动作原语。所有判定都来自真实的 ``env.step`` → ``evaluate``。"""
+    """One offline episode + action primitives for placing the world. All verdicts come from the real ``env.step`` -> ``evaluate``."""
 
-    LIFT_Z = T.LIFT_Z     # 抓起后物体高度（> T.PICKUP_Z）
-    TABLE_Z = T.TABLE_Z   # 放下后物体高度（<= T.DROPPED_Z）
+    LIFT_Z = T.LIFT_Z     # object height after pickup (> T.PICKUP_Z)
+    TABLE_Z = T.TABLE_Z   # object height after drop (<= T.DROPPED_Z)
 
     def __init__(self, env):
         self.env = env
@@ -387,7 +387,7 @@ class Episode:
         self.info = None
         self.history = []
 
-    # ---- 状态 ----
+    # ---- State ----
     @property
     def task_index(self) -> int:
         return int(getattr(self.env, "timestep", 0))
@@ -400,7 +400,7 @@ class Episode:
         for i, t in enumerate(self.env.task_list):
             if not t.get("demonstration", False):
                 return i
-        raise AssertionError("没有在线子任务")
+        raise AssertionError("no online subtask")
 
     @property
     def success(self) -> bool:
@@ -410,7 +410,7 @@ class Episode:
     def fail(self) -> bool:
         return bool(self.info["fail"].item()) if self.info is not None else False
 
-    # ---- 推进 ----
+    # ---- Advancing ----
     def step(self, n: int = 1):
         for _ in range(n):
             _obs, _r, terminated, _tr, self.info = self.env.step(None)
@@ -418,8 +418,8 @@ class Episode:
         return self.info
 
     def skip_demo(self, elapsed: int | None = None):
-        """把子任务指针放到第一个在线子任务（演示段由运动规划执行，CPU 跑不了），
-        并补上演示收尾时演示函数留下的可观测状态（after_demo、reset_in_proecess）。"""
+        """Move the subtask pointer to the first online subtask (the demo segment is executed by motion planning, which cannot run on CPU),
+        and fill in the observable state left by the demo function at the end of the demo (after_demo, reset_in_proecess)."""
         self.env.timestep = self.first_online_index()
         if hasattr(self.env, "after_demo"):
             self.env.after_demo = True
@@ -428,12 +428,12 @@ class Episode:
         if elapsed is not None:
             self.env._elapsed_steps = torch.tensor([elapsed], dtype=torch.int32)
 
-    # ---- 世界动作 ----
+    # ---- World actions ----
     def tcp_to(self, x, y, z):
         self.agent.tcp.move_to(x, y, z)
 
     def grasp(self, obj, z: float | None = None):
-        """抓起 obj：机器人报告正在抓它，物体与 tcp 一起抬到 z。"""
+        """Pick up obj: the robot reports grasping it, and the object rises to z together with the tcp."""
         z = self.LIFT_Z if z is None else z
         x, y, _ = obj.xyz
         self.agent.held = obj
@@ -446,7 +446,7 @@ class Episode:
         self.tcp_to(x, y, z)
 
     def release(self, obj, x=None, y=None, z: float | None = None, tcp_z: float = T.TCP_UP_Z):
-        """松手放下：不再抓着，物体落到桌面高度，tcp 抬到 tcp_z（> T.PICKUP_Z）。"""
+        """Release and drop: no longer grasped, the object falls to table height, the tcp rises to tcp_z (> T.PICKUP_Z)."""
         z = self.TABLE_Z if z is None else z
         if self.agent.held is obj:
             self.agent.held = None
@@ -486,7 +486,7 @@ class Episode:
 
 
 class _WrapperView:
-    """模拟 DemonstrationWrapper 对 task_goal 的调用方式：``self.env.unwrapped`` 与属性透传。"""
+    """Mimics how DemonstrationWrapper calls task_goal: ``self.env.unwrapped`` plus attribute pass-through."""
 
     def __init__(self, env):
         self.env = SimpleNamespace(unwrapped=env)
@@ -497,17 +497,17 @@ class _WrapperView:
 
 
 def goal_text(env) -> list:
-    """用真实 task_goal.get_language_goal 取这一局的目标语言。"""
+    """Get this episode's goal language via the real task_goal.get_language_goal."""
     from robomme.robomme_env.utils import task_goal
 
     return task_goal.get_language_goal(_WrapperView(env), type(env).__name__)
 
 
 def find_seed(task: str, difficulty: str, predicate, limit: int = 64) -> int:
-    """在离线世界里找第一个让 predicate(env) 成立的 seed（只跑 _load_scene/_initialize_episode，不是仿真 reset）。"""
+    """Find the first seed in the offline world for which predicate(env) holds (runs only _load_scene/_initialize_episode; not a simulation reset)."""
     with OfficialWorld(task) as world:
         for seed in range(limit):
             ep = world.make(difficulty, seed=seed)
             if predicate(ep.env):
                 return seed
-    raise AssertionError(f"{task}/{difficulty}: {limit} 个 seed 内没有满足条件的布局")
+    raise AssertionError(f"{task}/{difficulty}: no layout satisfying the condition within {limit} seeds")

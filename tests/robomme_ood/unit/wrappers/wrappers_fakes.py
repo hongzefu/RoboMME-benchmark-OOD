@@ -1,12 +1,12 @@
-"""动作空间 wrapper 与演示时序测试（C08.02／C09.02）共用的 CPU 替身，只供 tests/robomme_ood/unit/wrappers/ 使用。
+"""CPU doubles shared by the action-space wrapper and demo timing tests (C08.02/C09.02), for tests/robomme_ood/unit/wrappers/ only.
 
-- ``ScriptedEnv``：冒充任务环境（gymnasium.Env），不构建任何 SAPIEN 场景。观测像素值编码「这是第几次底层 step」
-  （reset 为第 0 次，第 k 次 step 的前视 RGB 全是 ``frame_value(k)``），因此任何一帧都能反推来自哪一次底层 step；
-  相机参数固定为手写的针孔内参 ``K`` 与单位外参，便于手算投影。所有 step／evaluate／reset 调用按发生顺序记进
-  共享事件表 ``log``，测试拿手写的期望事件序列逐项比对。
-- ``planner_spy_classes``：顶替真实运动规划器（mplib 等）的 CPU spy。构造参数、每次规划调用与参数都写进同一张
-  事件表；按脚本决定每次调用「走几步 / 返回 -1 / 抛异常」。
-- ``IKPlannerSpy``：顶替 EndeffectorDemonstrationWrapper 的 IK 规划器，记录 IK 输入、按脚本给解。
+- ``ScriptedEnv``: poses as the task env (gymnasium.Env) without building any SAPIEN scene. Observation pixel values encode "which low-level step this is"
+  (reset is step 0; the front RGB after step k is all ``frame_value(k)``), so any frame can be traced back to its low-level step;
+  camera parameters are fixed to hand-written pinhole intrinsics ``K`` and identity extrinsics for easy hand-computed projection. All step/evaluate/reset calls are recorded in order into
+  the shared event log ``log``, and tests compare it item by item against hand-written expected event sequences.
+- ``planner_spy_classes``: CPU spies standing in for the real motion planners (mplib etc.). Constructor arguments, every planning call and its arguments go into the same
+  event log; a script decides for each call "take n steps / return -1 / raise".
+- ``IKPlannerSpy``: stands in for EndeffectorDemonstrationWrapper's IK planner, records IK inputs and gives solutions per script.
 """
 from __future__ import annotations
 
@@ -18,19 +18,19 @@ import torch
 from gymnasium.envs.registration import EnvSpec
 from mani_skill.utils.structs.pose import Pose
 
-# 小图：高 48、宽 64；内参主点取图像中心，焦距 100 像素（手算投影用）
+# small image: height 48, width 64; intrinsics principal point at the image center, focal length 100 pixels (for hand-computed projection)
 H, W = 48, 64
 FOCAL = 100.0
 K = ((FOCAL, 0.0, W / 2), (0.0, FOCAL, H / 2), (0.0, 0.0, 1.0))
 E_ID = ((1.0, 0.0, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0))
 STICK_IDS = ("PatternLock", "RouteStick")
-# 替身机器人关节读数（9 维；stick 任务 7 维），值手写
+# double robot joint readings (9 dims; 7 dims for stick tasks), values hand-written
 QPOS9 = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.04, 0.04)
 SWING7 = (0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5)
 
 
 def frame_value(k: int) -> int:
-    """第 k 次底层 step 之后前视 RGB 的像素值（reset 为 0）。"""
+    """Pixel value of the front RGB after the k-th low-level step (0 for reset)."""
     return (10 * k) % 256
 
 
@@ -54,7 +54,7 @@ def _obs(k: int):
 
 
 class Actor:
-    """可哈希的替身 actor：只有名字与世界坐标（真实 actor 按对象身份哈希）。"""
+    """Hashable actor double: only a name and world coordinates (real actors hash by object identity)."""
 
     def __init__(self, name, xyz):
         self.name = name
@@ -65,7 +65,7 @@ class Actor:
 
 
 class ScriptedEnv(gym.Env):
-    """脚本化任务环境。outcomes：逐次 step 的 (success, fail)，用完后恒为 (False, False)。"""
+    """Scripted task env. outcomes: (success, fail) for each step in turn; (False, False) forever once exhausted."""
 
     metadata = {"render_modes": []}
 
@@ -88,14 +88,14 @@ class ScriptedEnv(gym.Env):
             tcp=SimpleNamespace(pose=Pose.create_from_pq(torch.tensor([[0.1, 0.2, 0.3]]),
                                                          torch.tensor([[1.0, 0, 0, 0]]))),
         )
-        # 子目标状态（真实任务由 sequential_task_check 写入；这里由测试的 solve 替身直接改）
+        # subgoal state (written by sequential_task_check in real tasks; changed directly here by the test's solve doubles)
         self.current_task_demonstration = False
         self.current_task_name = "online"
         self.current_subgoal_segment = None
         self.current_segment = None
         self.segmentation_id_map = {}
         self.task_list = list(task_list or [])
-        # task_goal（PickXtimes）与 vqa_options（PickXtimes）读取的字段
+        # fields read by task_goal (PickXtimes) and vqa_options (PickXtimes)
         self.num_repeats = 2
         self.target_color_name = "red"
         self.all_cubes = [Actor("cube_near", (0.1, 0.05, 1.0)), Actor("cube_far", (-0.1, -0.1, 1.0))]
@@ -126,16 +126,16 @@ class ScriptedEnv(gym.Env):
 
 
 def as_made(inner):
-    """像 gym.make 一样在任务外套一层 OrderEnforcing（task_goal 会经 ``.env.unwrapped`` 取任务）。"""
+    """Wrap the task in an OrderEnforcing layer like gym.make does (task_goal takes the task via ``.env.unwrapped``)."""
     return gym.wrappers.OrderEnforcing(inner)
 
 
-# --------------------------------------------------------------------------- 规划器 spy
+# --------------------------------------------------------------------------- Planner spies
 
 
 class _Script:
-    """一种规划调用的脚本。每项：int n（走 n 个底层步后返回 0）、-1（不走步直接返回 -1）、
-    BaseException 实例（直接抛）、("steps_then_raise", n, exc)（先走 n 步再抛）。用完后恒为「走 1 步」。"""
+    """Script for one kind of planning call. Each item: int n (take n low-level steps then return 0), -1 (return -1 without stepping),
+    a BaseException instance (raise directly), ("steps_then_raise", n, exc) (take n steps then raise). Once exhausted always "take 1 step"."""
 
     def __init__(self, items):
         self.items = list(items)
@@ -145,10 +145,10 @@ class _Script:
 
 
 def planner_spy_classes(log, scripts=None):
-    """返回 (ArmSpy, StickSpy) 两个类，顶替 FailAwarePandaArm／StickMotionPlanningSolver。
+    """Return the two classes (ArmSpy, StickSpy) standing in for FailAwarePandaArm/StickMotionPlanningSolver.
 
-    构造时记 ("planner.new", kind, kwargs)；规划调用记 ("planner.<方法>", 参数)。
-    每个底层步对 ``self.env.step`` 发一个动作：arm 8 维、stick 7 维，值为本 spy 的累计调用序号（便于辨认）。"""
+    Construction records ("planner.new", kind, kwargs); planning calls record ("planner.<method>", args).
+    Each low-level step sends one action to ``self.env.step``: 8 dims for arm, 7 for stick, with value equal to this spy's cumulative call index (easy to identify)."""
     scripts = {k: _Script(v) for k, v in (scripts or {}).items()}
 
     class _Base:
@@ -201,7 +201,7 @@ def planner_spy_classes(log, scripts=None):
 
 
 class IKPlannerSpy:
-    """顶替 EndeffectorDemonstrationWrapper 内部的 PandaArm／Stick 规划器：只用 transform_goal_to_wrt_base、IK、robot。"""
+    """Stands in for the PandaArm/Stick planners inside EndeffectorDemonstrationWrapper: only transform_goal_to_wrt_base, IK and robot are used."""
 
     def __init__(self, log, kind, env, kwargs, solutions, status="Success"):
         self.log, self.kind, self.env, self.kwargs = log, kind, env, kwargs
@@ -211,7 +211,7 @@ class IKPlannerSpy:
 
     def _to_base(self, goal):
         self.log.append(("ik.to_base", np.asarray(goal, dtype=np.float64).copy()))
-        # 基座在世界原点、无旋转：基座系目标 = 世界系目标；这里故意返回新数组以区分输入输出
+        # base at the world origin without rotation: base-frame goal = world-frame goal; a new array is returned on purpose to distinguish input from output
         return np.asarray(goal, dtype=np.float64) + 0.0
 
     def _ik(self, goal_base, qpos):
@@ -220,7 +220,7 @@ class IKPlannerSpy:
 
 
 def ik_spy_factory(log, solutions, status="Success"):
-    """返回 (ArmFactory, StickFactory)：可当作类构造的工厂，构造即记 ("ik.new", kind, kwargs)。"""
+    """Return (ArmFactory, StickFactory): factories usable like class constructors; construction records ("ik.new", kind, kwargs)."""
 
     def make(kind):
         def factory(env, **kwargs):

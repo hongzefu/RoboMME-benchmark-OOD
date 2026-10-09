@@ -1,7 +1,7 @@
-"""官方 planner_denseStep：逐步收集与批的构造／拼接（C09；决定 obs 的 dict-of-lists 形状）。
+"""Official planner_denseStep: step-by-step collection and batch construction/concatenation (C09; determines the dict-of-lists shape of obs).
 
-统一批契约：(obs: dict[str, list], reward: float32[N], terminated: bool[N], truncated: bool[N], info: dict[str, list])。
-期望全部由手写小例子得出。
+Uniform batch contract: (obs: dict[str, list], reward: float32[N], terminated: bool[N], truncated: bool[N], info: dict[str, list]).
+All expectations come from small hand-written examples.
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def test_singleton_lists_collapse_except_task_goal():
     obs, _r, _t, _tr, info = pds.to_step_batch(steps)
     assert obs["a"] == [7]
     assert info["b"] == [3]
-    assert info["task_goal"] == [["only goal"]]  # task_goal 保持列表，不被拆成字符串
+    assert info["task_goal"] == [["only goal"]]  # task_goal stays a list, not split into strings
 
 
 def test_scalars_from_tensors_and_python_values():
@@ -65,7 +65,7 @@ class _Env:
 
     def step(self, action):
         self.calls += 1
-        self.buf[:] = self.calls  # 复用同一块内存
+        self.buf[:] = self.calls  # reuse the same memory block
         return {"x": self.buf}, torch.tensor([0.0]), torch.tensor([False]), torch.tensor([False]), {"n": self.calls}
 
 
@@ -82,7 +82,7 @@ def test_collect_dense_steps_intercepts_and_restores():
 
     steps = pds._collect_dense_steps(planner, fn)
     assert len(steps) == 3 and planner.env.step == original
-    assert [int(s[0]["x"][0]) for s in steps] == [1, 2, 3]  # 快照：不被后续步覆盖
+    assert [int(s[0]["x"][0]) for s in steps] == [1, 2, 3]  # snapshots: not overwritten by later steps
 
 
 def test_collect_dense_steps_minus_one_and_exception_restore():
@@ -103,7 +103,7 @@ def test_collect_dense_steps_minus_one_and_exception_restore():
 
 
 def test_batch_output_is_split_into_steps_when_collected():
-    """env.step 若返回整批（如 DemonstrationWrapper._step_batch 的形状），收集时拆回逐步。"""
+    """If env.step returns a whole batch (e.g. the shape of DemonstrationWrapper._step_batch), collection splits it back into steps."""
     batch = pds.to_step_batch([_step(0), _step(1)])
     env = type("E", (), {"step": lambda self, a: batch})()
     planner = type("P", (), {})()

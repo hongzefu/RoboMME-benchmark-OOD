@@ -1,10 +1,10 @@
-"""VideoPlaceButton 与 VideoPlaceOrder 原生三档真值表（C05、C07 语言绑定）。
+"""VideoPlaceButton and VideoPlaceOrder native three-tier truth tables (C05, C07 language binding).
 
-演示段由下面的通用驱动按每个演示子任务的含义真实执行（拾起 → 放到该子任务的 segment 目标 → 按钮 → 放回桌面
-→ 静止 → 交换 → 复位），驱动同时记下「演示里依次放过的目标」。期望：
-- VideoPlaceButton：目标语言写 before → 正确目标是按按钮前最后放的那个；after → 按按钮后第一个放的那个；
-- VideoPlaceOrder：目标语言写「第 k 个」→ 正确目标是演示里第 k 次放的目标（按时间序，不按空间序，按钮不占序号）；
-- 放到其他目标、拿错方块 → 失败；hard 档目标盘被交换后按身份判定。
+The demo segment is really executed by the generic driver below according to each demo subtask's meaning (pick up -> place on that subtask's segment target -> button -> put back on the table
+-> still -> swap -> reset); the driver also records "targets placed in order during the demo". Expectations:
+- VideoPlaceButton: goal language says before -> the correct target is the last one placed before the button press; after -> the first one placed after the button press;
+- VideoPlaceOrder: goal language says "the k-th" -> the correct target is the target of the k-th placement in the demo (time order, not spatial order; the button takes no index);
+- placing on another target or grabbing the wrong cube -> failure; in hard, after target plates are swapped, verdicts are by identity.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ ORDINALS = {1: "first", 2: "second", 3: "third", 4: "fourth"}
 
 
 def drive_demo(ep):
-    """逐个演示子任务真实推进；返回 (演示里按时间顺序放过的目标列表, 按钮插在第几次放置之后)。"""
+    """Really advance each demo subtask; return (targets placed in time order during the demo, after which placement the button was inserted)."""
     env = ep.env
     cube = env.target_cube
     placed, button_after = [], None
@@ -43,13 +43,13 @@ def drive_demo(ep):
             ep.step()
             ep.unpress(env.button)
             button_after = len(placed)
-        else:  # static／NO RECORD：机器人静止、关节在复位位
+        else:  # static/NO RECORD: robot still, joints at the reset pose
             ep.step()
         guard += 1
         assert guard < 1000
         if name != "static" and name != "NO RECORD":
-            assert ep.task_index == before + 1, f"演示子任务 {name} 未推进"
-    ep.step()  # 越过交换在下一步开头的最终定位
+            assert ep.task_index == before + 1, f"demo subtask {name} did not advance"
+    ep.step()  # past the final positioning of the swap at the start of the next step
     return placed, button_after
 
 
@@ -112,7 +112,7 @@ def test_vpb_native_configs_have_no_extra_demo_placements(vpb):
 
 
 def test_vpb_hard_swap_follows_identity():
-    """hard：被交换的目标盘按身份判定——放到它原来的位置（现在是另一个盘）失败，放到它现在的位置成功。"""
+    """hard: swapped target plates are judged by identity -- placing at its original position (now another plate) fails, placing at its current position succeeds."""
     seed = find_seed("VideoPlaceButton", "hard",
                      lambda e: e.target_target is e.swap_target_a or e.target_target is e.swap_target_b)
     for put_on_original, ok in ((True, False), (False, True)):
@@ -121,7 +121,7 @@ def test_vpb_hard_swap_follows_identity():
             env = ep.env
             origin = env.target_target.xyz[:2].copy()
             drive_demo(ep)
-            assert np.linalg.norm(env.target_target.xyz[:2] - origin) > T.DROP_ONTO_XY  # 原位置已不在它的放置半径内
+            assert np.linalg.norm(env.target_target.xyz[:2] - origin) > T.DROP_ONTO_XY  # the original position is no longer within its placement radius
             ep.grasp(env.target_cube)
             ep.step()
             if put_on_original:
@@ -166,7 +166,7 @@ def test_vpo_kth_temporal_target_succeeds(vpo, diff, which):
 
 
 def test_vpo_button_does_not_take_an_ordinal(vpo):
-    """按钮插在第 k 次放置之前时，序号仍只数放置。"""
+    """When the button is inserted before the k-th placement, the index still counts placements only."""
     ep, env = _vpo_case(vpo, "medium", lambda e: 0 < e.button_task_index // 2 < e.which_in_subset)
     placed, button_after = drive_demo(ep)
     assert 0 < button_after < env.which_in_subset
@@ -174,7 +174,7 @@ def test_vpo_button_does_not_take_an_ordinal(vpo):
 
 
 def test_vpo_spatial_order_is_not_temporal_order(vpo):
-    """按 y 坐标排第 k 的目标 ≠ 演示里第 k 次放的目标时，放到「空间第 k」→ 失败。"""
+    """When the k-th target by y coordinate != the target of the k-th placement in the demo, placing on the "spatial k-th" -> failure."""
     for seed in range(64):
         ep = vpo.make("medium", seed=seed)
         env = ep.env
@@ -183,7 +183,7 @@ def test_vpo_spatial_order_is_not_temporal_order(vpo):
         if spatial[k - 1] is not env.which_targets_to_pick[k - 1]:
             break
     else:
-        pytest.fail("找不到空间序与时间序不同的布局")
+        pytest.fail("no layout found where spatial order differs from time order")
     placed, _ = drive_demo(ep)
     ep.grasp(env.target_cube)
     ep.step()
@@ -206,7 +206,7 @@ def test_vpo_other_target_fails(vpo, diff):
 
 
 def test_vpo_demo_drop_tasks_bind_their_own_target(vpo):
-    """演示里每个「放到目标」子任务绑定自己的目标（闭包按值捕获）：先放到最后一个目标不推进第一个放置子任务。"""
+    """Each "place on target" subtask in the demo binds its own target (closure captures by value): placing on the last target first does not advance the first placement subtask."""
     ep, env = _vpo_case(vpo, "easy", lambda e: len(e.which_targets_to_pick) >= 2 and e.button_task_index != 0)
     ep.grasp(env.target_cube)
     ep.step()

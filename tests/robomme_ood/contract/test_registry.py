@@ -1,8 +1,8 @@
-"""L1 契约（慢）：三种导入顺序下，16 个环境 id 都归 ``robomme_ood``。
+"""L1 contract (slow): under three import orders, all 16 env ids belong to ``robomme_ood``.
 
-每种顺序起一个独立子进程（同一进程里导入顺序只能发生一次）：只导入 ``robomme_ood``；先 ``robomme`` 后
-``robomme_ood``；先 ``robomme_ood`` 后 ``robomme``。子进程只读注册表、不建环境；资源守卫经 sitecustomize 继承。
-另有一个对照：只导入官方 ``robomme`` 的进程里，16 个 id 都归官方包（证明子进程的判定能区分两种归属）。
+Each order runs in its own subprocess (import order can only happen once per process): import only ``robomme_ood``; ``robomme`` then
+``robomme_ood``; ``robomme_ood`` then ``robomme``. Subprocesses only read the registry and build no env; the resource guard is inherited via sitecustomize.
+There is also a control: in a process that imports only the official ``robomme``, all 16 ids belong to the official package (proving the subprocess check can tell the two apart).
 """
 from __future__ import annotations
 

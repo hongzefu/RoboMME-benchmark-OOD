@@ -1,11 +1,11 @@
-"""官方 DemonstrationWrapper 的终局状态、截断与动作规整（C06 失败优先、C09 时序）。
+"""Terminal status, truncation and action normalization of the official DemonstrationWrapper (C06 failure priority, C09 timing).
 
-手写事件序列（内层替身 env 每步返回脚本里的 success/fail），期望：
-- status 优先级 success > fail > timeout > ongoing（同一步既成功又失败 → success；既失败又到步数上限 → fail）；
-- 非演示子任务连续步数达到 max_steps_without_demonstration → truncated → timeout；演示子任务不计数；
-- terminated 时额外多走一个底层步（同一动作）录下末帧，额外步不改动外层的 ee 连续性缓存；
-- 动作规整：stick 任务取前 7 维、其余取前 8 维，不足即 ValueError；
-- reset：演示批 + 一个初始动作步拼接后过滤 NO RECORD 帧；初始动作 = home 位（stick 用 swing_qpos）；清零跨局缓存。
+Hand-written event sequences (the inner env double returns the scripted success/fail each step); expectations:
+- status priority success > fail > timeout > ongoing (success and fail on the same step -> success; fail and step cap reached -> fail);
+- consecutive non-demo subtask steps reaching max_steps_without_demonstration -> truncated -> timeout; demo subtasks are not counted;
+- on terminated, one extra low-level step (same action) is taken to record the last frame; the extra step does not change the outer ee continuity cache;
+- action normalization: stick tasks take the first 7 dims, others the first 8; fewer raises ValueError;
+- reset: demo batch + one initial action step concatenated, then NO RECORD frames filtered; initial action = home pose (stick uses swing_qpos); cross-episode caches cleared.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from robomme.robomme_env.utils import planner_denseStep
 from _official_fakes import FakeTaskEnv, as_made
 from tests.robomme_ood.unit.robomme import official_thresholds as T
 
-# 包的 __init__ 用同名类覆盖了子模块属性，按模块路径取模块本身
+# the package __init__ shadows the submodule attribute with a same-named class; fetch the module itself by module path
 dw_module = importlib.import_module("robomme.env_record_wrapper.DemonstrationWrapper")
 
 
@@ -30,7 +30,7 @@ def make(env_id="PickXtimes", outcomes=(), max_steps=100, demo_batch=None, demon
     inner = FakeTaskEnv(env_id=env_id, outcomes=[(False, False)] + list(outcomes), demonstration=demonstration)
     w = DemonstrationWrapper(as_made(inner), max_steps_without_demonstration=max_steps, gui_render=False, **flags)
     batch = demo_batch if demo_batch is not None else planner_denseStep.empty_step_batch()
-    # 演示轨迹由运动规划生成（CPU 跑不了）；这里给定一个手写的演示批
+    # demo trajectories come from motion planning (cannot run on CPU); a hand-written demo batch is given here
     w.get_demonstration_trajectory = lambda: batch
     obs, info = w.reset()
     return w, inner, obs, info
@@ -51,7 +51,7 @@ def test_status_priority(success, fail, status, terminated):
 
 
 def test_timeout_after_no_demo_steps():
-    # reset 的初始动作步计 1 步；上限 3 → 第 2 次在线 step 达到 3
+    # the reset initial action step counts as 1 step; cap 3 -> the 2nd online step reaches 3
     w, inner, *_ = make(max_steps=3)
     assert w.step(np.zeros(8))[4]["status"] == "ongoing"
     obs, r, term, trunc, info = w.step(np.zeros(8))
@@ -78,7 +78,7 @@ def test_terminal_step_takes_one_extra_low_level_step():
     obs, *_rest = w.step(action)
     assert inner.step_calls - before == 2
     np.testing.assert_array_equal(inner.actions[-1], inner.actions[-2])
-    assert all(len(v) == 1 for v in obs.values())  # 额外步只为录末帧，不进本步返回
+    assert all(len(v) == 1 for v in obs.values())  # the extra step only records the last frame and is not part of this step's return
 
 
 def test_extra_step_does_not_disturb_pose_continuity(monkeypatch):
@@ -94,11 +94,11 @@ def test_extra_step_does_not_disturb_pose_continuity(monkeypatch):
 
     monkeypatch.setattr(dw_module, "build_endeffector_pose_dict", spy)
     w, inner, *_ = make(outcomes=[(False, False), (True, False), (True, False)])
-    w.step(np.zeros(8))           # 普通步：拿到 reset 那一步的缓存
+    w.step(np.zeros(8))           # normal step: gets the cache from the reset step
     calls.clear()
-    w.step(np.zeros(8))           # 终局步：先跑额外步，再跑外层 augment
+    w.step(np.zeros(8))           # terminal step: runs the extra step first, then the outer augment
     extra_prev, outer_prev = calls
-    assert torch.equal(extra_prev[0], outer_prev[0])  # 外层拿到的仍是额外步之前的缓存
+    assert torch.equal(extra_prev[0], outer_prev[0])  # the outer layer still gets the cache from before the extra step
 
 
 @pytest.mark.parametrize("env_id, n_in, n_out", [("PickXtimes", 10, 8), ("PickXtimes", 8, 8),
@@ -120,7 +120,7 @@ def test_reset_initial_action_home_or_swing():
     _, inner, *_ = make("PickXtimes")
     np.testing.assert_allclose(inner.actions[0], T.HOME_ACTION)
     _, inner, *_ = make("RouteStick")
-    np.testing.assert_allclose(inner.actions[0], np.full(7, 0.5))  # swing_qpos 的前 7 维
+    np.testing.assert_allclose(inner.actions[0], np.full(7, 0.5))  # first 7 dims of swing_qpos
 
 
 def _demo_batch(subgoals):
@@ -135,7 +135,7 @@ def test_reset_filters_no_record_and_appends_init_step():
     subgoals = w.demonstration_data[4]["simple_subgoal_online"]
     assert subgoals == ["watch", "watch again", inner.current_task_name]
     assert len(obs["front_rgb_list"]) == 3
-    assert info["simple_subgoal_online"] == inner.current_task_name  # 平铺 info 取最后一帧
+    assert info["simple_subgoal_online"] == inner.current_task_name  # flattened info takes the last frame
     assert info["status"] == "ongoing"
 
 
@@ -153,8 +153,8 @@ def test_reset_clears_cross_episode_state():
     w.latched_replacements = ["<1, 2>"]
     inner.outcomes = [(False, False)]
     w.reset()
-    assert w.episode_success is False and w.steps_without_demonstration == 1  # 只剩 reset 的初始步
-    assert w.latched_replacements is None  # 上一局锁存的占位符坐标被清掉
+    assert w.episode_success is False and w.steps_without_demonstration == 1  # only the reset initial step remains
+    assert w.latched_replacements is None  # placeholder coordinates latched in the previous episode are cleared
 
 
 def test_step_returns_last_scalars_and_flat_info():

@@ -1,11 +1,11 @@
-"""官方包的失败路径（C09 异常恢复钩子、C13 入口依赖的 error 状态）。
+"""Failure paths of the official package (C09 exception recovery hook, C13 error status relied on by the entry point).
 
-- FailAwareWrapper：内层 step 抛任何 Exception → (None, 0.0, True, False, {status:error, error_message, exception_type})；
-  BaseException（KeyboardInterrupt）不吞；正常步原样透传。
-- EndeffectorDemonstrationWrapper：IK 失败显式返回 ({}, 0.0, True, False, {status:"error", error_message})，
-  不调用内层 step（计划细则 4.7 保留的提醒）；IK 成功时把 7 关节解 + 夹爪交给内层；stick 任务不带夹爪。
-- MultiStepDemonstrationWrapper：screw 3 次、RRT* 3 次都失败 → RRTPlanFailure；经 FailAwareWrapper 变成 error 状态。
-不注入 sys.modules；规划器用实例属性替身。
+- FailAwareWrapper: any Exception raised by the inner step -> (None, 0.0, True, False, {status:error, error_message, exception_type});
+  BaseException (KeyboardInterrupt) is not swallowed; normal steps pass through unchanged.
+- EndeffectorDemonstrationWrapper: IK failure explicitly returns ({}, 0.0, True, False, {status:"error", error_message}),
+  without calling the inner step (reminder kept per plan details 4.7); on IK success the 7-joint solution + gripper is passed inward; stick tasks have no gripper.
+- MultiStepDemonstrationWrapper: screw fails 3 times and RRT* fails 3 times -> RRTPlanFailure; via FailAwareWrapper it becomes the error status.
+No sys.modules injection; the planner is an instance-attribute double.
 """
 from __future__ import annotations
 
@@ -107,7 +107,7 @@ def test_ee_rpy_to_quat_and_joint_action():
     w, inner = _ee(planner=planner)
     w.step([0.1, 0.2, 0.3, 0.0, 0.0, math.pi / 2, -1.0])
     goal = planner.goals[-1]
-    # 手算：绕 z 转 90° 的 wxyz 四元数 = (cos45°, 0, 0, sin45°)
+    # hand-computed: wxyz quaternion for a 90 deg rotation about z = (cos45, 0, 0, sin45)
     np.testing.assert_allclose(goal, [0.1, 0.2, 0.3, math.sqrt(0.5), 0, 0, math.sqrt(0.5)], atol=1e-6)
     np.testing.assert_allclose(inner.actions[-1], [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, -1.0])
 
@@ -123,7 +123,7 @@ def test_ee_quat_mode_passes_quat_and_gripper():
 def test_ee_stick_env_drops_gripper():
     planner = _IKPlanner()
     w, inner = _ee(env_id="PatternLock", planner=planner)
-    w.step([0.1, 0.2, 0.3, 0.0, 0.0, 0.0])  # stick：6 维即可
+    w.step([0.1, 0.2, 0.3, 0.0, 0.0, 0.0])  # stick: 6 dims suffice
     assert inner.actions[-1].shape == (7,)
 
 
@@ -211,7 +211,7 @@ def test_waypoint_screw_exception_retries_then_rrt_succeeds():
     w, inner = _ms(screw=[ScrewPlanFailure("a"), ScrewPlanFailure("b"), -1], rrt=[-1, 0])
     obs, r, term, trunc, info = w.step([0.1, 0.2, 0.3, 0, 0, 0, 0])
     assert w._planner.calls == {"screw": 3, "rrt": 2, "close": 0, "open": 0}
-    assert len(obs["sensor_data"]) == 2  # 只收成功那次 RRT* 的 2 个底层步
+    assert len(obs["sensor_data"]) == 2  # only the 2 low-level steps of the successful RRT* attempt are collected
 
 
 @pytest.mark.parametrize("env_id, grip, closes, opens, n_steps", [
@@ -223,8 +223,8 @@ def test_waypoint_gripper_actions(env_id, grip, closes, opens, n_steps):
     obs, r, term, trunc, info = w.step([0.1, 0.2, 0.3, 0, 0, 0, grip])
     assert (w._planner.calls["close"], w._planner.calls["open"]) == (closes, opens)
     assert inner.step_calls == n_steps
-    assert all(len(v) == n_steps for v in obs.values())  # dict-of-lists，每键一帧一项
-    assert isinstance(term, torch.Tensor) and term.ndim == 0  # 只回最后一步的标量
+    assert all(len(v) == n_steps for v in obs.values())  # dict-of-lists, one item per frame per key
+    assert isinstance(term, torch.Tensor) and term.ndim == 0  # only the scalar of the last step is returned
 
 
 def test_waypoint_short_action_rejected():

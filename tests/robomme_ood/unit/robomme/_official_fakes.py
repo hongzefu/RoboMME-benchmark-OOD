@@ -1,9 +1,9 @@
-"""官方包 wrapper 层单元测试共用的 CPU 替身（只供 tests/robomme_ood/unit/robomme/ 使用）。
+"""CPU doubles shared by the official package wrapper-layer unit tests (for tests/robomme_ood/unit/robomme/ only).
 
-- ``FakeTaskEnv``：一个 gymnasium.Env，冒充任务环境给 DemonstrationWrapper 等包装层用；``step`` 按脚本返回
-  与 ManiSkill 相同形状的观测（sensor_data 带 batch 维的 torch 张量）、torch 布尔的 terminated／truncated 与
-  ``info["success"/"fail"]``，并记下收到的每个动作。
-- ``fake_gym_make``：顶替 ``episode_config_resolver.gym.make``，记录 kwargs 后返回 ``FakeTaskEnv``。
+- ``FakeTaskEnv``: a gymnasium.Env posing as the task env for wrapper layers such as DemonstrationWrapper; ``step`` returns per script
+  observations shaped like ManiSkill (sensor_data as torch tensors with a batch dim), torch-bool terminated/truncated and
+  ``info["success"/"fail"]``, and records every action received.
+- ``fake_gym_make``: stands in for ``episode_config_resolver.gym.make``, records kwargs and returns a ``FakeTaskEnv``.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import torch
 from gymnasium.envs.registration import EnvSpec
 from mani_skill.utils.structs.pose import Pose
 
-H, W = 8, 10  # 小图即可；形状断言按这个推出
+H, W = 8, 10  # small images suffice; shape assertions are derived from these
 
 
 def make_obs(step_idx: int = 0):
@@ -35,7 +35,7 @@ def make_obs(step_idx: int = 0):
 
 
 class Named:
-    """只有名字的可哈希替身 actor（无位姿）。"""
+    """Hashable actor double with only a name (no pose)."""
 
     def __init__(self, name):
         self.name = name
@@ -45,7 +45,7 @@ class Named:
 
 
 class FakeTaskEnv(gym.Env):
-    """脚本化的任务环境。outcomes: 每次 step 的 (success, fail) ；用完后一直 (False, False)。"""
+    """Scripted task env. outcomes: (success, fail) for each step; (False, False) forever once exhausted."""
 
     metadata = {"render_modes": []}
 
@@ -63,16 +63,16 @@ class FakeTaskEnv(gym.Env):
             robot=SimpleNamespace(qpos=qpos, pose=Pose.create_from_pq(torch.zeros(1, 3), torch.tensor([[1.0, 0, 0, 0]]))),
             tcp=SimpleNamespace(pose=Pose.create_from_pq(torch.tensor([[0.1, 0.2, 0.3]]), torch.tensor([[1.0, 0, 0, 0]]))),
         )
-        # 子目标状态（真实任务由 sequential_task_check 写入）
+        # subgoal state (written by sequential_task_check in real tasks)
         self.current_task_demonstration = demonstration
         self.current_task_name = "pick up the cube"
         self.current_subgoal_segment = None
         self.current_segment = None
         self.segmentation_id_map = {}
-        # task_goal 需要的字段（PickXtimes）
+        # fields needed by task_goal (PickXtimes)
         self.num_repeats = 2
         self.target_color_name = "red"
-        # vqa_options 需要的字段（PickXtimes）
+        # fields needed by vqa_options (PickXtimes)
         self.all_cubes = [Named("cube_red_0")]
         self.target = Named("target")
         self.button = Named("button")
@@ -97,13 +97,13 @@ class FakeTaskEnv(gym.Env):
 
 
 def as_made(inner):
-    """像 gym.make 一样在任务外面套一层 OrderEnforcing（真实链里任务外还有 TimeLimit，这里不需要截断）。
-    DemonstrationWrapper 把 ``self.env``（即这一层）交给 task_goal，后者再取 ``.env.unwrapped``。"""
+    """Wrap the task in an OrderEnforcing layer like gym.make does (the real chain also has TimeLimit outside the task; truncation is not needed here).
+    DemonstrationWrapper hands ``self.env`` (this layer) to task_goal, which then takes ``.env.unwrapped``."""
     return gym.wrappers.OrderEnforcing(inner)
 
 
 class GymMakeSpy:
-    """顶替 gym.make：记录 (env_id, kwargs)，返回套了 OrderEnforcing 的 FakeTaskEnv。"""
+    """Stand-in for gym.make: records (env_id, kwargs) and returns a FakeTaskEnv wrapped in OrderEnforcing."""
 
     def __init__(self):
         self.calls = []
@@ -131,4 +131,4 @@ def find_wrapper(env, name):
         if type(node).__name__ == name:
             return node
         node = node.env
-    raise AssertionError(f"链上没有 {name}")
+    raise AssertionError(f"not in the chain: {name}")

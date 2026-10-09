@@ -1,1 +1,1 @@
-"""L1 契约层（计划细则 4.5.2）。做成包是为了让各用例按 ``tests.robomme_ood.contract.test_constants`` 导入唯一一份业务常量钉值。"""
+"""L1 contract layer (plan details 4.5.2). Made a package so each test imports the single copy of pinned business constants via ``tests.robomme_ood.contract.test_constants``."""

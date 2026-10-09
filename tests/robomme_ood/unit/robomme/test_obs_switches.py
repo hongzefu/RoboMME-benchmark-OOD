@@ -1,11 +1,11 @@
-"""DemonstrationWrapper._augment_obs_and_info 的 8 个 include_* 开关（C08）。
+"""The 8 include_* switches of DemonstrationWrapper._augment_obs_and_info (C08).
 
-日常门禁跑 18 组（全关、全开、8 个单开、8 个单关）；四种动作空间 × 256 全组合（经真实 BenchmarkEnvBuilder，
-multi_choice 强制带前视内外参）标 slow。期望由替身观测手算：
-- 恒有的 obs 五键：front/wrist RGB (H,W,3) uint8、joint (7,) = qpos 前 7 维、eef (6,) float64 = tcp 位置 + rpy、
-  gripper (2,) = qpos 第 8、9 维（stick 任务恒为 0）；
-- 开关键：深度 (H,W,1) int16、外参 (3,4) float32（去 batch 维）、内参 (3,3) float32 进 info、
-  available_multi_choices 是 {label, action, need_parameter} 列表；CPU Tensor 一律转成 NumPy。
+The daily gate runs 18 combinations (all off, all on, 8 single-on, 8 single-off); four action spaces x all 256 combinations (via the real BenchmarkEnvBuilder,
+multi_choice forces front-camera intrinsics/extrinsics) are marked slow. Expectations computed by hand from double observations:
+- the five always-present obs keys: front/wrist RGB (H,W,3) uint8, joint (7,) = first 7 dims of qpos, eef (6,) float64 = tcp position + rpy,
+  gripper (2,) = qpos dims 8 and 9 (always 0 for stick tasks);
+- switch keys: depth (H,W,1) int16, extrinsics (3,4) float32 (batch dim removed), intrinsics (3,3) float32 into info,
+  available_multi_choices is a list of {label, action, need_parameter}; CPU Tensors are always converted to NumPy.
 """
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def _check(obs, info, flags, step_idx, stick=False):
     if flags["include_available_multi_choices"]:
         opts = info["available_multi_choices"]
         assert all(set(o) == {"label", "action", "need_parameter"} for o in opts)
-        assert [o["label"] for o in opts] == ["a", "b", "c"]  # PickXtimes：拾起／放到目标／按钮
+        assert [o["label"] for o in opts] == ["a", "b", "c"]  # PickXtimes: pick up/place on target/button
         assert [o["need_parameter"] for o in opts] == [True, False, False]
     if flags["include_maniskill_obs"]:
         assert set(obs["maniskill_obs"][-1]) == {"sensor_data", "sensor_param"}
@@ -108,7 +108,7 @@ def test_stick_task_gripper_is_zero():
 
 
 def test_frames_are_snapshots_not_aliases():
-    """reset 返回的批里每帧是独立快照：后续步写新帧不改前面已返回的帧。"""
+    """Each frame in the batch returned by reset is an independent snapshot: later steps writing new frames do not change frames already returned."""
     inner = FakeTaskEnv()
     w = DemonstrationWrapper(as_made(inner), max_steps_without_demonstration=99, gui_render=False,
                              include_front_depth=True)

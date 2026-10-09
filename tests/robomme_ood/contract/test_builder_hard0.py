@@ -1,17 +1,17 @@
-"""L1 契约：``BenchmarkEnvBuilder(dataset="hard-verify")`` 只含 xhard0，且不读规格根；按档步数查表已删除。
+"""L1 contract: ``BenchmarkEnvBuilder(dataset="hard-verify")`` contains only xhard0 and does not read the spec root; the per-tier step lookup table is removed.
 
-``hard-verify``（1003 评估计划 1.1）＝官方 test 元数据里每任务 ``difficulty=="hard"`` 的 12 局（原 episode
-3, 7, …, 47），按原 episode 升序编为 episode 0..11（xhard0 开关 ``XHARD0_IN_TEST_HARD`` 已随 H1 裁剪删除）。
+``hard-verify`` (1003 evaluation plan 1.1) = the 12 episodes per task with ``difficulty=="hard"`` in the official test metadata (original episodes
+3, 7, ..., 47), renumbered as episodes 0..11 in ascending original-episode order (the xhard0 switch ``XHARD0_IN_TEST_HARD`` was removed with the H1 trim).
 
-手段同 ``test_builder_800.py``：把 ``gym.make`` 换成「记录参数后抛哨兵异常」的替身，逐局调真实的
-``make_env_for_episode``，不起任何仿真。期望值一律来自手写钉值（``test_constants``）与标准库 json 直接读官方
-test 元数据，不读被测代码。规格读取函数全部打桩为「调用即失败并计数」，证明 hard-verify 不读规格。
+Same technique as ``test_builder_800.py``: replace ``gym.make`` with a double that "records arguments then raises a sentinel", and call the real
+``make_env_for_episode`` per episode without starting any simulation. Expected values come only from hand-written pins (``test_constants``) and the official
+test metadata read directly with stdlib json, never from the code under test. All spec reader functions are stubbed to "fail and count on call", proving hard-verify reads no specs.
 
-- 16 任务 × 12 局 = 192，逐局 kwargs 恰为 runtime 四项 + 官方 seed + ``difficulty="hard"``；
-- ``resolve_identity`` 字段集合与取值（无 candidate／规格摘要、不带 ``specs_root``）；
-- 官方 hard 子集被破坏（少一局、多一局、seed 重复）时构造即报错；
-- 构造函数没有 ``specs_root`` 形参，传入即 ``TypeError``；
-- 全仓 ``src/``、``scripts/``、``tests/`` 的 .py 里不再引用 ``TIER_MAX_STEPS``（S2 待清理名单除外，见下）。
+- 16 tasks x 12 episodes = 192; per-episode kwargs are exactly the four runtime items + official seed + ``difficulty="hard"``;
+- ``resolve_identity`` field set and values (no candidate/spec digest, no ``specs_root``);
+- a broken official hard subset (one episode missing, one extra, duplicate seed) errors at construction;
+- the constructor has no ``specs_root`` parameter; passing it raises ``TypeError``;
+- no .py under ``src/``, ``scripts/`` or ``tests/`` references ``TIER_MAX_STEPS`` any more (except the S2 pending-cleanup list, see below).
 """
 from __future__ import annotations
 
@@ -32,12 +32,12 @@ from tests.robomme_ood.contract.test_constants import (
 )
 
 OFFICIAL_TEST = REPO / "src" / "robomme" / "env_metadata" / "test"
-#: hard-verify 全量：16 任务 × 12 局（手算）
+#: hard-verify full set: 16 tasks x 12 episodes (computed by hand)
 TOTAL_HARD0 = 192
 N_TASKS_HARD0 = 16
-#: xhard0 局 resolve_identity 的字段集合（手写）
+#: Field set of resolve_identity for xhard0 episodes (hand-written)
 IDENTITY_KEYS = {"episode", "tier", "candidate", "seed", "source_dataset", "source_episode", "spec_sha256", "source_run"}
-#: 被打桩为「调用即失败」的规格读取入口：(模块名, 属性名)
+#: Spec reader entry points stubbed to "fail on call": (module name, attribute name)
 SPEC_READERS = (
     ("hard_specs", "load_specs_root"),
     ("hard_specs", "specs_root"),
@@ -48,7 +48,7 @@ SPEC_READERS = (
 
 
 class Sentinel(Exception):
-    """替身 gym.make 抛出的哨兵：证明构建在 gym.make 处被拦下，没有起仿真。"""
+    """Sentinel raised by the gym.make double: proves construction was stopped at gym.make without starting simulation."""
 
 
 @pytest.fixture
@@ -67,7 +67,7 @@ def recorder(monkeypatch):
 
 @pytest.fixture
 def spec_reads(monkeypatch, tmp_path):
-    """把规格读取入口全部换成「计数后抛错」的桩；返回调用记录。"""
+    """Replace all spec reader entry points with stubs that "count then raise"; return the call record."""
     from robomme_ood.env_record_wrapper import hard_builder, hard_specs
 
     modules = {"hard_specs": hard_specs, "hard_builder": hard_builder}
@@ -75,7 +75,7 @@ def spec_reads(monkeypatch, tmp_path):
     for module_name, attr in SPEC_READERS:
         def boom(*_args, _name=f"{module_name}.{attr}", **_kwargs):
             reads.append(_name)
-            raise AssertionError(f"hard-verify 不应读规格：调用了 {_name}")
+            raise AssertionError(f"hard-verify must not read specs: called {_name}")
 
         monkeypatch.setattr(modules[module_name], attr, boom)
     return reads
@@ -88,7 +88,7 @@ def builder_cls():
 
 
 def official_hard(task: str) -> list[dict]:
-    """标准库 json 直接读官方 test 元数据，取 hard 子集按原 episode 升序。"""
+    """Read the official test metadata directly with stdlib json and take the hard subset in ascending original-episode order."""
     payload = json.loads((OFFICIAL_TEST / f"record_dataset_{task}_metadata.json").read_text(encoding="utf-8"))
     return sorted((r for r in payload["records"] if r["difficulty"] == "hard"), key=lambda r: int(r["episode"]))
 
@@ -102,7 +102,7 @@ def capture(builder, episode: int, calls: list) -> tuple[tuple, dict]:
 
 
 def test_hard_verify_every_episode(recorder, spec_reads):
-    """16 任务逐局 gym.make 参数与身份；全程不读规格。"""
+    """Per-episode gym.make arguments and identity for 16 tasks; specs are never read."""
     total = 0
     tasks = 0
     for task in TASKS:
@@ -144,7 +144,7 @@ def test_hard_verify_rejects_specs_root(spec_reads, tmp_path):
 
 
 def _broken_loader(monkeypatch, how: str):
-    """把父类读官方 test 元数据的函数包一层，在 BinFill 的 hard 子集上做 ``how`` 指定的破坏。"""
+    """Wrap the parent's official test metadata reader and apply the breakage given by ``how`` to BinFill's hard subset."""
     from robomme.env_record_wrapper import episode_config_resolver as official
 
     original = official.load_episode_metadata
@@ -153,7 +153,7 @@ def _broken_loader(monkeypatch, how: str):
         index = dict(original(path))
         hard = sorted((key for key, rec in index.items() if key[0] == "BinFill" and rec.get("difficulty") == "hard"),
                       key=lambda key: key[1])
-        if not hard:  # 别的任务的元数据文件：原样返回
+        if not hard:  # metadata file of another task: return unchanged
             return index
         if how == "drop":
             del index[hard[-1]]
@@ -169,25 +169,25 @@ def _broken_loader(monkeypatch, how: str):
 
 @pytest.mark.parametrize("how", ["drop", "extra", "dup_seed"])
 def test_hard_verify_rejects_broken_official_subset(monkeypatch, spec_reads, how):
-    """官方 hard 子集必须恰为原 episode 3,7,…,47 且 seed 唯一：少一局、多一局、seed 重复都在构造时报错。"""
+    """The official hard subset must be exactly original episodes 3,7,...,47 with unique seeds: one missing, one extra or a duplicate seed all error at construction."""
     _broken_loader(monkeypatch, how)
     with pytest.raises(ValueError, match="xhard0"):
         builder_cls()(env_id="BinFill", dataset="hard-verify")
-    # 其他任务不受影响
+    # other tasks are unaffected
     assert builder_cls()(env_id="StopCube", dataset="hard-verify").get_episode_num() == XHARD0_PER_TASK
     assert spec_reads == []
 
 
-# ── 按档步数查表已删除：全仓不再引用 ─────────────────────────────────────────
+# -- Per-tier step lookup table removed: no references anywhere in the repo -----------------------------------------
 
-#: 过渡期豁免名单。S2（评估客户端、清单、报告）已于 12.437 合入并清掉全部查表引用，名单随之清空；
-#: 扫描范围即为 src/、scripts/、tests/ 下全部 .py。保留空集合只为让历史提交可读，不得再往里加文件。
+#: Transitional exemption list. S2 (evaluation client, manifest, report) was merged in 12.437 and cleared all lookup-table references, so the list is now empty;
+#: the scan covers all .py under src/, scripts/ and tests/. The empty set is kept only so historical commits stay readable; do not add files to it.
 S2_PENDING: frozenset[str] = frozenset()
 _LOOKUP_NAME = "TIER_MAX_STEPS"
 
 
 def _name_refs(path: Path) -> int:
-    """文件里名为查表的标识符（NAME 记号）个数：只数代码引用，字符串与注释里的文字不算。"""
+    """Number of identifiers named after the lookup table in a file (NAME tokens): counts only code references, not text in strings or comments."""
     source = path.read_text(encoding="utf-8")
     return sum(1 for tok in tokenize.generate_tokens(io.StringIO(source).readline)
                if tok.type == tokenize.NAME and tok.string == _LOOKUP_NAME)

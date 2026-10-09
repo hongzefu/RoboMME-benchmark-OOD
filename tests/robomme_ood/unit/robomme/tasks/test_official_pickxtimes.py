@@ -1,8 +1,8 @@
-"""PickXtimes 原生三档真值表（C05）：N 次完整拾放后按按钮才成功。
+"""PickXtimes native three-tier truth table (C05): success only after N complete pick-and-place cycles followed by a button press.
 
-期望来自任务定义本身（目标语言「repeating this action N times, then press the button」）：
-N 次拾放 + 按钮 → 成功；N−1 次就按、N+1 次多拾、抓错对象、持物按按钮 → 失败；做完 N 次不按 → 进行中。
-N 读自本局 env.num_repeats，并与目标语言里的次数词交叉核对（同一局的语言与判定绑定）。
+Expectations come from the task definition itself (goal language "repeating this action N times, then press the button"):
+N pick-and-place + button -> success; pressing after N-1, an extra N+1th pick, grasping the wrong object, pressing while holding -> failure; N done without pressing -> ongoing.
+N is read from this episode's env.num_repeats and cross-checked against the count word in the goal language (language and verdict bound to the same episode).
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from tests.robomme_ood.unit.robomme import official_thresholds as T
 
 TASK = "PickXtimes"
 DIFFS = ("easy", "medium", "hard")
-# 独立期望：英文基数词（只用于核对目标语言里的次数，来源：英语）
+# independent expectation: English cardinal numbers (only for checking the count in the goal language; source: English)
 WORDS = {2: "two", 3: "three", 4: "four", 5: "five"}
 
 
@@ -44,7 +44,7 @@ def test_n_cycles_then_button_succeeds(world, diff):
         _cycle(ep, env)
         assert not ep.success and not ep.fail
     ep.step()
-    assert not ep.success and not ep.fail  # 做完 N 次不按按钮：未完成不成功
+    assert not ep.success and not ep.fail  # N done without pressing the button: not finished, no success
     ep.press(env.button)
     ep.step()
     assert ep.success and not ep.fail
@@ -61,7 +61,7 @@ def test_button_after_n_minus_1_cycles_fails(world, diff):
     assert ep.fail and not ep.success
     ep.unpress(env.button)
     ep.step(3)
-    assert ep.fail and not ep.success  # 失败终态稳定
+    assert ep.fail and not ep.success  # failure terminal state is stable
 
 
 @pytest.mark.parametrize("diff", DIFFS)
@@ -70,7 +70,7 @@ def test_extra_pickup_after_n_cycles_fails(world, diff):
     env = ep.env
     for _ in range(env.num_repeats):
         _cycle(ep, env)
-    ep.grasp(env.target_cube)  # 第 N+1 次拾起：按钮子任务的失败条件
+    ep.grasp(env.target_cube)  # the N+1th pickup: the failure condition of the button subtask
     ep.step()
     assert ep.fail and not ep.success
 
@@ -79,7 +79,7 @@ def test_extra_pickup_after_n_cycles_fails(world, diff):
 def test_wrong_object_fails(world, diff):
     ep = world.make(diff, seed=3)
     env = ep.env
-    assert env.non_target_cubes, "medium/hard 有干扰块"
+    assert env.non_target_cubes, "medium/hard have distractor cubes"
     ep.grasp(env.non_target_cubes[0])
     ep.step()
     assert ep.fail and not ep.success
@@ -100,7 +100,7 @@ def test_press_button_while_holding_fails(world, diff):
     ep.grasp(env.target_cube)
     ep.step()
     assert not ep.fail
-    ep.press(env.button)  # 持物（处于「放到 target」子任务）时按钮
+    ep.press(env.button)  # pressing the button while holding (in the "place on target" subtask)
     ep.step()
     assert ep.fail and not ep.success
 
@@ -113,13 +113,13 @@ def test_place_off_target_does_not_advance(world, diff):
     ep.step()
     before = ep.task_index
     tx, ty, _ = env.target.xyz
-    ep.release(env.target_cube, tx + 4 * T.DROP_ONTO_XY, ty)  # 远在放置阈值之外
+    ep.release(env.target_cube, tx + 4 * T.DROP_ONTO_XY, ty)  # far outside the placement threshold
     ep.step()
     assert ep.task_index == before and not ep.success and not ep.fail
 
 
 def test_drop_distance_boundary(world):
-    """is_obj_dropped_onto 的水平距离阈值 T.DROP_ONTO_XY（<= 判定）：阈值内侧推进、外侧不推进。"""
+    """Horizontal distance threshold T.DROP_ONTO_XY of is_obj_dropped_onto (<= check): advances just inside, not just outside."""
     for offset, advances in ((T.DROP_ONTO_XY - T.EPS, True), (T.DROP_ONTO_XY + T.EPS, False)):
         ep = world.make("easy", seed=3)
         env = ep.env
@@ -133,7 +133,7 @@ def test_drop_distance_boundary(world):
 
 
 def test_rebuild_clears_episode_state(world):
-    """重建（新一局）后子任务指针与失败标志从零开始。"""
+    """After rebuilding (a new episode) the subtask pointer and failure flag start from zero."""
     ep = world.make("easy", seed=3)
     ep.press(ep.env.button)
     ep.step()

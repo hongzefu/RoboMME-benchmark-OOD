@@ -1,6 +1,6 @@
-"""官方 sequential_task_check 与几个判定谓词（C06 失败优先／一次只推进一项／切换许可／缓存清除；C07 阈值等号）。
+"""Official sequential_task_check and several predicates (C06 failure priority/advance one item at a time/switch permission/cache clearing; C07 threshold equality).
 
-用手写的任务表（func／failure_func 是返回固定值的小函数）直接调真实函数，期望逐条手写。
+Calls the real functions directly with hand-written task tables (func/failure_func are small functions returning fixed values); expectations written item by item.
 """
 from __future__ import annotations
 
@@ -59,10 +59,10 @@ def test_subgoal_switch_permission():
     sef.sequential_task_check(env, tasks, True)
     assert env.current_task_name == "first" and env.current_task_demonstration is True
     tasks[0]["func"] = lambda: True
-    sef.sequential_task_check(env, tasks, False)   # 完成并推进，但不许切换「对外」子目标
+    sef.sequential_task_check(env, tasks, False)   # complete and advance, but switching the "external" subgoal is not allowed
     sef.sequential_task_check(env, tasks, False)
     assert env.timestep == 1 and env.current_task_name == "first"
-    assert env.current_task_name_online == "second"  # 实时子目标照常更新
+    assert env.current_task_name_online == "second"  # the real-time subgoal is updated as usual
     sef.sequential_task_check(env, tasks, True)
     assert env.current_task_name == "second" and env.current_task_demonstration is False
 
@@ -70,10 +70,10 @@ def test_subgoal_switch_permission():
 def test_static_cache_cleared_on_task_switch():
     env = _env(first_timestep=5)
     tasks = [_task("t0", done=True), _task("t1")]
-    sef.sequential_task_check(env, tasks, True)  # 首次调用：_last_task_index 由 None → 0，清掉旧缓存
+    sef.sequential_task_check(env, tasks, True)  # first call: _last_task_index None -> 0, clears the old cache
     assert not hasattr(env, "first_timestep")
     env.first_timestep = 7
-    sef.sequential_task_check(env, tasks, True)  # 切到 t1：再清一次
+    sef.sequential_task_check(env, tasks, True)  # switch to t1: clears again
     assert not hasattr(env, "first_timestep")
 
 
@@ -109,7 +109,7 @@ def test_non_callable_failure_value_is_constant():
     assert sef.sequential_task_check(_env(), [_task("t", fail=False)], True)[2] is False
 
 
-# --------------------------------------------------------------------------- 谓词
+# --------------------------------------------------------------------------- Predicates
 
 
 @pytest.mark.parametrize("stop, inside", [(60, True), (90, True), (120, True), (59, False), (121, False)])
@@ -133,11 +133,11 @@ def _actor(x, y, z=0.0):
 def test_stopped_onto_latches_first_stop_step():
     env = _env(cube_half_size=T.CUBE_HALF, elapsed_steps=30)
     target = _actor(0, 0)
-    assert sef.is_obj_stopped_onto(env, _actor(T.STOP_ONTO_XY, 0), target, stop=True) is True   # 含等号
+    assert sef.is_obj_stopped_onto(env, _actor(T.STOP_ONTO_XY, 0), target, stop=True) is True   # inclusive
     assert env.stop_timestep == 30
     env.elapsed_steps = 40
     assert sef.is_obj_stopped_onto(env, _actor(0, 0), target, stop=True) is True
-    assert env.stop_timestep == 30  # 不改写
+    assert env.stop_timestep == 30  # not rewritten
     assert sef.is_obj_stopped_onto(_env(cube_half_size=T.CUBE_HALF), _actor(T.STOP_ONTO_XY + T.EPS, 0), target, stop=True) is False
     assert sef.is_obj_stopped_onto(_env(cube_half_size=T.CUBE_HALF), _actor(0, 0), target, stop=False) is False
 
@@ -149,7 +149,7 @@ def test_stopped_onto_latches_first_stop_step():
 def test_direction_compass(dx, dy, label8, label4):
     a, b = _actor(dx, dy), _actor(0, 0)
     assert sef.direction(a, b) == label8
-    # 4 向时对角线两边点积相等，取先列出的 forward/backward
+    # with 4 directions the dot products on both sides of the diagonal are equal; take forward/backward, listed first
     assert sef.direction(a, b, direction=4) == label4
 
 

@@ -1,10 +1,10 @@
-"""VideoUnmask 与 ButtonUnmask 原生三档真值表（C05）。
+"""VideoUnmask and ButtonUnmask native three-tier truth tables (C05).
 
-两任务共用判定：「拿起容器」= 容器高度 > T.BIN_PICKUP_Z（严格大于），「放下」= 高度 <= T.BIN_PUTDOWN_Z、未被抓、tcp 高于 T.PICKUP_Z。
-- VideoUnmask：演示段是 T.VIDEO_UNMASK_STATIC_STEPS 步静止观看（期间容器被抬走再放回），之后拿起藏着目标色方块的 bin_0；
-  hard 档要两次选择（bin_0 → 放下 → bin_1）。
-- ButtonUnmask：先按按钮（深度 > T.BUTTON_DEPTH 才算按下），再同样选择。
-目标语言里的颜色必须就是藏在 bin_0／bin_1 下的方块颜色（方块初始 xy 与容器重合）。
+Shared verdicts of both tasks: "pick up container" = container height > T.BIN_PICKUP_Z (strictly greater), "put down" = height <= T.BIN_PUTDOWN_Z, not grasped, tcp above T.PICKUP_Z.
+- VideoUnmask: the demo segment is T.VIDEO_UNMASK_STATIC_STEPS steps of watching still (containers lifted away and put back meanwhile), then pick up bin_0 hiding the target-color cube;
+  hard requires two choices (bin_0 -> put down -> bin_1).
+- ButtonUnmask: press the button first (pressed only when depth > T.BUTTON_DEPTH), then choose the same way.
+The color in the goal language must be the color of the cube hidden under bin_0/bin_1 (the cube's initial xy coincides with the container).
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from tests.robomme_ood.unit.robomme import official_thresholds as T
 
 DIFFS = ("easy", "medium", "hard")
 BIN_UP = T.BIN_UP_Z
-REVEAL_END = T.REVEAL_END_STEP + 1  # 越过揭示动画窗口
+REVEAL_END = T.REVEAL_END_STEP + 1  # past the reveal animation window
 
 
 @pytest.fixture(params=["VideoUnmask", "ButtonUnmask"])
@@ -33,14 +33,14 @@ def world(task):
 def _to_online(ep, task):
     env = ep.env
     if task == "VideoUnmask":
-        # 演示段：机器人静止 T.VIDEO_UNMASK_STATIC_STEPS 步（真实 static_check），子任务指针才进入在线段
+        # demo segment: the robot stays still for T.VIDEO_UNMASK_STATIC_STEPS steps (real static_check) before the subtask pointer enters the online segment
         guard = 0
         while ep.task_index < ep.first_online_index():
             ep.step()
             guard += 1
             assert guard < 200
     else:
-        # 等过揭示动画（容器被抬到场景外再放回）再按按钮，见 test_button_unmask_press_during_reveal_fails
+        # wait out the reveal animation (containers lifted out of the scene and put back) before pressing the button, see test_button_unmask_press_during_reveal_fails
         ep.step(REVEAL_END)
         ep.press(env.button_left)
         ep.step()
@@ -109,7 +109,7 @@ def test_hard_second_pick_without_putdown_fails(world, task):
     _to_online(ep, task)
     ep.grasp(env.bin_0, z=BIN_UP)
     ep.step()
-    env.bin_1.move_to(z=BIN_UP)  # bin_0 还举着就拿第二个
+    env.bin_1.move_to(z=BIN_UP)  # pick up the second while bin_0 is still held
     ep.step()
     assert ep.fail and not ep.success
 
@@ -125,7 +125,7 @@ def test_pickup_height_threshold_is_strict(world, task, z, picked):
 
 
 def test_video_unmask_motion_restarts_static_window():
-    """演示段的 static_check：机器人一动，静止计时重新开始（演示→在线切换的时点）。"""
+    """static_check of the demo segment: as soon as the robot moves, the still timer restarts (the demo->online switch timing)."""
     with OfficialWorld("VideoUnmask") as world:
         ep = world.make("easy", seed=2)
         ep.step(T.VIDEO_UNMASK_STATIC_STEPS // 2)
@@ -139,27 +139,27 @@ def test_video_unmask_motion_restarts_static_window():
 
 
 def test_video_unmask_bins_return_to_origin_after_reveal():
-    """揭示窗口里容器被抬走、在窗口中点放回原位；在线段开始时容器都在初始位置。"""
+    """During the reveal window the containers are lifted away and put back at the window midpoint; at the start of the online segment all containers are at their initial positions."""
     with OfficialWorld("VideoUnmask") as world:
         ep = world.make("hard", seed=2)
         origin = [b.xyz.copy() for b in ep.env.spawned_bins]
         ep.step(10)
-        assert all(b.xyz[2] == T.REVEAL_AWAY_Z for b in ep.env.spawned_bins)  # 揭示中：被抬到场景外
+        assert all(b.xyz[2] == T.REVEAL_AWAY_Z for b in ep.env.spawned_bins)  # during the reveal: lifted out of the scene
         while ep.task_index == 0:
             ep.step()
         for b, o in zip(ep.env.spawned_bins, origin):
             np.testing.assert_allclose(b.xyz, o, atol=1e-6)
 
 
-# 按钮深度「严格大于」的契约只在 test_sequential_check.py::test_button_depth_strict 断言（贴近生产函数）。
+# the button depth "strictly greater" contract is asserted only in test_sequential_check.py::test_button_depth_strict (closest to the production function).
 
 
 @pytest.mark.parametrize("press_at, fails", [
     (1, True), (T.REVEAL_DROP_STEP - 1, True), (T.REVEAL_DROP_STEP, False), (T.REVEAL_END_STEP, False),
 ])
 def test_button_unmask_press_during_reveal_fails(press_at, fails):
-    """官方现状（契约增量登记为 conditional）：揭示窗口前半段（elapsed < T.REVEAL_DROP_STEP）容器被临时移到场景外高处，
-    此时若已按下按钮，下一步「拿起其他容器」的失败条件成立 → fail（随即 terminated）。"""
+    """Current official behavior (registered as conditional in the contract delta): in the first half of the reveal window (elapsed < T.REVEAL_DROP_STEP) containers are temporarily moved high out of the scene;
+    if the button is already pressed then, the "picked up another container" failure condition holds on the next step -> fail (then terminated)."""
     with OfficialWorld("ButtonUnmask") as world:
         ep = world.make("easy", seed=2)
         ep.step(press_at - 1)
@@ -169,7 +169,7 @@ def test_button_unmask_press_during_reveal_fails(press_at, fails):
 
 
 def test_button_unmask_failure_not_latched_by_env():
-    """ButtonUnmask.evaluate 每步重置 failureflag（不锁存）；失败的终局靠 terminated 截断，而不是 env 记忆。"""
+    """ButtonUnmask.evaluate resets failureflag every step (no latch); the failure terminal relies on terminated truncation, not env memory."""
     with OfficialWorld("ButtonUnmask") as world:
         ep = world.make("easy", seed=2)
         _to_online(ep, "ButtonUnmask")
@@ -183,7 +183,7 @@ def test_button_unmask_failure_not_latched_by_env():
 
 
 def test_button_unmask_pick_before_button_is_not_success():
-    """跳过按钮先拿容器：不推进也不判失败（按钮子任务无失败条件）；补按按钮后才成功——官方现状。"""
+    """Skipping the button and picking a container first: neither advances nor fails (the button subtask has no failure condition); success only after pressing the button later -- current official behavior."""
     with OfficialWorld("ButtonUnmask") as world:
         ep = world.make("easy", seed=2)
         env = ep.env

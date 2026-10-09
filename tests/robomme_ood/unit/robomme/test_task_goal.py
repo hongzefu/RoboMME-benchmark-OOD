@@ -1,8 +1,8 @@
-"""官方 task_goal.get_language_goal：16 任务目标语言的分支（C07 语言与对象／次数／方向绑定）。
+"""Official task_goal.get_language_goal: goal-language branches of the 16 tasks (C07 language bound to object/count/direction).
 
-调用方式与 DemonstrationWrapper 相同：第一个参数是包装层（``.env.unwrapped`` 取任务实例，其余属性透传）。
-期望是目标语言本身的手写片段；两条与旧测试不同、已按官方现状修正：未知任务返回 []；
-SwingXtimes 写作 back-and-forth。语言与真实任务实例的绑定（同一局的次数、颜色）在 tasks/ 下的真值表里交叉核对。
+Called the same way as DemonstrationWrapper: the first argument is the wrapper layer (``.env.unwrapped`` gives the task instance, other attributes pass through).
+Expectations are hand-written fragments of the goal language itself; two differ from the old tests and are corrected to current official behavior: unknown task returns [];
+SwingXtimes is written as back-and-forth. Binding of language to real task instances (count and color of the same episode) is cross-checked in the truth tables under tasks/.
 """
 from __future__ import annotations
 

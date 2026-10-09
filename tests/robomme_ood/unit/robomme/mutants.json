@@ -2,7 +2,7 @@
   {
     "id": "T3-M01",
     "target": "src/robomme/robomme_env/utils/subgoal_evaluate_func.py::is_button_pressed",
-    "inject": "进程内替换为 depth >= 0.005（严格大于改成大于等于）；同时替换 subgoal_evaluate_func 与 16 个任务模块命名空间里的同名引用（任务模块经 from .utils import * 持有引用）",
+    "inject": "replaced in process with depth >= 0.005 (strictly greater changed to greater or equal); also replaces same-named references in subgoal_evaluate_func and the namespaces of the 16 task modules (task modules hold references via from .utils import *)",
     "expect_fail": [
       "tests/robomme_ood/unit/robomme/test_sequential_check.py::test_button_depth_strict"
     ],
@@ -11,7 +11,7 @@
   {
     "id": "T3-M02",
     "target": "src/robomme/robomme_env/utils/subgoal_evaluate_func.py::_coerce_failure_result",
-    "inject": "进程内替换为恒返回 False（所有失败条件失效）",
+    "inject": "replaced in process with a function always returning False (all failure conditions disabled)",
     "expect_fail": [
       "tests/robomme_ood/unit/robomme/test_sequential_check.py::test_failure_value_coercion",
       "tests/robomme_ood/unit/robomme/tasks/test_official_pickxtimes.py::test_wrong_object_fails",
@@ -22,14 +22,14 @@
   {
     "id": "T3-M03",
     "target": "src/robomme/robomme_env/utils/subgoal_evaluate_func.py::is_obj_dropped_onto",
-    "inject": "进程内把水平阈值 0.05 改成 0.06（含任务模块命名空间的同名引用）",
+    "inject": "horizontal threshold changed in process from 0.05 to 0.06 (including same-named references in task module namespaces)",
     "expect_fail": ["tests/robomme_ood/unit/robomme/tasks/test_official_pickxtimes.py::test_drop_distance_boundary"],
     "verified": true
   },
   {
     "id": "T3-M04",
     "target": "src/robomme/robomme_env/utils/subgoal_evaluate_func.py::correct_timestep",
-    "inject": "进程内替换为恒返回 True（StopCube 停止窗口永远算对；含 StopCube 模块命名空间引用）",
+    "inject": "replaced in process with a function always returning True (StopCube stop window always correct; including the reference in the StopCube module namespace)",
     "expect_fail": [
       "tests/robomme_ood/unit/robomme/tasks/test_official_stopcube.py::test_stop_on_previous_visit_fails",
       "tests/robomme_ood/unit/robomme/test_sequential_check.py::test_correct_timestep_inclusive_window[59-False]"
@@ -38,8 +38,8 @@
   },
   {
     "id": "T3-M05",
-    "target": "src/robomme/robomme_env/utils/statechange.py::swap_flat_two_lane（经 VideoUnmaskSwap／ButtonUnmaskSwap／VideoRepick／VideoPlaceButton／VideoPlaceOrder 模块引用）",
-    "inject": "进程内把这些任务模块里的 swap_flat_two_lane 换成空操作（交换不发生）",
+    "target": "src/robomme/robomme_env/utils/statechange.py::swap_flat_two_lane (referenced via the VideoUnmaskSwap/ButtonUnmaskSwap/VideoRepick/VideoPlaceButton/VideoPlaceOrder modules)",
+    "inject": "swap_flat_two_lane in these task modules replaced in process with a no-op (no swaps happen)",
     "expect_fail": [
       "tests/robomme_ood/unit/robomme/tasks/test_official_unmask_swap.py::test_vus_swap_mechanics",
       "tests/robomme_ood/unit/robomme/tasks/test_official_unmask_swap.py::test_vus_original_position_is_wrong",
@@ -51,14 +51,14 @@
   {
     "id": "T3-M06",
     "target": "src/robomme/env_record_wrapper/DemonstrationWrapper.py::DemonstrationWrapper._filter_no_record_from_step_batch",
-    "inject": "进程内替换为原样返回（reset 不再过滤 NO RECORD 帧）",
+    "inject": "replaced in process with returning input unchanged (reset no longer filters NO RECORD frames)",
     "expect_fail": ["tests/robomme_ood/unit/robomme/test_demo_wrapper_status.py::test_reset_filters_no_record_and_appends_init_step"],
     "verified": true
   },
   {
     "id": "T3-M07",
     "target": "src/robomme/env_record_wrapper/episode_config_resolver.py::get_episode_metadata",
-    "inject": "进程内替换为恒返回 None（seed／difficulty 不再交给 gym.make）",
+    "inject": "replaced in process with always returning None (seed/difficulty no longer passed to gym.make)",
     "expect_fail": [
       "tests/robomme_ood/unit/robomme/test_env_builder.py::test_metadata_resolution_rules",
       "tests/robomme_ood/unit/robomme/test_env_builder.py::test_make_env_kwargs_and_chain",
@@ -69,7 +69,7 @@
   {
     "id": "T3-M08",
     "target": "src/robomme/robomme_env/RouteStick.py::RouteStick.direction_fail",
-    "inject": "进程内包一层：把期望方向 clockwise／counterclockwise 互换后再调原方法",
+    "inject": "wrapped in process: swap the expected direction clockwise/counterclockwise before calling the original method",
     "expect_fail": [
       "tests/robomme_ood/unit/robomme/tasks/test_official_stick.py::test_rs_follow_route_with_directions_succeeds",
       "tests/robomme_ood/unit/robomme/tasks/test_official_stick.py::test_rs_wrong_direction_fails_and_latches"
@@ -79,14 +79,14 @@
   {
     "id": "T3-M09",
     "target": "src/robomme/env_record_wrapper/FailAwareWrapper.py::FailAwareWrapper.step",
-    "inject": "进程内替换为直接调用内层 step（不再把异常转成 status=error）",
+    "inject": "replaced in process with calling the inner step directly (exceptions no longer converted to status=error)",
     "expect_fail": ["tests/robomme_ood/unit/robomme/test_fail_paths.py::test_failaware_converts_exceptions"],
     "verified": true
   },
   {
     "id": "T3-M10",
     "target": "src/robomme/robomme_env/utils/subgoal_evaluate_func.py::sequential_task_check",
-    "inject": "进程内包一层：本次调用若推进了一项且未结束，立刻再检查下一项（一步推进两项）；含任务模块命名空间引用",
+    "inject": "wrapped in process: if this call advanced one item and did not finish, immediately check the next item (two items advanced in one step); including task module namespace references",
     "expect_fail": [
       "tests/robomme_ood/unit/robomme/test_sequential_check.py::test_one_task_per_call_and_last_task",
       "tests/robomme_ood/unit/robomme/tasks/test_official_binfill.py::test_wrong_color_fails_at_button",

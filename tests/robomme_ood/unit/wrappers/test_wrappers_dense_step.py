@@ -1,9 +1,9 @@
-"""planner_denseStep 的四个对外规划入口（C09.02）：真实规划边界换成 CPU spy 后的调用次序与参数。
+"""The four public planning entry points of planner_denseStep (C09.02): call order and arguments after the real planning boundary is replaced by a CPU spy.
 
-``move_to_pose_with_RRTStar／move_to_pose_with_screw／close_gripper／open_gripper`` 各自只调用规划器上对应的那一个方法、
-原样传入目标位姿，把期间的底层 step 收成统一批；规划返回 -1 → 入口返回 -1；结束后 env.step 拦截被还原。
-（批的构造与拼接细节已在 tests/robomme_ood/unit/robomme/test_step_batch.py，这里只测四个入口的分派与参数。）
-hard 包的 planner_denseStep 是官方模块的 shim，用同一组用例核对两包导入到的是同一实现。
+``move_to_pose_with_RRTStar/move_to_pose_with_screw/close_gripper/open_gripper`` each call only the one corresponding planner method,
+pass the target pose through unchanged, and collect the low-level steps meanwhile into a uniform batch; planning returns -1 -> the entry returns -1; afterwards the env.step interception is restored.
+(Batch construction and concatenation details are in tests/robomme_ood/unit/robomme/test_step_batch.py; here only the dispatch and arguments of the four entries are tested.)
+The hard package's planner_denseStep is a shim of the official module; the same tests check that both packages import the same implementation.
 """
 from __future__ import annotations
 
@@ -53,7 +53,7 @@ def test_entry_dispatches_to_matching_method(pds, entry):
     fn = getattr(pds, entry)
     batch = fn(planner, pose) if takes_pose else fn(planner)
     calls = [e for e in log if e[0].startswith("planner.") and e[0] != "planner.new"]
-    assert calls == [(method, pose if takes_pose else None)]   # 只调对应方法，位姿是同一对象
+    assert calls == [(method, pose if takes_pose else None)]   # only the corresponding method is called; the pose is the same object
     obs, reward, terminated, truncated, info = batch
     assert reward.tolist() == [1.0, 2.0, 3.0] and info["n"] == [1, 2, 3]
     assert [int(v[0]) for v in obs["k"]] == [1, 2, 3]
