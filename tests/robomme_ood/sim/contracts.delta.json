@@ -1,0 +1,80 @@
+[
+  {
+    "id": "C02.L4-01",
+    "domain": "C02",
+    "source": [
+      "src/robomme_ood/env_record_wrapper/hard_builder.py",
+      "src/robomme/env_record_wrapper/episode_config_resolver.py"
+    ],
+    "symbol": "BenchmarkEnvBuilder.make_env_for_episode（robomme_ood）",
+    "oracle": "清理前同口径扫描 reset-sweep.jsonl 的 59 格实测：包装链恒为 FailAwareWrapper→DemonstrationWrapper→TimeLimitWrapper→OrderEnforcing→任务类",
+    "positive": "59 格（xhard0 16 任务 × 1 局 + xhard1～5 共 43 格 × 1 局）真实 reset 后链名逐层相等，第 0 层 FailAwareWrapper 是官方类（robomme_ood 的同名模块只是指向 robomme.env_record_wrapper.FailAwareWrapper 的别名 shim）、第 1 层 DemonstrationWrapper 与任务类是 robomme_ood 的类，unwrapped.seed／difficulty 等于规格行（xhard0 等于官方 test 元数据的 hard）",
+    "negative": "任务类来自官方 robomme（接管失败）或链层次增减即失败；收集期格数不等于 16 + 43 即收集失败",
+    "boundaries": "xhard0 统一取官方 test 集 hard 子集首局（XHARD0_EPISODES[0]）；ood 不含 xhard0",
+    "nodeids": [
+      "tests/robomme_ood/sim/test_reset_matrix.py::test_reset_cell"
+    ],
+    "resource": "gpu",
+    "mutants": [],
+    "status": "planned"
+  },
+  {
+    "id": "C04.L4-01",
+    "domain": "C04",
+    "source": [
+      "src/robomme_ood/env_record_wrapper/hard_specs.py",
+      "src/robomme_ood/env_record_wrapper/hard_builder.py"
+    ],
+    "symbol": "hard_specs.spec_binding（reset 后）",
+    "oracle": "包内 env_metadata/ood/<档>/specs.jsonl 的正式行（hard_specs.load_specs 独立读取），行内 spec_sha256 与对 spec 重算的哈希一致",
+    "positive": "xhard1～5 共 43 格：mode == replay、spec_sha256 等于规格行、injected_mismatch == 0、unused == 0",
+    "negative": "builder 丢掉 native_episode_spec 时 mode 不是 replay 即失败；xhard0 无规格，mode 不得是 replay",
+    "boundaries": "只核每格首局；recorded_drift 不作断言（只记录点允许 ≤ RECORDED_FLOAT_TOL 的差）",
+    "nodeids": [
+      "tests/robomme_ood/sim/test_reset_matrix.py::test_reset_cell"
+    ],
+    "resource": "gpu",
+    "mutants": [
+      "M09"
+    ],
+    "status": "planned"
+  },
+  {
+    "id": "C09.L4-01",
+    "domain": "C09",
+    "source": [
+      "src/robomme_ood/env_record_wrapper/DemonstrationWrapper.py"
+    ],
+    "symbol": "DemonstrationWrapper.reset 返回的 obs／info",
+    "oracle": "reset-sweep.jsonl 实测：obs 五键形状 dtype、info 七键、status ongoing、task_goal 1～4 条；示教有无由 unwrapped.task_list 的 demonstration 标记推出，并与实测 9 个示教任务名单交叉核对",
+    "positive": "front／wrist_rgb (256,256,3) uint8、joint (7,) float32、eef (6,) float64、gripper (2,) float32（panda_stick 两任务为 float64 全零），五列表等长；含示教的帧数 > 1，否则恰为 1",
+    "negative": "多键／少键、任一帧形状或 dtype 不符、列表不等长、status 非 ongoing、task_goal 空串或超过 4 条、示教有无与帧数不一致即失败",
+    "boundaries": "stick 环境的 gripper dtype 按 unwrapped.robot_uids == panda_stick 区分（计划原文写 float32，实测 PatternLock／RouteStick 为 float64，以实测为准）",
+    "nodeids": [
+      "tests/robomme_ood/sim/test_reset_matrix.py::test_reset_cell"
+    ],
+    "resource": "gpu",
+    "mutants": [],
+    "status": "planned"
+  },
+  {
+    "id": "C08.L4-01",
+    "domain": "C08",
+    "source": [
+      "src/robomme/env_record_wrapper/EndeffectorDemonstrationWrapper.py",
+      "src/robomme/env_record_wrapper/DemonstrationWrapper.py",
+      "src/robomme/env_record_wrapper/episode_config_resolver.py"
+    ],
+    "symbol": "官方 BenchmarkEnvBuilder(ee_pose) + DemonstrationWrapper 可选观测 + EndeffectorDemonstrationWrapper.step",
+    "oracle": "官方源码：深度取 sensor_data depth[0] 转 int16、外参 extrinsic_cv squeeze 成 (3,4)、内参 intrinsic_cv (3,3)、多选项三键；IK 无解时显式返回 status=error 且不调用内层 step",
+    "positive": "独立子进程（未加载 robomme_ood）1 次 reset：深度逐帧 (256,256,1) int16、外参逐帧 (3,4) float32、内参 (3,3) float32、available_multi_choices 非空且每项恰三键；不可达 ee 动作返回 status=error、错误信息含 IK failed、obs 为空、terminated 为真",
+    "negative": "子进程加载了 robomme_ood、环境类不在 robomme.robomme_env、错误来自 FailAwareWrapper 兜底异常而非 IK 分支即失败",
+    "boundaries": "只发 1 步且 IK 失败，不推进仿真；任务固定 PickXtimes test 第 0 局；以上形状为按源码推出、尚无实跑记录",
+    "nodeids": [
+      "tests/robomme_ood/sim/test_official_one_reset.py::test_official_reset_and_unreachable_ee_step"
+    ],
+    "resource": "gpu",
+    "mutants": [],
+    "status": "planned"
+  }
+]

@@ -1,0 +1,110 @@
+[
+ {
+  "id": "M04",
+  "target": "src/robomme_ood/env_metadata/ood/xhard1/specs.jsonl",
+  "method": "隔离副本（scratchpad 复制 src/scripts/tests/challenge_interface/pyproject.toml）：xhard1 第一个 selected 行 seed 加 1，只改这一行、不重签",
+  "expect_fail": [
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_load_specs_each_file[xhard1]",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_load_specs_root_whole",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_rows_self_consistent[xhard1]",
+   "tests/robomme_ood/contract/test_builder_800.py::test_builder_800_every_episode"
+  ],
+  "observed_fail": [
+   "tests/robomme_ood/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_ood/contract/test_builder_800.py::test_known_defect_builder_kwargs_aliased_to_builder_state",
+   "tests/robomme_ood/contract/test_builder_800.py::test_default_dataset_is_ood_without_xhard0",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_pin_check_negative",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_load_specs_each_file[xhard1]",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_load_specs_root_whole",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_rows_self_consistent[xhard1]"
+  ],
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_ood/contract 非 slow 207 passed, 4 deselected；植入后 18 failed, 181 passed, 4 deselected, 8 errors，expect_fail 全部在失败之列（2026-10-08 H3 改接新仓：expect_fail／observed_fail 已删去随私有评估仓移走或删除的用例、改名用例按新名替换；植入未在新仓重跑，计数以主会话重测为准）"
+ },
+ {
+  "id": "M05",
+  "target": "src/robomme_ood/env_metadata/ood/xhard1/specs.jsonl",
+  "method": "隔离副本：xhard1 第一个 PickXtimes selected 行 spec.objects.num_repeats 加 1，重算 spec_sha256 与 header 三个散列（植入后 validate_specs 仍通过）",
+  "expect_fail": [
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_ood/contract/test_tier_table.py::test_packaged_rows_match_table[xhard1]",
+   "tests/robomme_ood/contract/test_regression_on_packaged.py::test_tier_values_pass_on_packaged"
+  ],
+  "observed_fail": [
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_pin_check_negative",
+   "tests/robomme_ood/contract/test_regression_on_packaged.py::test_tier_values_pass_on_packaged",
+   "tests/robomme_ood/contract/test_regression_on_packaged.py::test_tier_values_fail_on_changed_value",
+   "tests/robomme_ood/contract/test_tier_table.py::test_packaged_rows_match_table[xhard1]",
+   "tests/robomme_ood/contract/test_tier_table.py::test_row_mismatches_negative"
+  ],
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_ood/contract 非 slow 207 passed, 4 deselected；植入后 8 failed, 199 passed, 4 deselected，expect_fail 全部在失败之列（2026-10-08 H3 第二轮：tier_table 逐行取值与 tier-values 两项已用测试侧等价判定恢复，相应 nodeid 回填；H3 改接新仓：expect_fail／observed_fail 已删去随私有评估仓移走或删除的用例、改名用例按新名替换；植入未在新仓重跑，计数以主会话重测为准）"
+ },
+ {
+  "id": "M06",
+  "target": "src/robomme_ood/env_metadata/ood/xhard1/specs.jsonl",
+  "method": "隔离副本：xhard1 candidate==1 的行改 True、candidate==2 的行 attempt 改浮点，重算 header 三个散列",
+  "expect_fail": [
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_load_specs_each_file[xhard1]",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_load_specs_root_whole",
+   "tests/robomme_ood/contract/test_builder_800.py::test_builder_800_every_episode"
+  ],
+  "observed_fail": [
+   "tests/robomme_ood/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_ood/contract/test_builder_800.py::test_known_defect_builder_kwargs_aliased_to_builder_state",
+   "tests/robomme_ood/contract/test_builder_800.py::test_default_dataset_is_ood_without_xhard0",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_packaged_bytes_equal_pins",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_pin_check_negative",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_load_specs_each_file[xhard1]",
+   "tests/robomme_ood/contract/test_packaged_specs.py::test_load_specs_root_whole"
+  ],
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_ood/contract 非 slow 207 passed, 4 deselected；植入后 17 failed, 182 passed, 4 deselected, 8 errors，expect_fail 全部在失败之列（2026-10-08 H3 改接新仓：expect_fail／observed_fail 已删去随私有评估仓移走或删除的用例、改名用例按新名替换；植入未在新仓重跑，计数以主会话重测为准）"
+ },
+ {
+  "id": "M07",
+  "target": "src/robomme_ood/env_record_wrapper/hard_specs.py",
+  "method": "进程内（pytest 插件 pytest_configure，不落盘）：V9_CELLS[('PickXtimes','xhard1')] += 1（EXPECTED_CELLS／CELL_TABLES['v9'] 同一对象）。源码里改会被导入期 assert 拦成导入失败，不算抓到，故在导入后改",
+  "expect_fail": [
+   "tests/robomme_ood/contract/test_constants.py::test_v9_cells_exact",
+   "tests/robomme_ood/contract/test_constants.py::test_v9_cell_count_per_task_and_total",
+   "tests/robomme_ood/contract/test_builder_800.py::test_builder_800_every_episode"
+  ],
+  "observed_fail": [
+   "tests/robomme_ood/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_ood/contract/test_builder_800.py::test_known_defect_builder_kwargs_aliased_to_builder_state",
+   "tests/robomme_ood/contract/test_builder_800.py::test_default_dataset_is_ood_without_xhard0",
+   "tests/robomme_ood/contract/test_constants.py::test_v9_cells_exact",
+   "tests/robomme_ood/contract/test_constants.py::test_v9_cell_count_per_task_and_total"
+  ],
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_ood/contract 非 slow 207 passed, 4 deselected；植入后 8 failed, 199 passed, 4 deselected，expect_fail 全部在失败之列（2026-10-08 H3 改接新仓：expect_fail／observed_fail 已删去随私有评估仓移走或删除的用例、改名用例按新名替换；植入未在新仓重跑，计数以主会话重测为准）"
+ },
+ {
+  "id": "M09",
+  "target": "src/robomme_ood/env_record_wrapper/hard_builder.py",
+  "method": "隔离副本：删去 _hard_env_kwargs 返回字典里的 \"native_episode_spec\" 一行",
+  "expect_fail": [
+   "tests/robomme_ood/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_ood/contract/test_builder_800.py::test_default_dataset_is_ood_without_xhard0"
+  ],
+  "observed_fail": [
+   "tests/robomme_ood/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_ood/contract/test_builder_800.py::test_default_dataset_is_ood_without_xhard0"
+  ],
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_ood/contract 非 slow 207 passed, 4 deselected；植入后 3 failed, 204 passed, 4 deselected，expect_fail 全部在失败之列（2026-10-08 H3 改接新仓：expect_fail／observed_fail 已删去随私有评估仓移走或删除的用例、改名用例按新名替换；植入未在新仓重跑，计数以主会话重测为准）"
+ },
+ {
+  "id": "M10",
+  "target": "src/robomme_ood/env_record_wrapper/hard_builder.py",
+  "method": "进程内（pytest 插件，不落盘）：包装 _ood_entries，返回列表的前两个身份互换（总数不变）",
+  "expect_fail": [
+   "tests/robomme_ood/contract/test_builder_800.py::test_builder_800_every_episode"
+  ],
+  "observed_fail": [
+   "tests/robomme_ood/contract/test_builder_800.py::test_builder_800_every_episode",
+   "tests/robomme_ood/contract/test_builder_800.py::test_default_dataset_is_ood_without_xhard0"
+  ],
+  "self_check": "2026-10-04 本机实测：原版隔离副本 tests/robomme_ood/contract 非 slow 207 passed, 4 deselected；植入后 5 failed, 202 passed, 4 deselected，expect_fail 全部在失败之列（2026-10-08 H3 改接新仓：expect_fail／observed_fail 已删去随私有评估仓移走或删除的用例、改名用例按新名替换；植入未在新仓重跑，计数以主会话重测为准）"
+ }
+]

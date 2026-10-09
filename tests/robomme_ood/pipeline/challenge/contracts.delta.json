@@ -1,0 +1,282 @@
+[
+  {
+    "id": "C14-01",
+    "domain": "C14",
+    "source": "challenge_interface/msgpack_numpy.py",
+    "symbol": "pack_array / unpack_array / packb / unpackb / Packer",
+    "oracle": "手工构造的数组与标量，往返后比 dtype.str（含端序）、shape、逐元素值与 C 序字节",
+    "positive": "C 序、非连续切片、转置、Fortran 序、大端 f4/i8、小端 u2、0 维、bool、float16（含 nan/inf/-0）、uint8 图像、空数组、datetime64；NumPy 标量类型保持；嵌套观测结构；Packer 与 packb 字节一致",
+    "negative": "大端数组丢端序标记时按手写值核对必失败（植入 M19c）",
+    "boundaries": "0 维、空 shape (0,3)、float16 nan/inf/-0、非连续视图",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_codec.py::test_ndarray_roundtrip_preserves_dtype_shape_endianness_values",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_codec.py::test_big_endian_values_are_not_byte_swapped_garbage",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_codec.py::test_non_contiguous_view_roundtrip_matches_hand_values",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_codec.py::test_numpy_scalar_roundtrip_keeps_type",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_codec.py::test_nested_observation_structure_roundtrip",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_codec.py::test_streaming_packer_matches_packb_bytes"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "M19c"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C14-02",
+    "domain": "C14",
+    "source": "challenge_interface/msgpack_numpy.py",
+    "symbol": "pack_array（不支持的 dtype）",
+    "oracle": "complex / object / 结构化 void 数组与 complex 标量必须抛 ValueError('Unsupported dtype')，嵌套在 dict 里同样",
+    "positive": "受支持类型见 C14-01",
+    "negative": "complex 数组、object 数组、结构化数组、complex 标量、嵌套的 complex",
+    "boundaries": "标量与数组两条分支",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_codec.py::test_unsupported_dtypes_raise_explicitly",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_codec.py::test_unsupported_dtype_nested_inside_dict_also_raises"
+    ],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "verified"
+  },
+  {
+    "id": "C14-03",
+    "domain": "C14",
+    "source": "challenge_interface/policy.py",
+    "symbol": "Policy.infer / Policy.reset / DummyPolicy",
+    "oracle": "基类两方法抛 NotImplementedError；DummyPolicy 块形状为 (chunk_size, *EXPECTED_ACTION_SHAPES['joint_angle'])（均读生产属性／常量）、夹爪维恒 1.0、首步记 exec_start_idx=帧数-1、非首步不改、reset 归零",
+    "positive": "首步 4 帧 → exec_start_idx=3",
+    "negative": "缺 is_first_step 键抛 KeyError；基类未实现",
+    "boundaries": "非首步不改动首步记账",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_policy.py::test_base_policy_methods_are_abstract",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_policy.py::test_dummy_policy_is_a_policy_and_outputs_joint_angle_chunk",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_policy.py::test_dummy_policy_first_step_records_exec_start_idx_and_reset_clears_it",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_policy.py::test_dummy_policy_requires_is_first_step_key"
+    ],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "verified"
+  },
+  {
+    "id": "C14-04",
+    "domain": "C14",
+    "source": "challenge_interface/server.py, challenge_interface/client.py",
+    "symbol": "PolicyServer.run/_handler/_health_check, PolicyClient.__init__/infer/reset/get_server_metadata",
+    "oracle": "真实 PolicyServer 跑在 127.0.0.1 回环；/healthz 回 OK；握手首帧为元数据（缺省 {}）；infer 两向数组逐元素与 dtype 不变；reset 只调 policy.reset 并回 {reset_finished: True}，不进 infer",
+    "positive": "握手、infer 往返（含大端与 0 维 bool）、reset 后同连接继续 infer",
+    "negative": "服务端 reset 不调策略（植入 M19d）",
+    "boundaries": "{reset: False} 的请求走 infer",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_health_check_and_metadata_handshake",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_metadata_defaults_to_empty_dict",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_infer_roundtrip_delivers_arrays_intact_both_ways",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_reset_calls_policy_reset_only_and_acknowledges"
+    ],
+    "resource": "cpu-loopback",
+    "mutants": [
+      "M19d"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C14-05",
+    "domain": "C14",
+    "source": "challenge_interface/server.py, challenge_interface/client.py",
+    "symbol": "PolicyServer._handler 异常分支, PolicyClient._wait_for_server/infer/reset",
+    "oracle": "策略抛错 → 文本 traceback 帧 + 1011 关闭，客户端报 RuntimeError，同连接再用报 ConnectionClosed，服务仍接新连接；非法请求（坏字节、非 dict）同样 1011 且不触达策略；双向断连有界报错；客户端遇文本帧报 RuntimeError、坏字节报 ValueError；连接被拒按一次正时长 sleep 重试后连上；api_key 只在给出时发 Authorization",
+    "positive": "客户端断开后服务继续服务；连接被拒一次后服务出现即连上",
+    "negative": "客户端不检查文本帧（植入 M19f）；服务端收请求后直接断开；回复坏字节",
+    "boundaries": "reset 回复不含 reset_finished 时客户端原样返回（判定交调用方，见 C14-12）",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_policy_exception_returns_traceback_frame_then_connection_closed",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_illegal_request_gets_error_frame_and_1011_close",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_client_side_disconnect_leaves_server_serving",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_server_side_disconnect_raises_on_client",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_text_reply_is_surfaced_as_runtime_error",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_garbage_binary_reply_raises_instead_of_returning",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_reset_with_non_ack_reply_is_returned_verbatim",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_api_key_header_sent_only_when_given",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_websocket.py::test_connection_refused_waits_then_connects_when_server_appears"
+    ],
+    "resource": "cpu-loopback",
+    "mutants": [
+      "M19f"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C14-06",
+    "domain": "C14",
+    "source": "challenge_interface/server.py, challenge_interface/client.py",
+    "symbol": "PolicyServer.serve_forever（子进程）",
+    "oracle": "子进程 PolicyServer(DummyPolicy) 握手、reset、infer 块形状读 DummyPolicy.chunk_size 与 EXPECTED_ACTION_SHAPES；SIGKILL 服务进程后客户端下一次 infer 在 10 s 内报 ConnectionClosed/OSError，不挂住",
+    "positive": "子进程服务往返",
+    "negative": "服务进程死亡",
+    "boundaries": "子进程经 sitecustomize 继承资源守卫",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_process.py::test_subprocess_server_roundtrip_then_death_is_detected"
+    ],
+    "resource": "cpu-loopback-subprocess（slow）",
+    "mutants": [],
+    "status": "verified"
+  },
+  {
+    "id": "C14-07",
+    "domain": "C14",
+    "source": "challenge_interface/client_http.py",
+    "symbol": "PolicyHTTPClient.__init__/_get_server_metadata/infer/reset",
+    "oracle": "对 stdlib 回环假服务：构造即 GET /metadata；infer POST /infer、reset POST /reset 体为 msgpack({reset: True})；Content-Type 与 Authorization 头；4xx/5xx 抛 HTTPError；超时在 timeout 附近抛 requests.Timeout；200 坏体抛 ValueError",
+    "positive": "元数据、infer、reset 往返",
+    "negative": "400/500/503、元数据 500 使构造失败、慢服务超时、坏回复体",
+    "boundaries": "超时 0.15 s 对 3 s 慢服务，须在 2 s 内结束",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_http.py::test_client_fetches_metadata_on_construction",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_http.py::test_infer_posts_msgpack_body_and_decodes_reply",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_http.py::test_reset_posts_reset_flag_to_reset_route",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_http.py::test_http_error_status_raises",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_http.py::test_metadata_error_fails_construction",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_http.py::test_slow_server_hits_client_timeout",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_http.py::test_garbage_200_body_raises"
+    ],
+    "resource": "cpu-loopback",
+    "mutants": [],
+    "status": "verified"
+  },
+  {
+    "id": "C14-08",
+    "domain": "C14",
+    "source": "challenge_interface/server_http.py, challenge_interface/scripts/deploy.py",
+    "symbol": "PolicyHTTPServer 路由 /healthz /metadata /reset /infer, deploy.main",
+    "oracle": "真实 Flask 应用经 werkzeug 回环服务 + 真实 PolicyHTTPClient 端到端；策略异常 500 带 traceback；空体 400；坏体 500 且不触达策略；deploy 入口子进程起 websocket 服务",
+    "positive": "端到端往返、healthz",
+    "negative": "空体、坏体、策略异常",
+    "boundaries": "当前 venv 未装 server 依赖组（缺 flask），整组记「未验证」；deploy.py 顶层导入 server_http，缺 flask 时连 websocket 模式也起不来",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_http.py::test_flask_server_end_to_end",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_http.py::test_flask_server_policy_exception_is_500_with_traceback",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_http.py::test_flask_server_empty_body_is_400",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_http.py::test_flask_server_illegal_body_is_500",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_process.py::test_deploy_entry_serves_websocket"
+    ],
+    "resource": "cpu-loopback（deploy 为 slow 子进程）",
+    "mutants": [],
+    "status": "conditional"
+  },
+  {
+    "id": "C14-09",
+    "domain": "C14",
+    "source": "challenge_interface/scripts/phase1_eval.py",
+    "symbol": "run_episode / _build_inputs / _update_inputs / _clear_inputs / EXPECTED_ACTION_SHAPES",
+    "oracle": "CPU 替身环境：块长 3、第 5 步终止 → 推理 2 次，首次首步 2 帧，第二次非首步带第 1～3 步帧；环境收 5 个形状为 EXPECTED_ACTION_SHAPES['joint_angle'] 的动作；视频 7 帧；深度与相机开关原样传给 make_env_for_episode，相机内参进首帧输入；动作维不符当场 AssertionError 且不送进环境",
+    "positive": "流式观测与块消费、开关透传",
+    "negative": "ee_pose 收到 8 维动作；清缓冲不翻首步（植入 M19g）",
+    "boundaries": "开关全开／全关两态",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_run_episode_streams_observations_and_consumes_chunks",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_run_episode_passes_depth_and_camera_flags",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_run_episode_rejects_wrong_action_shape"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "M19g"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C14-10",
+    "domain": "C14",
+    "source": "challenge_interface/scripts/phase1_eval.py",
+    "symbol": "_is_success / main 的 success_count",
+    "oracle": "只有状态恰为 success 计成功；fail/failed/timeout/ongoing/error/unknown/空/None/success_fail 不计（现状满足）。含 success 子串的状态现状被计成功，以 known_defect_D1 用例锁定现状",
+    "positive": "success",
+    "negative": "全部非 success 状态；植入 M19b（全计成功）",
+    "boundaries": "含 success 子串且不含 fail 的状态",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_is_success_accepts_exact_success",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_is_success_rejects_non_success_statuses",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_known_defect_D1_is_success_counts_success_substrings",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_known_defect_D1_main_metrics_count_success_substrings"
+    ],
+    "resource": "cpu",
+    "mutants": [
+      "M19",
+      "M19b"
+    ],
+    "status": "blocked",
+    "defect": "D1 现状：_is_success 写法为 s == 'success' or ('success' in s and 'fail' not in s)，unsuccessful／not_success／success_pending／partial_success 被计成功，主评估指标同样计入（四局一成功得 4/4）。正确行为：只有状态恰为 success 才计成功（应得 1/4）。",
+    "decision": "用户 2026-10-04 裁决不修"
+  },
+  {
+    "id": "C14-11",
+    "domain": "C14",
+    "source": "challenge_interface/scripts/phase1_eval.py",
+    "symbol": "main（progress.json / metrics.json、续跑）",
+    "oracle": "手算 2 任务 × 2 局：成功 2/4、全失败 0/4；分母恒为任务数 × 局数；单局异常时不写 metrics、已完成局记入 progress，同配置续跑只补未完成局且分母仍为 4；真实回环 PolicyServer(DummyPolicy) 端到端 3/4、每局 12 步、夹爪维 1.0",
+    "positive": "混合结果、端到端",
+    "negative": "全部失败；中途崩溃；分母改任务数（植入 M19e）",
+    "boundaries": "续跑跳过已完成局",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_main_metrics_fixed_denominator",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_main_all_failures_gives_zero_not_shrunk_denominator",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_main_crash_writes_no_metrics_and_resume_keeps_denominator",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_main_end_to_end_over_real_websocket"
+    ],
+    "resource": "cpu-loopback",
+    "mutants": [
+      "M19e"
+    ],
+    "status": "verified"
+  },
+  {
+    "id": "C14-12",
+    "domain": "C14",
+    "source": "challenge_interface/scripts/phase1_eval.py",
+    "symbol": "run_episode 的 reset 等待循环",
+    "oracle": "reset 回复缺 reset_finished 时现状只调用一次 client.reset() 并永远空转；线程内观察至少 20 次等待后以停止信号有限结束，锁定现状",
+    "positive": "无（锁定现状：替身第二次起会回 reset_finished，但现状不会再问，故不会开局）",
+    "negative": "首次 reset 回复缺 reset_finished",
+    "boundaries": "phase1_eval 的 sleep 换成计数器：观察到 20 次等待时断言线程仍在等、client.reset 只调用 1 次、未开局；随后停止信号令线程在 5 s 内结束；计数器上限 100000 次兜底防空转",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_known_defect_D2_reset_wait_never_repolls"
+    ],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "blocked",
+    "defect": "D2 现状：run_episode 的 while not resp.get('reset_finished') 循环只 sleep 不更新 resp，reset 只问一次，未确认时永远等待。正确行为：等待期间重新询问 reset，有限次后报错且不开局。",
+    "decision": "用户 2026-10-04 裁决不修"
+  },
+  {
+    "id": "C14-13",
+    "domain": "C14",
+    "source": "challenge_interface/scripts/phase1_eval.py",
+    "symbol": "run_episode 的异常清理与 error 终态",
+    "oracle": "现状：单局抛异常时 env.close() 未调用；IK 失败空观测 + status=error 时抛 KeyError('front_rgb_list')；以 known_defect_D3／D4 用例锁定现状",
+    "positive": "无（两条都是异常路径）",
+    "negative": "仿真故障、空观测 error 终态",
+    "boundaries": "空观测形态取自 EndeffectorDemonstrationWrapper 的 IK 失败返回",
+    "nodeids": [
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_known_defect_D3_env_not_closed_when_episode_raises",
+      "tests/robomme_ood/pipeline/challenge/test_challenge_phase1_eval.py::test_known_defect_D4_error_status_empty_obs_raises_keyerror"
+    ],
+    "resource": "cpu",
+    "mutants": [],
+    "status": "blocked",
+    "defect": "D3 现状：run_episode 无 try/finally，单局异常时环境不关闭；正确行为：异常退出也关闭环境。D4 现状：EndeffectorDemonstrationWrapper IK 失败返回空观测 {}，phase1_eval 取 obs['front_rgb_list'] 抛 KeyError 使评估中止；正确行为：该局以 error 收尾、计入分母、不计成功并关闭环境。",
+    "decision": "用户 2026-10-04 裁决不修"
+  },
+  {
+    "id": "C14-14",
+    "domain": "C14",
+    "source": "challenge_interface/client.py",
+    "symbol": "PolicyClient.infer / reset（无应用层超时）",
+    "oracle": "WebSocket 客户端 recv 无超时参数，服务端挂住不回复时只靠 ping_timeout=100 s 断开；本块未写用例（写了也只能验证会挂住），记缺口 D5 交主会话裁决",
+    "positive": "无",
+    "negative": "无",
+    "boundaries": "HTTP 客户端有 timeout，见 C14-07",
+    "nodeids": [],
+    "resource": "cpu-loopback",
+    "mutants": [],
+    "status": "planned"
+  }
+]

@@ -7,7 +7,7 @@ import cv2
 import imageio
 
 from pathlib import Path
-from robomme_hard.env_record_wrapper import BenchmarkEnvBuilder
+from robomme_ood.env_record_wrapper import BenchmarkEnvBuilder
 
 class VideoRecorder:
     BORDER_COLOR = (255, 0, 0)
