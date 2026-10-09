@@ -26,9 +26,9 @@ from mani_skill.utils.geometry.rotation_conversions import (
 )
 
 from .utils import *
-# V5 L3（仿 VideoPlaceOrder 的 K2 修法）：上一行的 `from .utils import *` 会把同名子模块
-# `utils.SceneGenerationError` 盖到名字 `SceneGenerationError` 上（import 自省核实），原三档的
-# raise / except 因此是 TypeError（按 H2 原三档保持现状）。xhard 用下面这个别名拿到真正的异常类。
+# V5 L3 (following VideoPlaceOrder's K2 fix): the `from .utils import *` line above lets the same-named submodule
+# `utils.SceneGenerationError` shadow the name `SceneGenerationError` (confirmed by import introspection), so in the original three tiers
+# raise / except become TypeError (original three tiers kept as is per H2). xhard uses the alias below to get the real exception class.
 from .utils.SceneGenerationError import SceneGenerationError as _RealSceneGenerationError
 from .utils.subgoal_evaluate_func import static_check
 from .utils.object_generation import spawn_fixed_cube, build_board_with_hole
@@ -55,7 +55,7 @@ from .utils.unmask_swap_xhard import (
     spawn_swap_distractors_v5,
     v5_distractor_cfg,
     v5_distractor_swap_cfg,
-    # V6（计划 2.2）：内环 S5 与外环 O4
+    # V6 (plan 2.2): inner ring S5 and outer ring O4
     plan_inner_swaps_v6,
     v6_distractor_cfg,
     v6_distractor_swap_cfg,
@@ -66,12 +66,12 @@ from ..logging_utils import logger
 
 
 def _scene_gen_error(difficulty):
-    """按难度族选场景生成异常类。
+    """Select the scene-generation exception class by difficulty family.
 
-    新值档返回真正的 ``SceneGenerationError``（可重试的任务性失败）；原三档原样返回本模块里
-    被遮蔽的名字 ``SceneGenerationError``（子模块，raise / except 时仍是 TypeError，行为逐字不变）。
-    用法：``raise _scene_gen_error(self.difficulty)("说明")``、``except _scene_gen_error(self.difficulty):``；
-    只在新值路径上执行的代码直接用 ``_RealSceneGenerationError``。
+    New-value tiers return the real ``SceneGenerationError`` (retryable task failure); original three tiers return this module's
+    shadowed name ``SceneGenerationError`` as is (a submodule, so raise / except still give TypeError; behavior verbatim unchanged).
+    Usage: ``raise _scene_gen_error(self.difficulty)("message")``, ``except _scene_gen_error(self.difficulty):``;
+    code executed only on the new-value path uses ``_RealSceneGenerationError`` directly.
     """
     return _RealSceneGenerationError if is_newvalue_difficulty(difficulty) else SceneGenerationError
 
@@ -90,7 +90,7 @@ capabilities can be simulated and trained properly. Hence there is extra code fo
 """
 
 
-# ── decision／native 两块的原值（newtaskRelease-v3 步 3，映射见方案第二节 2.8）────────
+# ── Original values of the decision/native blocks (newtaskRelease-v3 step 3, mapping in plan section 2.8) ────────
 NATIVE_SAMPLING = {
     "parameters": {
         "bin_count": "FROM_CLASS_CONFIGS",
@@ -100,18 +100,18 @@ NATIVE_SAMPLING = {
             {"rgba": [0, 0, 1, 1], "name": "blue"},
         ],
         "color_order": {"sampler": "torch.randperm(3)"},
-        "hidden_rule": "前三容器藏三色，第四个为空",
-        "pick_rule": "左按钮→右按钮后（机器人坐标系，左 = +y），抓 selected_bins[0]，count=2 时再抓 [1]",
-        "partner_rule": "交换开始时按实际 XY 取最近邻，不另抽签",
-        # 交换窗口：首段起点与原三档每段步数（具名常量，六处原字面量都改读这里）；
-        # V4 起真正被消费，xhard 的每段步数 = round(duration_steps / 1.5) = 33（2.11）
+        "hidden_rule": "first three bins hide the three colors, the fourth is empty",
+        "pick_rule": "after left button -> right button (robot frame, left = +y), pick selected_bins[0], and [1] too when count=2",
+        "partner_rule": "at swap start take nearest neighbor by actual XY; no extra draw",
+        # Swap window: first segment start and per-segment steps of the original three tiers (named constants; the six original literals now read these);
+        # actually consumed since V4; xhard per-segment steps = round(duration_steps / 1.5) = 33 (2.11)
         "swap_window": {"start_step": SWAP_WINDOW_START, "duration_steps": SWAP_WINDOW_STEPS},
         "swap_path": {"lane_offset": 0.07, "smooth": True, "keep_upright": True},
-        # V6 审查修复 F3（用户 K4「所有的左右都是机器人坐标系」）：按钮命名对齐机器人坐标系（机器人朝 +x，左 = +y）；
-        # 建构顺序、位置与随机数消费全部不变，只改 name 与 button_order 的字面：buttons[0]（y=-0.1）是右按钮，buttons[1]（y=+0.1）是左按钮，
-        # 任务链仍先按 buttons[1]（左）再按 buttons[0]（右），与改名前按的物理按钮相同。
+        # V6 review fix F3 (user K4 "all left/right are in the robot frame"): button naming aligned to the robot frame (robot faces +x, left = +y);
+        # construction order, positions and RNG consumption all unchanged, only name and button_order literals change: buttons[0] (y=-0.1) is the right button, buttons[1] (y=+0.1) is the left button,
+        # the task chain still presses buttons[1] (left) then buttons[0] (right), the same physical buttons as before the rename.
         "button_order": ["left", "right"],
-        "recovery": "构造器的 self.generator 用于恢复；场景另建同 seed 局部流，两条流分开",
+        "recovery": "the constructor's self.generator is used for recovery; the scene builds its own local stream with the same seed; the two streams are separate",
     },
     "positions": {
         "buttons": [
@@ -125,8 +125,8 @@ NATIVE_SAMPLING = {
             "triangle": [[-0.05, -0.15], [-0.05, 0.15], [0.05, 0]],
             "line": [[-0.05, -0.15], [-0.05, 0.15], [-0.05, 0]],
             "offset_scale": 0.1,
-            "offset_note": "四点按两组各抽一次 y 偏移；三点各自抽一次 x 偏移；"
-                            "未被选中的那一套分支仍然照常消费随机数（红线 R8）",
+            "offset_note": "the four points draw one y offset per group of two; the three points each draw one x offset; "
+                            "the unselected branch still consumes random numbers as usual (red line R8)",
             "choice_sampler": "torch.randint(0, 2)",
         },
         "bins": {"region_half_size": 0.07, "min_gap_factor": 1, "max_trials": 256},
@@ -136,13 +136,13 @@ NATIVE_SAMPLING = {
 
 
 def native_blocks(cls, *, release="newtask-v6"):
-    """本环境的 ``(decision, native)`` 原值块；外部导出与内部解析共用同一份。"""
+    """Original ``(decision, native)`` blocks of this env; shared by external export and internal parsing."""
     native = copy.deepcopy(NATIVE_SAMPLING)
     if release in ("newtask-v4", "newtask-v5"):
-        # V4/V5 快照冻结的是改名前的按钮命名（F3 之前：buttons[0] 名 button_left、顺序 ["right","left"]）；
-        # 导出旧 release 时按冻结值回填，保证 V5 快照可逐字节复现。物理对象与任务链顺序两版相同。
+        # V4/V5 snapshots froze the pre-rename button naming (before F3: buttons[0] named button_left, order ["right","left"]);
+        # when exporting old releases, backfill the frozen values so V5 snapshots reproduce byte for byte. Physical objects and task chain order are the same in both.
         native["parameters"]["button_order"] = ["right", "left"]
-        native["parameters"]["pick_rule"] = "右按钮→左按钮后，抓 selected_bins[0]，count=2 时再抓 [1]"
+        native["parameters"]["pick_rule"] = "after right button -> left button, pick selected_bins[0], and [1] too when count=2"
         native["positions"]["buttons"][0]["name"] = "button_left"
         native["positions"]["buttons"][1]["name"] = "button_right"
         legacy_configs = {
@@ -154,9 +154,9 @@ def native_blocks(cls, *, release="newtask-v6"):
         }
         decision = _legacy_decision(legacy_configs, release)
         return decision, native
-    # newtask-v7：与 v6 同一解析路径，取当前类常量（即 V7 定值；v6 值只存于包内 v6 规格 header，0928 方案 R3）
+    # newtask-v7: same parsing path as v6, using current class constants (i.e. V7 fixed values; v6 values live only in the packaged v6 spec header, 0928 plan R3)
     if release not in ("newtask-v6", "newtask-v7"):
-        raise ValueError(f"ButtonUnmaskSwap 不支持 sampling_config release {release!r}")
+        raise ValueError(f"ButtonUnmaskSwap does not support sampling_config release {release!r}")
     native["parameters"]["bin_count"] = {difficulty: cfg["bin"] for difficulty, cfg in cls.configs.items()}
     native["parameters"]["configs"] = copy.deepcopy(cls.configs)
     return _native_decision(cls), native
@@ -182,7 +182,7 @@ def _legacy_decision(configs, release):
 
 
 def _native_decision(cls):
-    """按方案第二节 2.8 切出 decision 块（原值阶段等于原值）。"""
+    """Slice the decision block per plan section 2.8 (equals the original in the original-value stage)."""
     return {
         "swap_count_range": {
             difficulty: [cfg["swap_min"], cfg["swap_max"]] for difficulty, cfg in cls.configs.items()
@@ -190,16 +190,16 @@ def _native_decision(cls):
         "pick_count_range": {
             difficulty: [cfg["pick_min"], cfg["pick_max"]] for difficulty, cfg in cls.configs.items()
         },
-        # 交换速度倍率：原值 1（每段 50 步），原三档消费它（=1 ⇒ 原样 50 步）。
+        # Swap speed multiplier: original value 1 (50 steps per segment), consumed by the original three tiers (=1 => original 50 steps).
         "swap_speed_multiplier": 1,
         "distractor": None,
-        # 新值档使用逐档速度与外环数量；容器布局机制沿用原档。
-        # V5（2.7，L13/L16 b）：干扰容器改用统一采样器的预设（V4 环带、10 个、含 cube [5,5]）；
-        # 新增 distractor_swap：外环随内环同步交换的规则（L17～L23，外环路径离按钮中心 ≥ 0.122）。
+        # New-value tiers use per-tier speed and outer-ring count; bin layout mechanism follows the original tier.
+        # V5 (2.7, L13/L16 b): distractor bins use the unified sampler preset (V4 ring band, 10 bins, cube-containing [5,5]);
+        # new distractor_swap: rule for outer ring swapping in sync with the inner ring (L17-L23, outer path >= 0.122 from button center).
         **{
             tier: {
                 "swap_speed_multiplier": 1.0 if newvalue_tier(tier) == 1 else NEWVALUE_SWAP_SPEED_MULTIPLIER,
-                "distractor": v6_distractor_cfg("ButtonUnmaskSwap", 2 * newvalue_tier(tier)),  # V7：外环 2/4/6/8
+                "distractor": v6_distractor_cfg("ButtonUnmaskSwap", 2 * newvalue_tier(tier)),  # V7: outer ring 2/4/6/8
                 "distractor_swap": v6_distractor_swap_cfg("ButtonUnmaskSwap"),
                 "swap_plan_v6": v6_inner_swap_plan_cfg("ButtonUnmaskSwap"),
             }
@@ -209,7 +209,7 @@ def _native_decision(cls):
 
 
 def _resolve_sampling_config(cls, override):
-    """拆出本实例专属的 decision／native 副本；不抽随机数，必须在 Generator 之前调用。"""
+    """Split out this instance's private decision/native copies; draws no random numbers, must be called before the Generator."""
     decision_default, native_default = native_blocks(cls, release="newtask-v6")
     decision, native = split_sampling_config(override, native_default, decision_default)
     assert_native_decision(decision, decision_default, cls.__name__)
@@ -257,7 +257,7 @@ class ButtonUnmaskSwap(BaseEnv):
     }
 
 
-    # V7 定值（0928 方案 §3.2.2）：swap 3/5/7/9、pick 2/3/3/3、外环 2/4/6/8；内部容器布局机制沿用原 xhard。
+    # V7 fixed values (0928 plan 3.2.2): swap 3/5/7/9, pick 2/3/3/3, outer ring 2/4/6/8; inner bin layout mechanism follows original xhard.
     config_xhard1 = {"bin":4, "swap_min":3, "swap_max":3, "pick_min":2, "pick_max":2}
     config_xhard2 = {"bin":4, "swap_min":5, "swap_max":5, "pick_min":3, "pick_max":3}
     config_xhard3 = {"bin":4, "swap_min":7, "swap_max":7, "pick_min":3, "pick_max":3}
@@ -280,7 +280,7 @@ class ButtonUnmaskSwap(BaseEnv):
         'xhard3': config_xhard3,
         'xhard4': config_xhard4,
     }
-    # 交换窗口的具名常量（B4）；运行时读 native.swap_window（默认值即这两个常量）
+    # Named constants of the swap window (B4); runtime reads native.swap_window (defaults are these two constants)
     SWAP_WINDOW_START = SWAP_WINDOW_START
     SWAP_WINDOW_STEPS = SWAP_WINDOW_STEPS
     
@@ -289,12 +289,12 @@ class ButtonUnmaskSwap(BaseEnv):
                      sampling_config=None,
                      native_episode_spec=None,
                      **kwargs):
-        # 必须落在任何随机数调用与 super().__init__() 之前
+        # Must happen before any RNG call and before super().__init__()
         self._sampling = _resolve_sampling_config(type(self), sampling_config)
         self._spec = SpecRecorder(native_episode_spec, "ButtonUnmaskSwap", {"seed": seed},
                                   difficulty=kwargs.get("difficulty"))
-        # 初始化序号从 -1 起，_initialize_episode 每次进来先加一；
-        # _load_scene 里的取值点用不带序号的路径，所以这里只作兜底。
+        # Initialization index starts at -1; _initialize_episode increments it on each entry;
+        # value points in _load_scene use index-free paths, so this is only a fallback.
         self._native_init_index = -1
         self.use_demonstrationwrapper=False
         self.demonstration_record_traj=False
@@ -363,20 +363,20 @@ class ButtonUnmaskSwap(BaseEnv):
         )
         logger.debug(f"Task will pick {self.pick_times} times")
 
-        # 交换窗口（2.11）：native.swap_window 真正被消费；原三档倍率取 decision 顶层的 1 ⇒ 原样 {64, 50}，
-        # 新值档按逐档倍率消费：第一档 50 步，其余三档 33 步。不抽随机数。
+        # Swap window (2.11): native.swap_window is actually consumed; original three tiers take decision's top-level multiplier 1 => original {64, 50},
+        # new-value tiers consume per-tier multipliers: tier 1 50 steps, the other three tiers 33 steps. No random draws.
         window = self._sampling["parameters"]["swap_window"]
         multiplier = decision[self.difficulty]["swap_speed_multiplier"] if self._is_newvalue else decision["swap_speed_multiplier"]
         self.swap_window_start = int(window["start_step"])
         self.swap_window_steps = scaled_window_steps(int(window["duration_steps"]), multiplier)
-        # xhard 做运行时碰撞检查（H1：初态＋每段交换的连续扫掠，含干扰容器）；原三档不检查，行为不变
+        # xhard runs runtime collision checks (H1: initial state + continuous sweep of each swap segment, including distractor bins); original three tiers do not check, behavior unchanged
         self._newvalue_collision_checks = self._is_newvalue
         self._runtime_checks = []
-        # 干扰容器单独存放，不进 spawned_bins；原三档恒为空
+        # Distractor bins stored separately, not in spawned_bins; always empty for the original three tiers
         self.distractor_bins = []
         self.distractor_cubes = []
         if self._is_newvalue:
-            # 外环交换对、外环 cube 跟随对、reset 预演的内环对；由 _spawn_newvalue_distractors 填写
+            # Outer-ring swap pairs, outer-ring cube follow pairs, reset-rehearsed inner pairs; filled by _spawn_newvalue_distractors
             self.distractor_swap_pairs = []
             self.distractor_cube_bin_pairs = []
             self.predicted_inner_swap_pairs = []
@@ -389,9 +389,9 @@ class ButtonUnmaskSwap(BaseEnv):
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
     
     def _refresh_swap_schedule(self):
-        # 通式（与 VideoUnmaskSwap 同）：第 k 次 swap 占 [S+Lk, S+L(k+1)]，首尾相接；
-        # S = swap_window_start（恒 64），L = swap_window_steps（原三档 50、xhard 33）。
-        # 1/2/3 次时与原三分支逐项相同；原三分支对 ≥4 次不赋值（step 里 AttributeError），通式一并修好。
+        # General formula (same as VideoUnmaskSwap): the k-th swap occupies [S+Lk, S+L(k+1)], back to back;
+        # S = swap_window_start (always 64), L = swap_window_steps (50 for the original three tiers, 33 for xhard).
+        # For 1/2/3 swaps identical to the original three branches item by item; the original branches assign nothing for >=4 swaps (AttributeError in step); the formula fixes that too.
         if self.swap_times < 1:
             return
         start, length = self.swap_window_start, self.swap_window_steps
@@ -447,7 +447,7 @@ class ButtonUnmaskSwap(BaseEnv):
             randomize_range=tuple(buttons_cfg[0]["randomize_range"])
         )
         # Store first button before building second one
-        # F3：buttons[0]（y=-0.1）在机器人坐标系里是右按钮；cap link 按对象保存，不再按配置里的名字查
+        # F3: buttons[0] (y=-0.1) is the right button in the robot frame; cap link stored per object, no longer looked up by config name
         self.button_right = self.button
         self.button_joint_1 = self.button_joint
         self.button_right_cap_link = self.cap_link
@@ -463,7 +463,7 @@ class ButtonUnmaskSwap(BaseEnv):
             randomize=buttons_cfg[1]["randomize"],
             randomize_range=tuple(buttons_cfg[1]["randomize_range"])
         )
-        # Store second button（buttons[1]，y=+0.1，机器人坐标系左按钮）
+        # Store second button (buttons[1], y=+0.1, left button in the robot frame)
         self.button_left = self.button
         self.button_joint_2 = self.button_joint
         self.button_left_cap_link = self.cap_link
@@ -533,8 +533,8 @@ class ButtonUnmaskSwap(BaseEnv):
                 )
             except RuntimeError as e:
                 if self._is_newvalue:
-                    # V5 L15：xhard 不许静默截断（截断后交换对与环带障碍都会变），改抛真异常作候选级重抽
-                    raise _RealSceneGenerationError(f"xhard 内环容器 bin_{i} 放不下：{e}") from e
+                    # V5 L15: xhard must not truncate silently (truncation would change swap pairs and ring-band obstacles); raise a real exception to trigger a candidate-level redraw
+                    raise _RealSceneGenerationError(f"xhard inner-ring bin bin_{i} does not fit: {e}") from e
                 break
 
             self.spawned_bins.append(bin_actor)
@@ -567,7 +567,7 @@ class ButtonUnmaskSwap(BaseEnv):
 
         # Randomly select 3 bins from all bins to spawn cube
         num_bins_to_select = min(3, len(self.spawned_bins))
-        # M5(b)：仍只从前三个容器里选藏物位置，第四个容器 bin_3 恒空。
+        # M5(b): hiding positions are still chosen only from the first three bins; the fourth bin bin_3 is always empty.
         selected_bin_indices = self._spec.value(
             "objects.selected",
             torch.randperm(3, generator=generator)[:num_bins_to_select].tolist(),
@@ -654,7 +654,7 @@ class ButtonUnmaskSwap(BaseEnv):
 
        # Randomly select 2 unique bins as target_bin_1 and target_bin_2
         # target_indices is index to selected_bin_indices (0, 1, 2)
-        # 规格存整数列表，下游仍按张量用（.item()/.tolist()/torch.cat），所以包回张量
+        # The spec stores integer lists; downstream still uses tensors (.item()/.tolist()/torch.cat), so wrap back into a tensor
         target_indices = torch.tensor(self._spec.value(
             "objects.swap_initiator_indices",
             torch.randperm(len(selected_bin_indices), generator=generator)[:2].tolist(),
@@ -681,28 +681,28 @@ class ButtonUnmaskSwap(BaseEnv):
         self.swap_pair1_idx2=None
         self.swap_pair2_idx2=None
         self.swap_pair3_idx2=None
-        # V4 xhard（swap 6～8 次）：第 k 次发起者循环沿用前 3 个（a,b,c,a,b,…）；swap ≤ 3 次时本循环不执行
+        # V4 xhard (6-8 swaps): the k-th initiator cycles through the first 3 (a,b,c,a,b,...); with <= 3 swaps this loop does not run
         for k in range(3, self.swap_times):
             setattr(self, f"swap_pair{k+1}_idx1", self.spawned_bins[swap_indices[k % 3]])
             setattr(self, f"swap_pair{k+1}_idx2", None)
         if self._is_newvalue:
-            # V6（计划 2.2 内环 S5）：V5 发起者取值点照旧抽，随后主流追加一次规划种子，S5 预规划整段并覆盖发起者；
-            # 搭档由 step 的 xhard 分支读预规划
+            # V6 (plan 2.2 inner ring S5): the V5 initiator value point is drawn as before, then the main stream appends one planning seed; S5 pre-plans the whole sequence and overrides the initiators;
+            # partners are read from the pre-plan by step's xhard branch
             self._plan_inner_swaps_v6(generator)
 
 
         self._refresh_swap_schedule()
 
-        self.button_list= [self.button_right, self.button_left]  # F3：顺序保持 [buttons[0] 对象, buttons[1] 对象]
+        self.button_list= [self.button_right, self.button_left]  # F3: order kept as [buttons[0] object, buttons[1] object]
         self.generator=generator
 
         if self._is_newvalue:
-            # V4 xhard 干扰容器：走专用随机流，主流（含 _initialize_episode 里 inject_fail_grasp
-            # 继续消费的 self.generator）一次都不多抽（N5）
+            # V4 xhard distractor bins: use a dedicated random stream; the main stream (including self.generator that
+            # inject_fail_grasp in _initialize_episode keeps consuming) draws not a single extra number (N5)
             self._spawn_newvalue_distractors([button_obb_1, button_obb_2])
 
     def _plan_inner_swaps_v6(self, generator):
-        """V6 xhard 内环 S5 reset 预规划（见 ``unmask_swap_xhard.plan_inner_swaps_v6``）；G 不连通抛真 ``SceneGenerationError``。"""
+        """V6 xhard inner-ring S5 reset pre-planning (see ``unmask_swap_xhard.plan_inner_swaps_v6``); raises a real ``SceneGenerationError`` if G is disconnected."""
         plan = plan_inner_swaps_v6(self, generator)
         self._newvalue_inner_plan = plan
         self._newvalue_swap_partners = [int(b) for _a, b in plan["pairs"]]
@@ -711,26 +711,26 @@ class ButtonUnmaskSwap(BaseEnv):
             setattr(self, f"swap_pair{k+1}_idx2", None)
 
     def _newvalue_planned_partner(self, sweep_index, initiator):
-        """第 ``sweep_index`` 次交换由 S5 规划的搭档 actor（``step`` 的新值分支调用）。"""
+        """Partner actor planned by S5 for swap ``sweep_index`` (called by the new-value branch of ``step``)."""
         partners = getattr(self, "_newvalue_swap_partners", None)
         if partners is None or sweep_index >= len(partners):
-            raise SpecBindingError(f"{self.difficulty}: 第 {sweep_index} 次交换没有 reset 规划的搭档")
+            raise SpecBindingError(f"{self.difficulty}: swap {sweep_index} has no reset-planned partner")
         partner = self.spawned_bins[partners[sweep_index]]
         if partner is initiator:
-            raise SpecBindingError(f"{self.difficulty}: 第 {sweep_index} 次交换规划的搭档与发起者是同一个容器")
+            raise SpecBindingError(f"{self.difficulty}: swap {sweep_index} planned partner is the same bin as the initiator")
         return partner
 
     def _spawn_newvalue_distractors(self, button_obbs):
-        """新值档外环干扰容器（统一采样器，按钮 OBB 精确进障碍）+ 外环随内环同步交换的 reset 规划。
+        """New-value tier outer-ring distractor bins (unified sampler, button OBB as exact obstacle) + reset planning of outer ring swapping in sync with the inner ring.
 
-        与 VideoUnmaskSwap 同构（L20 预判 → 放置 + H1 → 外环规划，最多 16 次整段重抽），另加外环路径离两个按钮中心
-        ≥ 0.122（L19）。全部抽样只走独立流，主流（含 _initialize_episode 里 inject_fail_grasp 继续消费的
-        self.generator）一次都不多抽；干扰容器仍不进 spawned_bins（本环境没有 _verify_swap_binding，混进去会静默改交换对）。
+        Same structure as VideoUnmaskSwap (L20 pre-check -> placement + H1 -> outer-ring planning, at most 16 full redraws), plus outer path
+        >= 0.122 from both button centers (L19). All sampling uses an independent stream; the main stream (including self.generator that
+        inject_fail_grasp in _initialize_episode keeps consuming) draws not a single extra number; distractor bins still stay out of spawned_bins (this env has no _verify_swap_binding; mixing them in would silently change swap pairs).
         """
         result = spawn_swap_distractors_v5(
             self,
             generator=distractor_generator(self.seed),
-            # 本环境的内环最近邻是硬编码 [:2]（XY），预演用同一轴
+            # This env's inner-ring nearest neighbor is hardcoded [:2] (XY); the rehearsal uses the same axes
             partner_axes=[0, 1],
             button_obbs=list(button_obbs),
             hidden_half_size=self.cube_half_size / self._sampling["positions"]["hidden_cube"]["half_size_divisor"],
@@ -751,7 +751,7 @@ class ButtonUnmaskSwap(BaseEnv):
             qpos=reset_panda.get_reset_panda_param("qpos")
             self.agent.reset(qpos)
             if getattr(self, "_newvalue_collision_checks", False):
-                # V4 xhard 的初态复核（H1）：容器＋干扰容器两两读真实碰撞盒
+                # V4 xhard initial-state re-check (H1): bins + distractor bins pairwise read real collision boxes
                 gap, rejection = self._check_state_readonly("initial")
                 self._runtime_checks.append(
                     {
@@ -817,12 +817,12 @@ class ButtonUnmaskSwap(BaseEnv):
                     "segment":self.selected_bins[1],
                 })
         if self._is_newvalue:
-            # V4 xhard：本环境全部任务 demonstration=False，按完两个按钮通常只到第 200 步上下，
-            # 而 6~8 次交换要到 64+33n（262~328）才结束；原解法会在容器还在交换时就去抓（实测 2/2 失败）。
-            # V6 审查修复 N1（用户「n1 subgoal定为wait」）：等待不再藏在第二按钮的解法里（那样等待期间子目标仍标
-            # 「press the second button」），而是作为独立子目标「wait for the containers to finish swapping」插在
-            # 第二按钮之后：完成判定 = 已到交换时间表的最后一段结束步；解法 = 原地等到该绝对步。
-            # 仍不放在第一抓上，因为 inject_fail_grasp 会整个替换被选中抓取任务的 solve。
+            # V4 xhard: all tasks in this env have demonstration=False; after both buttons are pressed it is usually only around step 200,
+            # while 6-8 swaps end at 64+33n (262-328); the original solver would grasp while bins are still swapping (measured 2/2 failures).
+            # V6 review fix N1 (user "n1 subgoal set to wait"): waiting is no longer hidden inside the second button's solver (then the subgoal during waiting would still read
+            # "press the second button"), but inserted as an independent subgoal "wait for the containers to finish swapping"
+            # after the second button: completion = reached the end step of the last segment of the swap schedule; solver = wait in place until that absolute step.
+            # Still not placed on the first pick, because inject_fail_grasp replaces the solve of the selected pick task entirely.
             tasks.insert(2, {
                 "func": lambda: int(self.elapsed_steps) >= int(self.swap_schedule[-1][3]),
                 "name": "wait for the containers to finish swapping",
@@ -833,10 +833,10 @@ class ButtonUnmaskSwap(BaseEnv):
                 "solve": lambda env, planner: self._solve_wait_swaps(env, planner),
             })
         if self._is_newvalue and self.pick_times > 2:
-            # V4 xhard：原分支是 `== 2` 严格相等，pick=3 会落到只抓一次；这里按 pick_times 循环抓
-            # selected_bins[0..pick_times-1]，每一抓前先放下上一个。lambda 用默认参数绑定本轮对象。
+            # V4 xhard: the original branch uses strict `== 2`, so pick=3 would fall back to a single pick; here we loop over pick_times picking
+            # selected_bins[0..pick_times-1], putting down the previous before each pick. lambdas bind this round's object via default arguments.
             if self.pick_times > len(self.selected_bins):
-                raise ValueError(f"pick_times={self.pick_times} 超过藏物容器数 {len(self.selected_bins)}")
+                raise ValueError(f"pick_times={self.pick_times} exceeds the number of hiding bins {len(self.selected_bins)}")
             for j in range(1, self.pick_times):
                 prev_bin = self.selected_bins[j - 1]
                 cur_bin = self.selected_bins[j]
@@ -876,11 +876,11 @@ class ButtonUnmaskSwap(BaseEnv):
         else:
             self.fail_grasp_task_index = None
         if self._is_newvalue:
-            # V4 xhard（用户 2026-09-22「误抓即失败」）：每个已有 failure_func 的抓取／放下任务追加
-            # 「任一干扰容器被抬起（z>0.15，与区域内容器同一判据）即失败」
+            # V4 xhard (user 2026-09-22 "wrong grasp = failure"): every pick/place task that already has failure_func gets appended
+            # "fail if any distractor bin is lifted (z>0.15, same criterion as in-region bins)"
             add_distractor_misgrasp_failure(self, self.task_list)
-            # V6 审查修复 F4（K5）：给内环容器打标——子目标未切换但目标分割中心位移超过 8 像素时，
-            # process_segmentation 重算 grounded 坐标（交换后不再沿用旧位置）。未打标的 actor（原三档、其他环境）走原分支。
+            # V6 review fix F4 (K5): tag inner-ring bins -- when the subgoal has not switched but the target segmentation center moves more than 8 pixels,
+            # process_segmentation recomputes grounded coordinates (no longer reusing the old position after a swap). Untagged actors (original three tiers, other envs) take the original branch.
             for bin_actor in self.spawned_bins:
                 bin_actor._robomme_refresh_on_move_px = 8
             
@@ -970,14 +970,14 @@ class ButtonUnmaskSwap(BaseEnv):
         ]
 
     def _solve_wait_swaps(self, env, planner):
-        """V6 N1：等待子目标的解法——原地等到最后一段交换结束（绝对步 swap_schedule[-1][3]）；已过则立即返回。"""
+        """V6 N1: solver of the wait subgoal -- wait in place until the last swap segment ends (absolute step swap_schedule[-1][3]); return immediately if already past."""
         solve_hold_obj_absTimestep(env, planner, absTimestep=self.swap_schedule[-1][3])
         return None
 
     def _solve_press_then_wait_swaps(self, env, planner, button):
-        """V4 xhard 专用解法：按下按钮后原地等到最后一段交换结束（绝对步 swap_schedule[-1][3]）。
+        """V4 xhard-only solver: after pressing the button, wait in place until the last swap segment ends (absolute step swap_schedule[-1][3]).
 
-        按钮解法失败（返回 -1）时原样返回，不吞掉失败信号；已过交换结束时刻则立即返回。
+        If the button solver fails (returns -1), return it as is without swallowing the failure; return immediately if the swap end time has passed.
         """
         result = solve_button(env, planner, obj=button)
         if isinstance(result, (int, np.integer)) and int(result) == -1:
@@ -986,7 +986,7 @@ class ButtonUnmaskSwap(BaseEnv):
         return result
 
     def _object_states_for_collision(self):
-        """V4 xhard（H1）：全部容器＋干扰容器读成碰撞判据用的状态（真实碰撞盒）。"""
+        """V4 xhard (H1): read all bins + distractor bins into the state used by the collision criterion (real collision boxes)."""
         return [
             object_state_from_actor(actor, f"bin_{index}")
             for index, actor in enumerate(self.spawned_bins)
@@ -998,21 +998,21 @@ class ButtonUnmaskSwap(BaseEnv):
         ]
 
     def _check_state_readonly(self, stage):
-        """某一时刻的只读复核；返回拒绝证据，不抛错，由调用方决定怎么处置。"""
+        """Read-only re-check at one instant; returns rejection evidence without raising, the caller decides how to handle it."""
         return check_bin_state(self._object_states_for_collision(), stage=stage)
 
     def _check_swap_sweep_from_actual(self, sweep_index, initiator, partner):
-        """V4 xhard（H1）：从实际位姿对整段交换路径做连续检查，旁观者含其余容器与全部干扰容器；
-        命中即抛 ``BinCollisionError`` 中止该样本。原三档从不调用。
+        """V4 xhard (H1): continuously check the whole swap path from actual poses; bystanders include the other bins and all distractor bins;
+        on a hit raise ``BinCollisionError`` to abort the sample. Never called by the original three tiers.
 
-        V5：xhard 改为内环对（运行时解析，L22 a）与本窗外环对的两对联合复核（带认证预筛，L23）；下面 V4 的单对
-        分支只在没有 ``_is_newvalue`` 的实例上走（本环境原三档从不调用本函数）。"""
+        V5: xhard switches to a joint re-check of the inner pair (resolved at runtime, L22 a) and this window's outer pair (with certified prefilter, L23); the V4 single-pair
+        branch below runs only on instances without ``_is_newvalue`` (this env's original three tiers never call this function)."""
         if getattr(self, "_is_newvalue", False):
             gap, rejection, info = joint_sweep_from_actual(self, sweep_index, initiator, partner)
             if info["inner_partner_mismatch"]:
                 logger.warning(
-                    f"ButtonUnmaskSwap xhard 第 {sweep_index} 段内环对 {info['inner_pair']} 与 reset 预演 "
-                    f"{info['predicted_inner_pair']} 不一致（运行时照常按实际最近邻交换，联合复核用实际对）"
+                    f"ButtonUnmaskSwap xhard segment {sweep_index} inner pair {info['inner_pair']} differs from reset rehearsal "
+                    f"{info['predicted_inner_pair']} (runtime still swaps by actual nearest neighbor; the joint re-check uses the actual pair)"
                 )
                 self._spec.record(f"actions.inner_swap_mismatch.{sweep_index}",
                                   {"runtime": info["inner_pair"], "predicted": info["predicted_inner_pair"]})
@@ -1130,8 +1130,8 @@ class ButtonUnmaskSwap(BaseEnv):
         timestep = self.elapsed_steps
         
         if self._is_newvalue:
-            # V5 xhard（L14，主会话定内环也用）：内环容器与外环干扰容器同一窗口 [0, 64)、同一时间线揭示，
-            # 但每个物体停在各自的画面外停放点，不再全部叠在 (10,10,10)；干扰容器仍不进 spawned_bins
+            # V5 xhard (L14, main session decided inner ring uses it too): inner-ring bins and outer-ring distractor bins share the window [0, 64) and the reveal timeline,
+            # but each object parks at its own off-screen point instead of all stacking at (10,10,10); distractor bins still stay out of spawned_bins
             reveal_actors_parked(self, getattr(self, "spawned_bins", []), group="bin",
                                  start_step=0, end_step=self.swap_window_start, cur_step=timestep)
             reveal_distractor_bins_parked(self, start_step=0, end_step=self.swap_window_start, cur_step=timestep)
@@ -1142,7 +1142,7 @@ class ButtonUnmaskSwap(BaseEnv):
                     self,
                     obj=bin_actor,
                     start_step=0,
-                    end_step=self.swap_window_start,  # 预交换锁定段终点 = 首段交换起点（64）
+                    end_step=self.swap_window_start,  # End of the pre-swap lock segment = start of the first swap segment (64)
                     cur_step=timestep,
                 )
         for i in range(len(self.swap_schedule)):
@@ -1155,7 +1155,7 @@ class ButtonUnmaskSwap(BaseEnv):
 
                 if pair_idx2 is None and pair_idx1 is not None:
                     if getattr(self, "_is_newvalue", False):
-                        # V6 xhard（计划 2.2 内环 3）：搭档读 S5 reset 预规划；下面的两对联合复核照旧跑
+                        # V6 xhard (plan 2.2 inner ring 3): partner read from the S5 reset pre-plan; the two-pair joint re-check below still runs
                         closest_actor = self._newvalue_planned_partner(i, pair_idx1)
                     else:
                         reference_pos = self._get_actor_position(pair_idx1)
@@ -1171,7 +1171,7 @@ class ButtonUnmaskSwap(BaseEnv):
                                 closest_actor = candidate
                     if closest_actor is not None:
                         if getattr(self, "_newvalue_collision_checks", False):
-                            # V4 xhard（H1）：定下搭档后、开始移动前，做含干扰容器的连续扫掠检查
+                            # V4 xhard (H1): after fixing the partner and before moving, run a continuous sweep check including distractor bins
                             self._check_swap_sweep_from_actual(i, pair_idx1, closest_actor)
                         setattr(self, f'swap_pair{i+1}_idx2', closest_actor)
                         self._refresh_swap_schedule()
@@ -1196,9 +1196,9 @@ class ButtonUnmaskSwap(BaseEnv):
 
 
         if self._is_newvalue:
-            # V5 xhard（2.7，口径 4）：外环与内环同窗口交换，写在内环搭档循环之外，不增加任何控制步
+            # V5 xhard (2.7, criterion 4): outer ring swaps in the same window as the inner ring; written outside the inner partner loop, adds no control steps
             run_outer_swaps(self, timestep)
-            # 内环与外环被藏 cube 在 [64, last_end) 各停独立点，last_end 那一步落到各自容器最终 XY（L14）
+            # Hidden cubes of inner and outer rings each park at an independent point during [64, last_end); at step last_end they land at their bins' final XY (L14)
             park_cubes_onto_bins(self, getattr(self, "cube_bin_pairs", []), group="hidden_cube",
                                  start_step=self.swap_window_start, end_step=self.swap_schedule[-1][3], cur_step=timestep)
             park_cubes_onto_bins(self, getattr(self, "distractor_cube_bin_pairs", []), group="distractor_cube",

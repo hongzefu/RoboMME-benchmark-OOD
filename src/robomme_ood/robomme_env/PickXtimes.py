@@ -53,10 +53,10 @@ capabilities can be simulated and trained properly. Hence there is extra code fo
 """
 
 
-# ── decision／native 两块的原值（newtaskRelease-v3 步 3，映射见方案第二节 2.2）────────
-# decision：颜色数、重复抓放次数范围、目标方块与放置圆盘各自的位置采样区域、额外干扰物。
-# native：颜色排列与目标选择、按钮位置、方块／圆盘的几何与拒绝条件、恢复与动作展开规则。
-# 数值全部取自改动前写在调用点的字面量，原值阶段两块都等于原值（红线 R7）。
+# ── Original values of the decision/native blocks (newtaskRelease-v3 step 3, mapping in plan section 2.2) ────────
+# decision: color count, range of repeated pick-and-place counts, separate position sampling regions for the target cube and the placement disk, extra distractors.
+# native: color order and target selection, button position, cube/disk geometry and rejection conditions, recovery and action expansion rules.
+# All values are taken from the literals at the call sites before the change; in the original-value stage both blocks equal the original (red line R7).
 NATIVE_SAMPLING = {
     "parameters": {
         "cubes_per_color": 1,
@@ -69,16 +69,16 @@ NATIVE_SAMPLING = {
             "shuffle": "torch.randperm(len(color_groups))",
             "target_color_idx": "torch.randint(0, len(color_groups), (1,))",
             "target_cube_idx": "torch.randint(0, len(all_cubes), (1,))",
-            "note": "前置颜色抽样被后面的目标方块选择覆盖，保留原抽样次数与顺序",
+            "note": "the earlier color draw is overridden by the later target cube selection; original draw count and order kept",
         },
-        "recovery": "沿用入口给定的 fail recover 模式与 inject_fail_grasp 原抽法",
-        "task_expansion": "反复抓同一 target_cube 放到 target，末尾按按钮；非目标取候选补集",
+        "recovery": "keep the entry-provided fail recover mode and the original inject_fail_grasp draw",
+        "task_expansion": "repeatedly pick the same target_cube and place it on target, press the button at the end; non-targets are the complement of the candidates",
     },
     "positions": {
         "button": {
             "center_xy": [-0.2, 0],
             "scale": 1.5,
-            "randomize_range_note": "原调用点未传 randomize_range，保持 build_button 形参默认值",
+            "randomize_range_note": "the original call site did not pass randomize_range; keep build_button's parameter default",
         },
         "cube_pose": {
             "half_size": "self.cube_half_size",
@@ -98,13 +98,13 @@ NATIVE_SAMPLING = {
 }
 
 
-# ── xhard 专属 decision（V4 计划 2.4 / 2.21：C1 / G1 / A5 / B2；V5 计划 2.13：L43～L46）──────
-# * target_cube_position_policy：目标候选方块（三个有色方块）的采样区域。V5 L43 (c) 取消边角偏置
-#   （删 corner_bias 键，推翻 V4 J5），与干扰方块一样在区域内均匀抽；V5 L46 半宽 0.2 → 0.25
-#   （P1 探针：10 cm 三块团 33.5% → 10.2%，演示 13/13）。
-# * goal_position_policy：放置圆盘独立一套区域参数（C1：圆盘可以留在中间，值沿用原区域，V5 不变）。
-# * distractor：四个干扰方块，黄／青／品红／第 4 色各一（BLOCK_DISTRACTOR_COLORS，V7），在方块区域内均匀放置；V5 L46 半宽同为 0.25。
-# * min_center_dist_m：V5 L44，6 块（3 有色 + 3 干扰）两两中心距下限（米），留一个方块宽的缝。
+# ── xhard-specific decision (V4 plan 2.4 / 2.21: C1 / G1 / A5 / B2; V5 plan 2.13: L43-L46) ──────
+# * target_cube_position_policy: sampling region of target candidate cubes (the three colored cubes). V5 L43 (c) removes the corner bias
+#   (deletes the corner_bias key, overturning V4 J5), drawing uniformly in the region like the distractor cubes; V5 L46 half width 0.2 -> 0.25
+#   (P1 probe: 10 cm three-cube clusters 33.5% -> 10.2%, demonstrations 13/13).
+# * goal_position_policy: the placement disk has its own region parameters (C1: the disk may stay in the middle; values follow the original region, unchanged in V5).
+# * distractor: four distractor cubes, one each of yellow/cyan/magenta/4th color (BLOCK_DISTRACTOR_COLORS, V7), placed uniformly in the cube region; V5 L46 half width also 0.25.
+# * min_center_dist_m: V5 L44, minimum pairwise center distance (meters) of the 6 cubes (3 colored + 3 distractors), leaving a gap of one cube width.
 XHARD_DECISION = {
     "target_cube_position_policy": {"region_center": [-0.1, 0], "region_half_size": 0.25},
     "goal_position_policy": {"region_center": [-0.1, 0], "region_half_size": 0.2},
@@ -118,14 +118,14 @@ XHARD_DECISION = {
 
 
 def _newvalue_decision(n_distractors):
-    """V6（计划 2.8）：新值族某档的 decision 子树——键结构与 ``XHARD_DECISION`` 完全相同，
-    只把干扰方块颜色截成 ``BLOCK_DISTRACTOR_COLORS`` 前 k 个；区域、中心距等其余字段沿用 xhard。"""
+    """V6 (plan 2.8): decision subtree of one new-value tier -- key structure identical to ``XHARD_DECISION``,
+    only truncating distractor cube colors to the first k of ``BLOCK_DISTRACTOR_COLORS``; region, center distance and other fields follow xhard."""
     tree = copy.deepcopy(XHARD_DECISION)
     tree["distractor"]["colors"] = [entry["name"] for entry in BLOCK_DISTRACTOR_COLORS[:n_distractors]]
     return tree
 
 
-# V6 新值族档位表：干扰块数 xhard1=1、xhard2=2、xhard3=3、xhard4=3。
+# V6 new-value tier table: distractor count xhard1=1, xhard2=2, xhard3=3, xhard4=3.
 NEWVALUE_DECISION = {
     "xhard1": _newvalue_decision(1),
     "xhard2": _newvalue_decision(2),
@@ -133,18 +133,18 @@ NEWVALUE_DECISION = {
     "xhard4": _newvalue_decision(4),
 }
 
-# V5 L45：xhard 方块（有色 + 干扰）每块的拒绝采样预算（原三档沿用 spawn_random_cube 默认 256，不受影响）。
-# 计划 2.13 估：加 8 cm 中心距后 256 次约 3.5% 的局放不下、1024 次约 1%；S3f 离线 3000 局实测 1024 次 0 失败。
+# V5 L45: per-cube rejection sampling budget for xhard cubes (colored + distractors) (original three tiers keep spawn_random_cube's default 256, unaffected).
+# Plan 2.13 estimate: with the 8 cm center distance, 256 trials leave ~3.5% of episodes unplaceable, 1024 trials ~1%; S3f offline 3000 episodes measured 0 failures at 1024.
 XHARD_CUBE_MAX_TRIALS = 1024
 
 
 def _disk_avoid_obb(target, clearance):
-    """把放置圆盘换算成方块拒绝采样可用的预制 OBB ``(中心, 轴, 半边长)``。
+    """Convert the placement disk into a prebuilt OBB ``(center, axes, half extents)`` usable by cube rejection sampling.
 
-    圆盘是 ``add_collision=False`` 的纯视觉 actor，``get_actor_obb`` 取不到网格，直接放进
-    ``avoid`` 会被 ``spawn_random_cube`` 静默忽略（2026-09-22 实测）。xhard 先放圆盘后放方块（G1），
-    必须显式给出它的外接正方形：半边长 = 圆盘半径 + 圆盘间距 − 方块自带间距，
-    使轴向判据与原「圆盘避让方块」的圆–盒距离判据一致、对角方向更保守。
+    The disk is a visual-only actor with ``add_collision=False``; ``get_actor_obb`` cannot get its mesh, so putting it directly into
+    ``avoid`` is silently ignored by ``spawn_random_cube`` (measured 2026-09-22). xhard places the disk before the cubes (G1),
+    so its bounding square must be given explicitly: half extent = disk radius + disk gap - the cube's own gap,
+    making the axial criterion match the original "disk avoids cubes" circle-box distance criterion and more conservative diagonally.
     """
     p = target.pose.p
     if isinstance(p, torch.Tensor):
@@ -157,36 +157,36 @@ def _disk_avoid_obb(target, clearance):
 
 
 def native_blocks(cls):
-    """本环境的 ``(decision, native)`` 原值块；外部导出与内部解析共用同一份。"""
+    """Original ``(decision, native)`` blocks of this env; shared by external export and internal parsing."""
     return _native_decision(cls), copy.deepcopy(NATIVE_SAMPLING)
 
 
 def _native_decision(cls):
-    """按方案第二节 2.2 切出 decision 块（原值阶段等于原值）。"""
+    """Slice the decision block per plan section 2.2 (equals the original in the original-value stage)."""
     return {
         "color": {difficulty: cfg["color"] for difficulty, cfg in cls.configs.items()},
         "number_range": {
             difficulty: [cfg["number_min"], cfg["number_max"]]
             for difficulty, cfg in cls.configs.items()
         },
-        # 目标方块与放置圆盘各自的位置采样区域；原值即两者同区域。
+        # Separate position sampling regions for the target cube and the placement disk; originally both use the same region.
         "target_cube_position_policy": {"region_center": [-0.1, 0], "region_half_size": 0.2},
         "goal_position_policy": {"region_center": [-0.1, 0], "region_half_size": 0.2},
-        # 第二节的「增加其他颜色 distractor」原三档不启用（原值保持 None）。
+        # Section 2's "add distractors of other colors" is not enabled for the original three tiers (original value stays None).
         "distractor": None,
-        # V4 xhard 专属（计划 2.4）：键名为 xhard，守卫只放行这一子树取新值，原三档可见部分不变。
-        # V6（计划 2.8）：xhard 之后追加 xhard1/2/3 三棵同结构子树（新值族，守卫同样放行）。
+        # V4 xhard-specific (plan 2.4): key named xhard; the guard only lets this subtree take new values; the part visible to the original three tiers is unchanged.
+        # V6 (plan 2.8): append three same-structure subtrees xhard1/2/3 after xhard (new-value family, likewise admitted by the guard).
         "xhard4": copy.deepcopy(XHARD_DECISION),
         **{tier: copy.deepcopy(NEWVALUE_DECISION[tier]) for tier in ("xhard1", "xhard2", "xhard3")},
     }
 
 
 def _resolve_sampling_config(cls, override):
-    """拆出本实例专属的 decision／native 副本；不抽随机数，必须在 Generator 之前调用。"""
+    """Split out this instance's private decision/native copies; draws no random numbers, must be called before the Generator."""
     decision_default, native_default = native_blocks(cls)
     decision, native = split_sampling_config(override, native_default, decision_default)
     assert_native_decision(decision, decision_default, cls.__name__)
-    # V6：旧快照（如 V5 快照）缺 xhard1/2/3 子树时从源码申报补齐
+    # V6: old snapshots (e.g. V5 snapshots) missing xhard1/2/3 subtrees get them filled from source declarations
     fill_missing_newvalue(decision, decision_default)
     native["decision"] = decision
     return native
@@ -226,9 +226,9 @@ class PickXtimes(BaseEnv):
     'number_max':3
     }
 
-    # v8 定值（1001 方案 §1 表 1 / §2.1）：每档一个定数，抓放次数 6/7/8/9、干扰块 1/2/3/4（BLOCK_DISTRACTOR_COLORS）。
-    # xhard4=9 次只为保住四键结构（v7 兼容的配置与测试），不交付、不评估（9 次超 1600 步上限，不得用于生成）；
-    # 本环境不加 xhard5；圆盘区域（XHARD_DECISION）是非梯度参数，不动。
+    # v8 fixed values (1001 plan 1 table 1 / 2.1): one fixed number per tier, pick-and-place counts 6/7/8/9, distractor cubes 1/2/3/4 (BLOCK_DISTRACTOR_COLORS).
+    # xhard4=9 only preserves the four-key structure (v7-compatible configs and tests); not delivered, not evaluated (9 exceeds the 1600-step limit, must not be used for generation);
+    # this env adds no xhard5; the disk region (XHARD_DECISION) is a non-gradient parameter, unchanged.
     config_xhard4 = {
         'color': 3,
         'number_min': 9,
@@ -268,13 +268,13 @@ class PickXtimes(BaseEnv):
                      sampling_config=None,
                      native_episode_spec=None,
                      **kwargs):
-        # 必须落在任何随机数调用与 super().__init__() 之前：这里多抽或少抽一次会平移其后全部取值
+        # Must happen before any RNG call and before super().__init__(): one extra or missing draw here would shift every later value
         self._sampling = _resolve_sampling_config(type(self), sampling_config)
-        # 步 4：只读导出（不传规格）或原值回注（传冻结规格）
+        # Step 4: read-only export (no spec passed) or original-value re-injection (frozen spec passed)
         self._spec = SpecRecorder(native_episode_spec, "PickXtimes", {"seed": seed},
                                   difficulty=kwargs.get("difficulty"))
-        # 初始化序号从 -1 起，_initialize_episode 每次进来先加一；
-        # _load_scene 里的取值点用不带序号的路径，所以这里只作兜底。
+        # Initialization index starts at -1; _initialize_episode increments it on each entry;
+        # value points in _load_scene use index-free paths, so this is only a fallback.
         self._native_init_index = -1
         self.use_demonstrationwrapper=False
         self.demonstration_record_traj=False
@@ -382,8 +382,8 @@ class PickXtimes(BaseEnv):
 
        
 
-        # V4：xhard 走独立的生成路径（G1 先放圆盘、目标候选池解耦、D2 修复、按对象回填颜色），
-        # 原三档仍走原代码（整段原样搬进 _spawn_scene_objects_native，一行未改，H2/N12）。
+        # V4: xhard takes an independent generation path (G1 disk first, decoupled target candidate pool, D2 fix, colors backfilled per object),
+        # original three tiers still take the original code (moved verbatim into _spawn_scene_objects_native, not a single line changed, H2/N12).
         if is_newvalue_difficulty(self.difficulty):
             self._spawn_scene_objects_xhard(generator, avoid)
         else:
@@ -433,7 +433,7 @@ class PickXtimes(BaseEnv):
         self.recovery_pickup_indices, self.recovery_pickup_tasks = task4recovery(self.task_list)
         if self.robomme_failure_recovery:
             # Only inject an intentional failed grasp when recovery mode is enabled
-            # 恢复动作的选择是一次真实抽样：原位置照常抽，回注模式下用冻结的索引
+            # Choosing the recovery action is a real draw: the original draw happens as usual; re-injection mode uses the frozen index
             self.fail_grasp_task_index = self._spec.value(
                 "actions.recovery.selected_action_index",
                 inject_fail_grasp(
@@ -445,12 +445,12 @@ class PickXtimes(BaseEnv):
         else:
             self.fail_grasp_task_index = None
 
-        # V4 xhard：干扰方块是新增的随机取值，追加在本函数全部既有取值点（含恢复动作抽样）之后（N5）。
+        # V4 xhard: distractor cubes are new random values appended after all existing value points of this function (including the recovery action draw) (N5).
         if is_newvalue_difficulty(self.difficulty):
             self._spawn_distractors_xhard(generator, avoid)
 
     def _spawn_scene_objects_native(self, generator, avoid):
-        """原三档的方块／圆盘／目标方块生成（原 ``_load_scene`` 中段，逐字搬出，行为不变）。"""
+        """Cube/disk/target cube generation for the original three tiers (the middle of the original ``_load_scene``, moved out verbatim, behavior unchanged)."""
         self.all_cubes = []  # Save all cube objects
 
         # Initialize storage for each color group
@@ -575,19 +575,19 @@ class PickXtimes(BaseEnv):
         logger.debug(f"Non-target cubes: {len(self.non_target_cubes)}")
 
     def _spawn_scene_objects_xhard(self, generator, avoid):
-        """V4 xhard 的方块／圆盘／目标方块生成（计划 2.4）。
+        """Cube/disk/target cube generation for V4 xhard (plan 2.4).
 
-        与原路径的差别（全部只在 xhard 生效，H2）：
-        * G1：**先放圆盘再放方块**，方块经 ``_disk_avoid_obb`` 显式避让圆盘；
-        * 颜色取自 ``NATIVE_SAMPLING.parameters.color_pool``（xhard 路径的单一真值，不再读硬编码字面量）；
-        * V5（计划 2.13）：三个有色方块在区域内均匀抽（L43 取消 V4 的 corner_bias）；6 块两两中心距
-          ≥ ``min_center_dist_m``（L44，经 ``spawn_random_cube(min_center_dist=...)``）；已放方块以
-          ``cube_obb2d_exact`` 精确 OBB 进 ``avoid``（修 2.0① 障碍框退化）；每块预算 ``XHARD_CUBE_MAX_TRIALS``（L45）；
-        * D2：圆盘或方块放不下直接抛 ``SceneGenerationError``，不再静默截断或落到未绑定变量；
-        * 目标方块从显式候选列表 ``self.target_candidates`` 抽（与 ``all_cubes`` 解耦，干扰物不会被抽中）；
-        * ``target_color_name`` 按对象查表回填，不再走三色 if 链（新颜色不命中时会残留旧值）。
-        随机调用的相对顺序：color_order → target_color_idx → 圆盘 → 方块 → target_cube_idx，
-        其后才是恢复动作与干扰方块（N5）。
+        Differences from the original path (all xhard-only, H2):
+        * G1: **disk first, then cubes**; cubes explicitly avoid the disk via ``_disk_avoid_obb``;
+        * colors come from ``NATIVE_SAMPLING.parameters.color_pool`` (the single source of truth for the xhard path, no hardcoded literals);
+        * V5 (plan 2.13): the three colored cubes are drawn uniformly in the region (L43 removes V4's corner_bias); pairwise center distance of the 6 cubes
+          >= ``min_center_dist_m`` (L44, via ``spawn_random_cube(min_center_dist=...)``); placed cubes enter ``avoid`` as
+          ``cube_obb2d_exact`` exact OBBs (fixes the 2.0-1 obstacle box degeneracy); per-cube budget ``XHARD_CUBE_MAX_TRIALS`` (L45);
+        * D2: if the disk or a cube cannot be placed, raise ``SceneGenerationError`` directly instead of silently truncating or hitting an unbound variable;
+        * the target cube is drawn from the explicit candidate list ``self.target_candidates`` (decoupled from ``all_cubes``; distractors are never drawn);
+        * ``target_color_name`` is backfilled by per-object lookup instead of the three-color if chain (which would leave a stale value for new colors).
+        Relative order of random calls: color_order -> target_color_idx -> disk -> cubes -> target_cube_idx,
+        followed by the recovery action and distractor cubes (N5).
         """
         xcfg = self._sampling["decision"][self.difficulty]
         cube_region = xcfg["target_cube_position_policy"]
@@ -598,17 +598,17 @@ class PickXtimes(BaseEnv):
         cubes_per_color = self._sampling["parameters"]["cubes_per_color"]
         n_colors = self._sampling["decision"]["color"][self.difficulty]
         self._spec.record("layout.cube_min_center_dist", min_center_dist)
-        # V5：已放方块（有色 + 干扰共用一张表）的精确 OBB；既作中心距规则的参考点，也作 avoid 里的障碍
+        # V5: exact OBBs of placed cubes (colored + distractors share one table); both reference points for the center distance rule and obstacles in avoid
         self._xhard_cube_obbs = []
 
         self.all_cubes = []
         self.distractor_cubes = []
-        self._cube_color_of = []  # [(actor, 颜色名)]，按对象回填 target_color_name 用
+        self._cube_color_of = []  # [(actor, color name)], used to backfill target_color_name per object
         color_groups = []
         for entry in self._sampling["parameters"]["color_pool"]:
             name = entry["name"]
             cube_list, name_list = [], []
-            # 保留 red_cubes / red_cube_names 这类属性名，下游按颜色取列表的代码照常可用
+            # Keep attribute names like red_cubes / red_cube_names so downstream code fetching lists by color still works
             setattr(self, f"{name}_cubes", cube_list)
             setattr(self, f"{name}_cube_names", name_list)
             color_groups.append({"color": tuple(entry["rgba"]), "name": name,
@@ -618,14 +618,14 @@ class PickXtimes(BaseEnv):
             "objects.color_order", torch.randperm(len(color_groups), generator=generator).tolist()
         )
         color_groups = [color_groups[i] for i in shuffle_indices]
-        # 与原路径同一次抽样（其值随后被目标方块的颜色覆盖），保留以对齐取值点集合
+        # Same draw as the original path (its value is then overridden by the target cube's color), kept to align the set of value points
         target_color_idx = self._spec.value(
             "objects.target_color_idx",
             torch.randint(0, len(color_groups), (1,), generator=generator).item(),
         )
         self.target_color_name = color_groups[target_color_idx]["name"]
 
-        # G1：先放圆盘。此时 avoid 里只有按钮。
+        # G1: place the disk first. At this point avoid only contains the button.
         disk_radius = self.cube_half_size * target_pose_cfg["radius_factor"]
         disk_gap = self.cube_half_size * target_pose_cfg["min_gap_factor"]
         try:
@@ -645,11 +645,11 @@ class PickXtimes(BaseEnv):
                 spec_path="layout.goal_xy",
             )
         except RuntimeError as exc:
-            # D2（xhard 专用修复）：原路径失败后会落到未绑定的 target 上抛 UnboundLocalError
-            raise SceneGenerationError(f"PickXtimes xhard: 放置圆盘采样失败: {exc}") from exc
+            # D2 (xhard-only fix): after failure the original path falls through to an unbound target and raises UnboundLocalError
+            raise SceneGenerationError(f"PickXtimes xhard: placement disk sampling failed: {exc}") from exc
         self.target = target
         avoid.append(target)
-        # 圆盘本身取不到 OBB（纯视觉 actor），方块避让靠这个预制外接正方形
+        # The disk itself has no OBB (visual-only actor); cubes avoid it via this prebuilt bounding square
         avoid.append(_disk_avoid_obb(target, disk_radius + disk_gap - self.cube_half_size))
 
         requested = min(n_colors, len(color_groups)) * cubes_per_color
@@ -676,21 +676,21 @@ class PickXtimes(BaseEnv):
                         min_center_dist=(min_center_dist, self._xhard_cube_obbs),
                     )
                 except RuntimeError as exc:
-                    raise SceneGenerationError(f"PickXtimes xhard: 方块 {cube_name} 放不下: {exc}") from exc
+                    raise SceneGenerationError(f"PickXtimes xhard: cube {cube_name} does not fit: {exc}") from exc
                 self.all_cubes.append(cube)
                 group["list"].append(cube)
                 group["name_list"].append(cube_name)
                 self._cube_color_of.append((cube, group["name"]))
                 setattr(self, cube_name, cube)
                 self._append_cube_obstacle_xhard(cube, avoid)
-        # 2.2④：请求数 vs 实际数，不等即本局失败（上面的 raise 已保证，这里再显式记录与核对）
+        # 2.2-4: requested vs actual; mismatch fails this episode (already guaranteed by the raise above, recorded and checked explicitly here)
         self._spec.record("objects.cube_count", {"requested": requested, "actual": len(self.all_cubes)})
         if len(self.all_cubes) != requested or requested == 0:
             raise SceneGenerationError(
-                f"PickXtimes xhard: 有色方块请求 {requested} 实际 {len(self.all_cubes)}"
+                f"PickXtimes xhard: colored cubes requested {requested} actual {len(self.all_cubes)}"
             )
 
-        # 目标候选池与 all_cubes 解耦：只含有色方块，之后追加的干扰方块永远不会被抽成目标
+        # Target candidate pool decoupled from all_cubes: only colored cubes, so distractor cubes appended later can never be drawn as the target
         self.target_candidates = list(self.all_cubes)
         self._spec.record(
             "objects.target_candidates", [self._color_name_of(cube) for cube in self.target_candidates]
@@ -704,28 +704,28 @@ class PickXtimes(BaseEnv):
         self.non_target_cubes = [cube for cube in self.all_cubes if cube is not self.target_cube]
 
     def _color_name_of(self, cube):
-        """按对象查颜色名（xhard 路径用）；查不到说明登记漏了，直接报错而不是残留旧值。"""
+        """Look up the color name by object (xhard path); a miss means registration was skipped, so raise instead of leaving a stale value."""
         for actor, name in self._cube_color_of:
             if actor is cube:
                 return name
-        raise SceneGenerationError("PickXtimes xhard: 目标方块不在颜色登记表里")
+        raise SceneGenerationError("PickXtimes xhard: target cube is not in the color registry")
 
     def _append_cube_obstacle_xhard(self, cube, avoid):
-        """V5（计划 2.0① / 2.13）：把刚放下的方块以精确 OBB 登记为后续方块的障碍与中心距参考点。
+        """V5 (plan 2.0-1 / 2.13): register the cube just placed as an exact OBB, serving as an obstacle and center distance reference for later cubes.
 
-        不再把 actor 本身放进 ``avoid``：actor 路径经 ``_trimesh_box_to_obb2d``，对正方体约 2/3 的姿态
-        退化成线段，``min_gap`` 在其法向上失效。纯几何，不抽随机数。
+        The actor itself is no longer put into ``avoid``: the actor path via ``_trimesh_box_to_obb2d`` degenerates into a segment for ~2/3 of
+        cube poses, voiding ``min_gap`` along its normal. Pure geometry, no random draws.
         """
         obb = cube_obb2d_exact(cube, self.cube_half_size)
         self._xhard_cube_obbs.append(obb)
         avoid.append(obb)
 
     def _spawn_distractors_xhard(self, generator, avoid):
-        """V4 xhard：放三个「其他颜色」干扰方块（A5/B2：黄／青／品红各一）。
+        """V4 xhard: place three "other color" distractor cubes (A5/B2: one each of yellow/cyan/magenta).
 
-        干扰方块进 ``all_cubes`` 与 ``non_target_cubes``（抓错即触发 failure_func 判失败），
-        不进 ``target_candidates``。放不下直接抛 ``SceneGenerationError``（2.2④，不许静默截断）。
-        V5：与有色方块共用中心距规则、精确 OBB 障碍与拒绝预算（计划 2.13）。
+        Distractor cubes go into ``all_cubes`` and ``non_target_cubes`` (picking one triggers failure_func),
+        not into ``target_candidates``. If one cannot be placed raise ``SceneGenerationError`` directly (2.2-4, no silent truncation).
+        V5: share the center distance rule, exact OBB obstacles and rejection budget with colored cubes (plan 2.13).
         """
         min_center_dist = float(self._sampling["decision"][self.difficulty]["min_center_dist_m"])
         dcfg = self._sampling["decision"][self.difficulty]["distractor"]
@@ -733,7 +733,7 @@ class PickXtimes(BaseEnv):
         names = list(dcfg["colors"])
         unknown = [name for name in names if name not in palette]
         if unknown:
-            raise SceneGenerationError(f"PickXtimes xhard: 干扰色不在 BLOCK_DISTRACTOR_COLORS 里: {unknown}")
+            raise SceneGenerationError(f"PickXtimes xhard: distractor color not in BLOCK_DISTRACTOR_COLORS: {unknown}")
         self._spec.record("objects.distractors", [{"name": f"cube_{n}_0", "color": n} for n in names])
         for name in names:
             cube_name = f"cube_{name}_0"
@@ -757,7 +757,7 @@ class PickXtimes(BaseEnv):
                     min_center_dist=(min_center_dist, self._xhard_cube_obbs),
                 )
             except RuntimeError as exc:
-                raise SceneGenerationError(f"PickXtimes xhard: 干扰方块 {cube_name} 放不下: {exc}") from exc
+                raise SceneGenerationError(f"PickXtimes xhard: distractor cube {cube_name} does not fit: {exc}") from exc
             self.all_cubes.append(cube)
             self.distractor_cubes.append(cube)
             self._cube_color_of.append((cube, name))
@@ -769,13 +769,13 @@ class PickXtimes(BaseEnv):
                           {"requested": len(names), "actual": len(self.distractor_cubes)})
         if len(self.distractor_cubes) != len(names):
             raise SceneGenerationError(
-                f"PickXtimes xhard: 干扰方块请求 {len(names)} 实际 {len(self.distractor_cubes)}"
+                f"PickXtimes xhard: distractor cubes requested {len(names)} actual {len(self.distractor_cubes)}"
             )
-        # failure_func 在调用时才读 self.non_target_cubes，这里重建即可让干扰方块参与判失败
+        # failure_func reads self.non_target_cubes only when called; rebuilding it here lets distractor cubes take part in failure checks
         self.non_target_cubes = [cube for cube in self.all_cubes if cube is not self.target_cube]
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
-        # 每次初始化各自记一份规格，不复用上一次的结果
+        # Each initialization records its own spec, never reusing the previous result
         self._native_init_index = getattr(self, "_native_init_index", -1) + 1
         with torch.device(self.device):
             b = len(env_idx)

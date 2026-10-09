@@ -26,9 +26,9 @@ from mani_skill.utils.geometry.rotation_conversions import (
 )
 
 from .utils import *
-# V5 L3（仿 VideoPlaceOrder 的 K2 修法）：上一行的 `from .utils import *` 会把同名子模块
-# `utils.SceneGenerationError` 盖到名字 `SceneGenerationError` 上（import 自省核实），原三档的
-# raise / except 因此是 TypeError（按 H2 原三档保持现状）。xhard 用下面这个别名拿到真正的异常类。
+# V5 L3 (following VideoPlaceOrder's K2 fix): the `from .utils import *` line above lets the same-named submodule
+# `utils.SceneGenerationError` shadow the name `SceneGenerationError` (confirmed by import introspection), so in the original three tiers
+# raise / except become TypeError (original three tiers kept as is per H2). xhard uses the alias below to get the real exception class.
 from .utils.SceneGenerationError import SceneGenerationError as _RealSceneGenerationError
 from .utils.subgoal_evaluate_func import static_check
 from .utils.object_generation import *
@@ -40,12 +40,12 @@ from ..logging_utils import logger
 
 
 def _scene_gen_error(difficulty):
-    """V5 L3：按档选场景生成异常类。
+    """V5 L3: select the scene-generation exception class by tier.
 
-    xhard 返回真正的 ``SceneGenerationError``（可重试的任务性失败）；原三档原样返回本模块里
-    被遮蔽的名字 ``SceneGenerationError``（子模块，raise / except 时仍是 TypeError，行为逐字不变）。
-    用法：``raise _scene_gen_error(self.difficulty)("说明")``、``except _scene_gen_error(self.difficulty):``；
-    只在 xhard 路径上执行的代码直接用 ``_RealSceneGenerationError``。
+    xhard returns the real ``SceneGenerationError`` (retryable task failure); original three tiers return this module's
+    shadowed name ``SceneGenerationError`` as is (a submodule, so raise / except still give TypeError; behavior verbatim unchanged).
+    Usage: ``raise _scene_gen_error(self.difficulty)("message")``, ``except _scene_gen_error(self.difficulty):``;
+    code executed only on the xhard path uses ``_RealSceneGenerationError`` directly.
     """
     return _RealSceneGenerationError if is_newvalue_difficulty(difficulty) else SceneGenerationError
 
@@ -64,10 +64,10 @@ capabilities can be simulated and trained properly. Hence there is extra code fo
 """
 
 
-# ── decision／native 两块的原值（newtaskRelease-v3 步 3，映射见方案第二节 2.4）────────
-# decision：方块运动速度的候选档位、第几次经过目标时停止。
-# native：目标与按钮位置、方块颜色、路线整体旋转、往返段数与时间公式，以及那次
-#        「抽了又被覆盖」的 interval 采样（方案要求保留原随机消费，不得删）。
+# ── Original values of the decision/native blocks (newtaskRelease-v3 step 3, mapping in plan section 2.4) ────────
+# decision: candidate tiers of cube motion speed, and on which pass over the target to stop.
+# native: target and button positions, cube color, overall route rotation, round-trip segment count and timing formula, and the
+#        "drawn then overridden" interval draw (the plan requires keeping the original random consumption; must not be deleted).
 NATIVE_SAMPLING = {
     "parameters": {
         "interval_sample": {
@@ -76,7 +76,7 @@ NATIVE_SAMPLING = {
             "high_exclusive": 33,
             "shape": [1],
             "overridden_to": 30,
-            "note": "原代码抽完立刻被常量 30 覆盖；保留这次抽样以免随机流平移（红线 R8）",
+            "note": "the original code overwrites this draw with the constant 30 immediately; the draw is kept to avoid shifting the random stream (red line R8)",
         },
         "route_rotation_deg": {
             "sampler": "torch.FloatTensor(1).uniform_",
@@ -84,14 +84,14 @@ NATIVE_SAMPLING = {
             "high": 30,
         },
         "motion_segments": 5,
-        # V6 审查 N15（用户「n15 a」）：motion_segments=5 只是描述值，代码不读它；实际段数在 _initialize_episode 里
-        # 原三档恒 5、xhard4 取 max(5, stop_time)（交付 spec 为 6/14/15），随 actions.motion_segments 记入规格
-        "motion_segments_note": "描述值，代码不读；实际段数：原三档 5，xhard4 max(5, stop_time)",
+        # V6 review N15 (user "n15 a"): motion_segments=5 is only a descriptive value, the code does not read it; the actual segment count, set in _initialize_episode,
+        # is always 5 for the original three tiers and max(5, stop_time) for xhard4 (delivered specs are 6/14/15), recorded into the spec with actions.motion_segments
+        "motion_segments_note": "descriptive value, not read by code; actual segments: 5 for the original three tiers, max(5, stop_time) for xhard4",
         "steps_press_expression": "move_interval * stop_time - move_interval / 2",
         "stop_window_expression": "[move_interval * (stop_time - 1), move_interval * stop_time]",
         "press_lead_steps": "self.interval",
         "route_endpoints": {"start": [0, -0.3], "end": [0, 0.3]},
-        "recovery": "StopCube 原本就没有失败抓取注入，只接收入口给定的恢复模式",
+        "recovery": "StopCube never had failed-grasp injection; it only accepts the entry-provided recovery mode",
     },
     "positions": {
         "button": {"center_xy": [-0.2, 0], "scale": 1.5, "randomize": True},
@@ -111,28 +111,28 @@ NATIVE_SAMPLING = {
 
 
 def native_blocks(cls):
-    """本环境的 ``(decision, native)`` 原值块；外部导出与内部解析共用同一份。"""
+    """Original ``(decision, native)`` blocks of this env; shared by external export and internal parsing."""
     return _native_decision(cls), copy.deepcopy(NATIVE_SAMPLING)
 
 
-# ── 难度分档（V4 计划 2.6，用户决策 A6）──────────────────────────────────────
-# 本环境原本没有难度分档：easy/medium/hard 三档**同值**，都等于原有的全局常量，
-# 所以不管传哪档，行为都与改动前逐字一致；只有 xhard 取 V4 新值。
-# move_interval_choices：方块单程步数候选（越小越快）；stop_time_range：第几次经过目标时停（半开区间）。
+# ── Difficulty tiers (V4 plan 2.6, user decision A6) ──────────────────────────────────────
+# This env originally had no difficulty tiers: easy/medium/hard share **identical values**, all equal to the existing global constants,
+# so whichever tier is passed, behavior is verbatim identical to pre-change; only xhard takes V4 new values.
+# move_interval_choices: candidate one-way step counts of the cube (smaller is faster); stop_time_range: on which pass over the target to stop (half-open interval).
 _CONFIG_CURRENT = {
-    # 原值三档；randint 等概率抽下标
+    # Original values for the three tiers; randint draws the index with equal probability
     "move_interval_choices": [60, 80, 120],
-    # 原 randint(2, 6) 即闭区间 [2, 5]
+    # The original randint(2, 6) is the closed interval [2, 5]
     "stop_time_range": {"low": 2, "high_exclusive": 6},
 }
-# v8（1001 方案 §1 表 1 / §2.1）：新值档 xhard1～xhard5，每档停止序号一个定数 k = 6／7／8／9／10
-# （半开写 low=k, high_exclusive=k+1）；方块速度一律最快档 [60]（同 v7 xhard4）。
-# v7 的 xhard4 是 [6, 15] 随机，v8 改为定值 9；xhard1～3、xhard5 为 v8 新增。
+# v8 (1001 plan 1 table 1 / 2.1): new-value tiers xhard1-xhard5, each with one fixed stop index k = 6/7/8/9/10
+# (half-open: low=k, high_exclusive=k+1); cube speed always the fastest tier [60] (same as v7 xhard4).
+# v7's xhard4 was random in [6, 15]; v8 changes it to the fixed value 9; xhard1-3 and xhard5 are new in v8.
 _XHARD_STOP_TIME = {"xhard1": 6, "xhard2": 7, "xhard3": 8, "xhard4": 9, "xhard5": 10}
 
 
 def _config_xhard(stop_time):
-    """新值档配置：最快档 [60] + 停止序号定值 ``stop_time``。"""
+    """New-value tier config: fastest tier [60] + fixed stop index ``stop_time``."""
     return {
         "move_interval_choices": [60],
         "stop_time_range": {"low": stop_time, "high_exclusive": stop_time + 1},
@@ -140,28 +140,28 @@ def _config_xhard(stop_time):
 
 
 def _native_decision(cls):
-    """按方案第二节 2.4 切出 decision 块。
+    """Slice the decision block per plan section 2.4.
 
-    顶层两键是原三档共用的原值（三档同值，取 ``configs["hard"]``），与 V3 快照逐字相同；
-    V4 新值只放在 ``xhard`` 子键下，``assert_native_decision`` 按键名放行。
+    The two top-level keys are original values shared by the original three tiers (identical values, taken from ``configs["hard"]``), verbatim identical to the V3 snapshot;
+    V4 new values live only under the ``xhard`` subkey, admitted by key name by ``assert_native_decision``.
     """
     hard = cls.configs["hard"]
     return {
         "move_interval_choices": list(hard["move_interval_choices"]),
         "stop_time_range": dict(hard["stop_time_range"]),
-        # v8：五个新值档子键（xhard1～5），assert_native_decision 按键名放行
+        # v8: five new-value tier subkeys (xhard1-5), admitted by key name by assert_native_decision
         **{tier: copy.deepcopy(cls.configs[tier]) for tier in _XHARD_STOP_TIME},
     }
 
 
 def _resolve_sampling_config(cls, override):
-    """拆出本实例专属的 decision／native 副本；不抽随机数，必须在 Generator 之前调用。"""
+    """Split out this instance's private decision/native copies; draws no random numbers, must be called before the Generator."""
     decision_default, native_default = native_blocks(cls)
     decision, native = split_sampling_config(override, native_default, decision_default)
     assert_native_decision(decision, decision_default, cls.__name__)
-    # 旧快照（v2/v3 导出时还没有 xhard 条目）守卫照旧放行；这里补上源码申报的新值档默认值，
-    # 只影响新值档局，原三档不读这些键。fill_missing_newvalue 只在同层已有 xhard4 时补 xhard1/2/3；
-    # xhard4 的旧快照兜底保持本环境 V4/V5 原有写法（v8 起写字面 "xhard4"，不再用 NEWVALUE_DIFFICULTIES[-1]）。
+    # Old snapshots (exported in v2/v3 without xhard entries) still pass the guard; here we fill in source-declared new-value tier defaults,
+    # affecting only new-value tier episodes; original three tiers do not read these keys. fill_missing_newvalue fills xhard1/2/3 only when xhard4 already exists at the same level;
+    # the old-snapshot fallback for xhard4 keeps this env's original V4/V5 form (since v8 written as the literal "xhard4", no longer NEWVALUE_DIFFICULTIES[-1]).
     fill_missing_newvalue(decision, decision_default)
     if "xhard4" not in decision:
         decision["xhard4"] = copy.deepcopy(decision_default["xhard4"])
@@ -185,7 +185,7 @@ class StopCube(BaseEnv):
     cube_spawn_half_size = 0.05
     cube_spawn_center = (0, 0)
 
-    # A6：三档同值（深拷贝各一份，防止互相串改）；v8 新值档 xhard1～5 各取定值（xhard4 保持原位置，其余追加在后）
+    # A6: the three tiers share values (one deep copy each, to prevent cross-mutation); v8 new-value tiers xhard1-5 each take fixed values (xhard4 keeps its position, the rest are appended)
     configs = {
         "easy": copy.deepcopy(_CONFIG_CURRENT),
         "medium": copy.deepcopy(_CONFIG_CURRENT),
@@ -202,12 +202,12 @@ class StopCube(BaseEnv):
                      sampling_config=None,
                      native_episode_spec=None,
                      **kwargs):
-        # 必须落在任何随机数调用与 super().__init__() 之前
+        # Must happen before any RNG call and before super().__init__()
         self._sampling = _resolve_sampling_config(type(self), sampling_config)
         self._spec = SpecRecorder(native_episode_spec, "StopCube", {"seed": seed},
                                   difficulty=kwargs.get("difficulty"))
-        # 初始化序号从 -1 起，_initialize_episode 每次进来先加一；
-        # _load_scene 里的取值点用不带序号的路径，所以这里只作兜底。
+        # Initialization index starts at -1; _initialize_episode increments it on each entry;
+        # value points in _load_scene use index-free paths, so this is only a fallback.
         self._native_init_index = -1
         self.use_demonstrationwrapper=False
         self.demonstration_record_traj=False
@@ -253,7 +253,7 @@ class StopCube(BaseEnv):
                 self.difficulty = "medium"
             else:  # seed_mod == 2
                 self.difficulty = "hard"
-        # v8（1001 方案 §2.1）：本环境接受 xhard1～xhard5 五个新值档，不再调用 require_xhard4_only
+        # v8 (1001 plan 2.1): this env accepts the five new-value tiers xhard1-xhard5 and no longer calls require_xhard4_only
 
         self.highlight_starts = {}  # Use dictionary to store highlight start time for each button
         super().__init__(*args, robot_uids=robot_uids, **kwargs)
@@ -353,8 +353,8 @@ class StopCube(BaseEnv):
             generator = torch.Generator()
             generator.manual_seed(self.seed)
             interval_cfg = self._sampling["parameters"]["interval_sample"]
-            # 这次抽样的结果原本就立刻被覆盖，保留它只为不平移随机流（红线 R8）
-            # 这次抽样的结果原本就被覆盖；记进 sampling_trace 以证明它照常发生（红线 R8）
+            # The result of this draw was always overwritten immediately; it is kept only to avoid shifting the random stream (red line R8)
+            # The result of this draw was always overwritten; recorded in sampling_trace to prove it still happens (red line R8)
             self._spec.value(
                 "actions.sampling_trace.interval_draw",
                 torch.randint(interval_cfg["low"], interval_cfg["high_exclusive"], tuple(interval_cfg["shape"]), generator=generator).item(),
@@ -363,8 +363,8 @@ class StopCube(BaseEnv):
             self.interval = interval
 
 
-            # 难度真正被消费的唯一位置：xhard 读 decision.xhard 子键，原三档读顶层原值（三档同值）。
-            # 两个分支的随机调用次数、顺序、区间形式完全相同，只是区间端点不同（红线 N5）。
+            # The only place difficulty is actually consumed: xhard reads the decision.xhard subkey, original three tiers read top-level original values (identical across tiers).
+            # Both branches have exactly the same number, order and interval form of random calls; only the interval endpoints differ (red line N5).
             xhard = is_newvalue_difficulty(self.difficulty)
             decision_cfg = self._sampling["decision"][self.difficulty] if xhard else self._sampling["decision"]
             key_prefix = f"{self.difficulty}." if xhard else ""
@@ -390,12 +390,12 @@ class StopCube(BaseEnv):
                 self.move_interval * (stop_time ),
             )
             self.stop_time=stop_time
-            # 方块往返段数：原三档在 step 里写死 5 趟（stop_time ≤ 5 恰好够用），这里只作记录不改原路径；
-            # xhard 的 stop_time 可达 15，必须按实际停止序号展开，否则第 6 次起的「经过目标」根本不存在。
-            # 第 n 次经过目标发生在第 n 段的中点 move_interval*(n-0.5)，所以段数 = max(5, stop_time) 恰好覆盖。
+            # Cube round-trip segment count: the original three tiers hardcode 5 trips in step (enough since stop_time <= 5); recorded here only, original path unchanged;
+            # xhard's stop_time can reach 15, so segments must be expanded by the actual stop index, otherwise passes over the target from the 6th onward would not exist.
+            # The n-th pass over the target occurs at the midpoint move_interval*(n-0.5) of segment n, so segments = max(5, stop_time) covers it exactly.
             self.motion_segments = max(5, int(stop_time)) if xhard else 5
             if xhard:
-                # 派生量只在 xhard 记进规格（原三档规格文档逐字不变）
+                # Derived quantities are recorded into the spec only for xhard (original three tiers' spec documents verbatim unchanged)
                 self._spec.record("actions.move_interval", int(self.move_interval))
                 self._spec.record("actions.motion_segments", int(self.motion_segments))
                 self._spec.record("actions.steps_press", float(self.steps_press))
@@ -584,8 +584,8 @@ class StopCube(BaseEnv):
         end_pos = [self.end_pos_xy[0], self.end_pos_xy[1], self.cube_half_size / 2]
 
         # Alternate between the two waypoints so the cube makes five passes
-        # （原三档逐字保持 range(5)；xhard 按 _initialize_episode 算出的实际段数展开，
-        #   segment % 2 的起终点交替规则不变）
+        # (original three tiers keep range(5) verbatim; xhard expands by the actual segment count computed in _initialize_episode,
+        #   the alternating start/end rule of segment % 2 is unchanged)
         if is_newvalue_difficulty(getattr(self, "difficulty", None)):
             segments = range(self.motion_segments)
         else:

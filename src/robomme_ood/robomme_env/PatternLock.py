@@ -27,9 +27,9 @@ from mani_skill.utils.geometry.rotation_conversions import (
 
 # NOTE: keep wildcard import for legacy helpers that the environment relies on.
 from .utils import *
-# V5 L3（仿 VideoPlaceOrder 的 K2 修法）：上一行的 `from .utils import *` 会把同名子模块
-# `utils.SceneGenerationError` 盖到名字 `SceneGenerationError` 上（import 自省核实），原三档的
-# raise / except 因此是 TypeError（按 H2 原三档保持现状）。xhard 用下面这个别名拿到真正的异常类。
+# V5 L3 (following VideoPlaceOrder's K2 fix): the `from .utils import *` line above lets the same-named submodule
+# `utils.SceneGenerationError` shadow the name `SceneGenerationError` (confirmed by import introspection), so in the original three tiers
+# raise / except become TypeError (original three tiers kept as is per H2). xhard uses the alias below to get the real exception class.
 from .utils.SceneGenerationError import SceneGenerationError as _RealSceneGenerationError
 from .utils.subgoal_evaluate_func import *
 from .utils.object_generation import *
@@ -42,14 +42,14 @@ from ..logging_utils import logger
 
 
 def _scene_gen_error(difficulty):
-    """V5 L3：按档选场景生成异常类。
+    """V5 L3: select the scene-generation exception class by tier.
 
-    xhard 返回真正的 ``SceneGenerationError``（可重试的任务性失败）；原三档原样返回本模块里
-    被遮蔽的名字 ``SceneGenerationError``（子模块，raise / except 时仍是 TypeError，行为逐字不变）。
-    用法：``raise _scene_gen_error(self.difficulty)("说明")``、``except _scene_gen_error(self.difficulty):``；
-    只在 xhard 路径上执行的代码直接用 ``_RealSceneGenerationError``。
+    xhard returns the real ``SceneGenerationError`` (retryable task failure); original three tiers return this module's
+    shadowed name ``SceneGenerationError`` as is (a submodule, so raise / except still give TypeError; behavior verbatim unchanged).
+    Usage: ``raise _scene_gen_error(self.difficulty)("message")``, ``except _scene_gen_error(self.difficulty):``;
+    code executed only on the xhard path uses ``_RealSceneGenerationError`` directly.
     """
-    # V6 口径 11：新值族（xhard1/2/3/xhard）都走真异常类，原三档不变
+    # V6 criterion 11: the new-value family (xhard1/2/3/xhard) all use the real exception class; original three tiers unchanged
     return _RealSceneGenerationError if is_newvalue_difficulty(difficulty) else SceneGenerationError
 
 
@@ -68,18 +68,18 @@ capabilities can be simulated and trained properly. Hence there is extra code fo
 """
 
 
-# ── decision／native 两块的原值（newtaskRelease-v3 步 3，映射见方案第二节 2.15）────────
+# ── Original values of the decision/native blocks (newtaskRelease-v3 step 3, mapping in plan section 2.15) ────────
 NATIVE_SAMPLING = {
     "parameters": {
         "path_selection": {
             "start_end_sampler": "torch.randperm(num_targets)[:2]",
-            "search": "允许对角线的随机 DFS（find_path_0_to_8, diagonals=True）",
+            "search": "random DFS allowing diagonals (find_path_0_to_8, diagonals=True)",
             "max_attempts": 1000,
-            "exhausted_rule": "耗尽后使用最后一次搜索到的路径，不另抽",
+            "exhausted_rule": "after exhaustion use the last path found; no extra draw",
         },
-        "path_binding": "演示与执行复用同一条路径；首个目标保留 NO RECORD",
-        "motion_template": "每个目标 solve_swingonto 两次 screw 运动并 close_gripper",
-        "recovery": "沿用入口给定的 fail recover 模式与原 generator",
+        "path_binding": "demonstration and execution reuse the same path; the first target keeps NO RECORD",
+        "motion_template": "for each target solve_swingonto does two screw motions and close_gripper",
+        "recovery": "keep the entry-provided fail recover mode and the original generator",
     },
     "positions": {
         "grid_center": [-0.1, 0],
@@ -89,17 +89,17 @@ NATIVE_SAMPLING = {
 }
 
 
-# ── V5 xhard 专属 decision（计划 2.10，L35/L36）──────────────────────────────
-# 路径搜索预算：原三档仍读 native 的 ``path_selection.max_attempts``（1000）；xhard 读这里，
-# 随 decision 一起冻进规格 header。（V6 审查 N13 注：xhard4 节点数区间为 [21,25]，不是 V5 的固定 25；
-# 「20000 次下 25 节点命中率 1.000」是 V5 规划期探针 P3 的历史数据。DFS 命中第一条落在区间内的路径即停，
-# 节点数分布贴下界——xhard4 10 候选实测 {21:6, 22:2, 23:2}，用户裁决只改注释、不改分布。）
+# ── V5 xhard-specific decision (plan 2.10, L35/L36) ──────────────────────────────
+# Path search budget: original three tiers still read native's ``path_selection.max_attempts`` (1000); xhard reads this,
+# frozen into the spec header with decision. (V6 review N13 note: xhard4 node count range is [21,25], not V5's fixed 25;
+# "25-node hit rate 1.000 at 20000 attempts" is historical data from V5 planning probe P3. DFS stops at the first path within range,
+# so the node count distribution hugs the lower bound -- xhard4 10 candidates measured {21:6, 22:2, 23:2}; user ruled to change only the comment, not the distribution.)
 XHARD_DECISION = {
     "path_search_max_attempts": 20000,
 }
 
-# V6（计划 2.11）：新值族档位表。xhard1/2/3 键结构与 xhard 完全相同；计划未给出新档的搜索预算
-# 以外的差异——预算一律沿用 xhard 的 20000，耗尽同样抛真 SceneGenerationError。
+# V6 (plan 2.11): new-value tier table. xhard1/2/3 have exactly the same key structure as xhard; the plan gives no difference for new tiers
+# other than search budget -- the budget always follows xhard's 20000, and exhaustion likewise raises a real SceneGenerationError.
 NEWVALUE_DECISION = {
     "xhard1": {"path_search_max_attempts": 20000},
     "xhard2": {"path_search_max_attempts": 20000},
@@ -109,34 +109,34 @@ NEWVALUE_DECISION = {
 
 
 def native_blocks(cls):
-    """本环境的 ``(decision, native)`` 原值块；外部导出与内部解析共用同一份。"""
+    """Original ``(decision, native)`` blocks of this env; shared by external export and internal parsing."""
     return _native_decision(cls), copy.deepcopy(NATIVE_SAMPLING)
 
 
 def _native_decision(cls):
-    """按方案第二节 2.15 切出 decision 块（原值阶段等于原值）。"""
+    """Slice the decision block per plan section 2.15 (equals the original in the original-value stage)."""
     return {
-        # 演示视频目标时长及调节时长的方式：本轮不启用（None 即由原路径与求解运动决定）。
+        # Target demonstration video duration and how to adjust it: not enabled this round (None = decided by the original path and solver motion).
         "demo_duration_seconds_range": None,
         "demonstration_duration_policy": "native",
-        # 网格边长与路径节点数范围按字段表属 native 规则，这里只记录原值供核验，不作为新参数。
+        # Grid size and path node count range are native rules per the field table; only the original values are recorded here for verification, not as new parameters.
         "grid": {difficulty: cfg["grid"] for difficulty, cfg in cls.configs.items()},
         "path_length_range": {difficulty: list(cfg["length"]) for difficulty, cfg in cls.configs.items()},
-        # V5 xhard 专属（计划 2.10）：键名为 xhard，守卫只放行这一子树取新值，原三档可见部分不变。
+        # V5 xhard-specific (plan 2.10): key named xhard; the guard only lets this subtree take new values; the part visible to the original three tiers is unchanged.
         "xhard4": copy.deepcopy(NEWVALUE_DECISION["xhard4"]),
-        # V6：追加 xhard1/2/3 三棵同结构子树（xhard 保持首位与原值不变）
-        # v8：xhard4 写字面值（不再用 NEWVALUE_DIFFICULTIES[-1] 指代最难档）
+        # V6: append three same-structure subtrees xhard1/2/3 (xhard stays first with original values)
+        # v8: xhard4 written as a literal (no longer NEWVALUE_DIFFICULTIES[-1] to denote the hardest tier)
         **{d: copy.deepcopy(NEWVALUE_DECISION[d]) for d in NEWVALUE_DIFFICULTIES if d != "xhard4"},
     }
 
 
 def _resolve_sampling_config(cls, override):
-    """拆出本实例专属的 decision／native 副本；不抽随机数，必须在 Generator 之前调用。"""
+    """Split out this instance's private decision/native copies; draws no random numbers, must be called before the Generator."""
     decision_default, native_default = native_blocks(cls)
     decision, native = split_sampling_config(override, native_default, decision_default)
     assert_native_decision(decision, decision_default, cls.__name__)
-    # V6：V5 快照（已有顶层 xhard 子树）缺 xhard1/2/3 时从源码补齐；更早的快照不补，
-    # 保持 V5「V4 及更早快照在新值档上直接报错、不静默取源码新值」的口径 13。
+    # V6: V5 snapshots (with a top-level xhard subtree) missing xhard1/2/3 are filled from source; earlier snapshots are not filled,
+    # keeping V5's criterion 13 "V4 and earlier snapshots error out directly on new-value tiers, never silently take new values from source".
     if "xhard4" in decision:
         fill_missing_newvalue(decision, decision_default)
     native["decision"] = decision
@@ -174,21 +174,21 @@ class PatternLock(BaseEnv):
         "length":[3,5]
     }
 
-    # V4 xhard（派生自 hard，B8）：布局与搜法都不动，只把节点数提到 [20,24]。
-    # V5（计划 2.10，L35/L36）曾把节点数固定为 25（5×5 不重访路径的上限）。
-    # V6（0925 计划第三节）：xhard4 节点数改为闭区间 [21,25]（xhard1/2/3 为 [9,12]/[13,16]/[17,20]），
-    # 搜索预算 20000（decision.<tier>.path_search_max_attempts）与耗尽抛真 SceneGenerationError 沿用。
-    # ⚠ DFS 命中第一条在区间内的路径即 break，实际节点数贴下界（V6 审查 N13：xhard4 10 候选 {21:6, 22:2, 23:2}）；
-    # 用户裁决只更新注释，不改采样分布。
-    # V7 定值：节点数 12/15/18/21（用户 2026-09-29 定「直接改 12/15/18/21」，定长 24 在 v6 实测里几乎搜不出）
+    # V4 xhard (derived from hard, B8): layout and search method unchanged, only node count raised to [20,24].
+    # V5 (plan 2.10, L35/L36) once fixed the node count at 25 (the maximum for a non-revisiting 5x5 path).
+    # V6 (0925 plan section 3): xhard4 node count changed to closed interval [21,25] (xhard1/2/3 are [9,12]/[13,16]/[17,20]),
+    # search budget 20000 (decision.<tier>.path_search_max_attempts) and raising a real SceneGenerationError on exhaustion are kept.
+    # WARNING: DFS breaks at the first path within the interval, so actual node counts hug the lower bound (V6 review N13: xhard4 10 candidates {21:6, 22:2, 23:2});
+    # the user ruled to update only the comment, not the sampling distribution.
+    # V7 fixed values: node counts 12/15/18/21 (user 2026-09-29 "just change to 12/15/18/21"; fixed length 24 was almost never found in v6 measurements)
     config_xhard4 = {
         "grid": 5,
         "length": [21, 21]
     }
 
-    # V6（计划 2.11）：hard 与 xhard 之间插入三档，布局、搜法、预算与耗尽抛错全部沿用 xhard，只改节点数
-    # v8（1001 方案 §1 表 1 / §2.1）：xhard1～3 由定值 12/15/18 改区间 [9,12]/[13,15]/[16,18]；
-    # 采样代码不改（拒绝采样取第一条落在区间内的路径），区间内各节点数比例不保证均匀；xhard4 仍 21（不交付）。
+    # V6 (plan 2.11): three tiers inserted between hard and xhard; layout, search method, budget and exhaustion error all follow xhard, only node count changes
+    # v8 (1001 plan 1 table 1 / 2.1): xhard1-3 change from fixed 12/15/18 to intervals [9,12]/[13,15]/[16,18];
+    # sampling code unchanged (rejection sampling takes the first path within the interval), so node counts are not guaranteed uniform within the interval; xhard4 still 21 (not delivered).
     config_xhard1 = {
         "grid": 5,
         "length": [9, 12]
@@ -218,12 +218,12 @@ class PatternLock(BaseEnv):
                      sampling_config=None,
                      native_episode_spec=None,
                      **kwargs):
-        # 必须落在任何随机数调用与 super().__init__() 之前
+        # Must happen before any RNG call and before super().__init__()
         self._sampling = _resolve_sampling_config(type(self), sampling_config)
         self._spec = SpecRecorder(native_episode_spec, "PatternLock", {"seed": seed},
                                   difficulty=kwargs.get("difficulty"))
-        # 初始化序号从 -1 起，_initialize_episode 每次进来先加一；
-        # _load_scene 里的取值点用不带序号的路径，所以这里只作兜底。
+        # Initialization index starts at -1; _initialize_episode increments it on each entry;
+        # value points in _load_scene use index-free paths, so this is only a fallback.
         self._native_init_index = -1
         self.achieved_list=[]
         self.match=False
@@ -402,12 +402,12 @@ class PatternLock(BaseEnv):
         num_targets = len(self.targets_grid)
         max_attempts = self._sampling["parameters"]["path_selection"]["max_attempts"]  # Safety limit
         if is_newvalue_difficulty(self.difficulty):
-            # V5（计划 2.10）：xhard 的搜索预算来自 decision（冻进规格 header），原三档仍用上一行的 1000
+            # V5 (plan 2.10): xhard's search budget comes from decision (frozen into the spec header); original three tiers still use the 1000 on the line above
             max_attempts = self._xhard_decision("path_search_max_attempts")
 
         self._spec.identity.setdefault("difficulty", getattr(self, "difficulty", None))
         for attempt in range(max_attempts):
-            # 每次尝试都照常抽；被接受的那一次由规格定死（失败尝试仍消费随机数）
+            # Every attempt draws as usual; the accepted one is fixed by the spec (failed attempts still consume random numbers)
             node_choices = torch.randperm(num_targets, generator=generator)[:2]
             start_node, end_node = node_choices.tolist()
             
@@ -425,21 +425,21 @@ class PatternLock(BaseEnv):
                 break
         else:
             if is_newvalue_difficulty(self.difficulty):
-                # V5（计划 2.10 / L36 / L3）：xhard 搜索耗尽不再静默沿用最后一条错长路径（K1 根因），
-                # 抛真正的 SceneGenerationError（可重试的任务性失败）；原三档仍走下一行的静默兜底。
+                # V5 (plan 2.10 / L36 / L3): when xhard search is exhausted it no longer silently reuses the last wrong-length path (K1 root cause),
+                # but raises a real SceneGenerationError (retryable task failure); original three tiers still take the silent fallback on the next line.
                 raise _RealSceneGenerationError(
-                    f"PatternLock {self.difficulty}: {max_attempts} 次搜索内没有节点数落在 "
-                    f"{decision_cfg['path_length_range'][self.difficulty]} 的路径"
+                    f"PatternLock {self.difficulty}: within {max_attempts} searches no path with node count in "
+                    f"{decision_cfg['path_length_range'][self.difficulty]} was found"
                 )
             # If we couldn't find a path < 5 after max_attempts, use the last one
             logger.debug(f"Warning: Could not find path after {max_attempts} attempts")
 
-        # 搜索循环里每次尝试都照常抽随机数；这里只冻结最终被采用的那条路径
+        # Every attempt in the search loop draws random numbers as usual; only the finally adopted path is frozen here
         path_nodes = self._spec.value("actions.path_nodes", list(path_nodes),
                                       decision_key=f"path_length_range.{self.difficulty}")
         self._spec.record("actions.path_attempts", attempt + 1)
         if is_newvalue_difficulty(self.difficulty):
-            # V5（N17 精神）：回放冻结规格时 value() 直接返回冻结值、不复核，这里复核节点数与邻接
+            # V5 (in the spirit of N17): when replaying a frozen spec value() returns the frozen value without re-checking, so node count and adjacency are re-checked here
             self._check_xhard_path(path_nodes, num_rows, num_cols,
                                    decision_cfg["path_length_range"][self.difficulty])
         self.selected_buttons = [self.buttons_grid[i] for i in path_nodes]
@@ -505,40 +505,40 @@ class PatternLock(BaseEnv):
 
 
     def _xhard_decision(self, key):
-        """V5：读 xhard 专属 decision 键（只在 xhard 路径上调用）。
+        """V5: read xhard-specific decision keys (called only on the xhard path).
 
-        缺键说明传入的 sampling_config 来自 V4 或更早的快照（没有 ``decision.xhard``）；
-        V4 已作废（口径 13），直接报错而不是回退到原三档的值。
+        A missing key means the sampling_config comes from a V4 or earlier snapshot (no ``decision.xhard``);
+        V4 is obsolete (criterion 13), so raise directly instead of falling back to the original three tiers' values.
         """
-        # V6：按本局档位取子树（新值族四档同结构）
+        # V6: fetch the subtree by this episode's tier (the four new-value tiers share structure)
         xhard_cfg = self._sampling["decision"].get(self.difficulty)
         if not isinstance(xhard_cfg, dict) or key not in xhard_cfg:
             raise ValueError(
-                f"PatternLock {self.difficulty}: sampling_config.decision 缺少 {self.difficulty}.{key}"
-                "（V4 及更早的快照在 V5 代码上不可用）"
+                f"PatternLock {self.difficulty}: sampling_config.decision is missing {self.difficulty}.{key}"
+                " (V4 and earlier snapshots are not usable with V5 code)"
             )
         return xhard_cfg[key]
 
     @staticmethod
     def _check_xhard_path(path_nodes, num_rows, num_cols, length_range):
-        """V5（N17 精神）：复核 xhard 路径——节点数在范围内、不重访、相邻两点 8 邻接。
+        """V5 (in the spirit of N17): re-check the xhard path -- node count within range, no revisits, consecutive points 8-adjacent.
 
-        导出模式下搜索循环已保证这些性质，这里等于自检；回放冻结规格时 ``SpecRecorder.value``
-        直接返回冻结值、不复核，靠这里挡住被改坏或来自旧规则的规格。违反即抛 ``EpisodeSpecError``。
+        In export mode the search loop already guarantees these, so this is a self-check; when replaying a frozen spec ``SpecRecorder.value``
+        returns the frozen value without re-checking, so this blocks specs that were corrupted or come from old rules. Raises ``EpisodeSpecError`` on violation.
         """
         nodes = [int(v) for v in path_nodes]
         low, high = int(length_range[0]), int(length_range[1])
         if not low <= len(nodes) <= high:
-            raise _EpisodeSpecError(f"PatternLock xhard: 路径节点数 {len(nodes)} 不在 [{low}, {high}]")
+            raise _EpisodeSpecError(f"PatternLock xhard: path node count {len(nodes)} not in [{low}, {high}]")
         if len(set(nodes)) != len(nodes):
-            raise _EpisodeSpecError("PatternLock xhard: 路径重访了节点")
+            raise _EpisodeSpecError("PatternLock xhard: path revisits a node")
         if any(not 0 <= v < num_rows * num_cols for v in nodes):
-            raise _EpisodeSpecError("PatternLock xhard: 路径节点越出网格")
+            raise _EpisodeSpecError("PatternLock xhard: path node outside the grid")
         for a, b in zip(nodes, nodes[1:]):
             dr = abs(a // num_cols - b // num_cols)
             dc = abs(a % num_cols - b % num_cols)
             if max(dr, dc) != 1:
-                raise _EpisodeSpecError(f"PatternLock xhard: 路径 {a} → {b} 不是 8 邻接")
+                raise _EpisodeSpecError(f"PatternLock xhard: path {a} -> {b} is not 8-adjacent")
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
         with torch.device(self.device):

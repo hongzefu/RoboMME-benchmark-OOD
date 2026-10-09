@@ -51,30 +51,30 @@ capabilities can be simulated and trained properly. Hence there is extra code fo
 """
 
 
-# ── decision／native 两块的原值（newtaskRelease-v3 步 3，映射见方案第二节 2.14）────────
+# ── Original values of the decision/native blocks (newtaskRelease-v3 step 3, mapping in plan section 2.14) ────────
 NATIVE_SAMPLING = {
     "parameters": {
         "peg_size": {
             "length_expression": "0.05 + (0.01 - 0.01) * rand()",
             "radius_expression": "0.01 + (0.005 - 0.005) * rand()",
-            "note": "两次 rand 被乘 0 消掉，仍须保留以免平移随机流（红线 R8）",
+            "note": "the two rand draws are multiplied by 0, but must be kept to avoid shifting the random stream (red line R8)",
         },
         "head_color": {"sampler": "torch.rand", "shape": [3]},
         "tail_color_rule": "1 - head",
         "target_peg": {
             "sampler": "torch.randint(0, 3)",
             "overridden_to": 0,
-            "note": "抽完立刻被 0 覆盖，保留抽样次数",
+            "note": "overwritten by 0 right after drawing; the draw count is kept",
         },
         "obj_selection": {"sampler": "torch.randint(0, 2)", "mapping": [-1, 1]},
         "direction_selection": {"sampler": "torch.randint(0, 2)", "mapping": [-1, 1]},
-        "recovery": "本环境没有 inject_fail_grasp，只接收入口恢复模式，实际恢复动作为 null",
+        "recovery": "this env has no inject_fail_grasp; it only accepts the entry recovery mode, the actual recovery action is null",
     },
     "positions": {
         "construction_peg": {
             "y_base": -0.15,
             "initial_yaw": 0,
-            "note": "构造期临时位姿；真实输入是每次初始化重新采样的位姿",
+            "note": "temporary pose at construction; the real input is the pose resampled at each initialization",
         },
         "box": {
             "base_translation": [0, 0],
@@ -96,17 +96,17 @@ NATIVE_SAMPLING = {
 }
 
 
-# ── V5 xhard：杆与孔板的桌面轮廓几何（计划 2.8 / L24～L26）──────────────────────────
-# 几何按实际建模核实（utils/object_generation.py）：
-#   * build_peg：根链接 = 杆头，位姿 p 即采样的 xy（下称 root），杆轴 u = (cos yaw, sin yaw)；
-#     杆尾链接在 root − length·u。两段视觉盒半尺寸各为 (length/2, radius)，合起来整根杆轮廓是
-#     中心 root − (length/2)·u、半尺寸 (length, radius) 的有向矩形（length=0.05, radius=0.01 时即
-#     中心 root − 0.025u、半尺寸 (0.05, 0.01)，杆身从 root − 0.075u 到 root + 0.025u）。
-#     两段碰撞盒半长 0.9·length/2，被视觉轮廓完全包住，按视觉轮廓量更保守。
-#   * build_box_with_hole：四块板局部 x 半长 = depth（这里传的是 length），局部 y 外沿 = outer_radius
-#     （= radius·outer_radius_factor）⇒ 孔板轮廓半尺寸 (length, radius·4) = (0.05, 0.04)，朝向 box_yaw。
+# ── V5 xhard: tabletop footprint geometry of peg and board (plan 2.8 / L24-L26) ──────────────────────────
+# Geometry verified against the actual model (utils/object_generation.py):
+#   * build_peg: root link = peg head, pose p is the sampled xy (below: root), peg axis u = (cos yaw, sin yaw);
+#     the tail link is at root - length*u. Both visual boxes have half size (length/2, radius); together the whole peg footprint is
+#     an oriented rectangle with center root - (length/2)*u and half size (length, radius) (for length=0.05, radius=0.01:
+#     center root - 0.025u, half size (0.05, 0.01), peg body from root - 0.075u to root + 0.025u).
+#     Both collision boxes have half length 0.9*length/2, fully enclosed by the visual footprint, so measuring the visual footprint is more conservative.
+#   * build_box_with_hole: the four plates have local x half length = depth (length is passed here), local y outer edge = outer_radius
+#     (= radius*outer_radius_factor) => board footprint half size (length, radius*4) = (0.05, 0.04), oriented at box_yaw.
 def _rect_corners(center, yaw, half):
-    """有向矩形 (中心, 朝向, 半尺寸) → 4 个顶点（逆时针），float64。"""
+    """Oriented rectangle (center, yaw, half size) -> 4 vertices (counter-clockwise), float64."""
     c = np.asarray(center, dtype=np.float64).reshape(2)
     u = np.array([np.cos(yaw), np.sin(yaw)], dtype=np.float64)
     v = np.array([-u[1], u[0]], dtype=np.float64)
@@ -123,7 +123,7 @@ def _point_segment_distance(p, a, b):
 
 
 def _rects_overlap(ca, cb):
-    """分离轴定理：两矩形（含边界接触）有公共点即返回 True。"""
+    """Separating axis theorem: returns True if the two rectangles share a point (including boundary contact)."""
     for corners in (ca, cb):
         for k in range(2):
             edge = corners[k + 1] - corners[k]
@@ -136,11 +136,11 @@ def _rects_overlap(ca, cb):
 
 
 def footprint_gap(rect_a, rect_b):
-    """两个有向矩形轮廓的精确最小距离（米）。
+    """Exact minimum distance (meters) between two oriented rectangle footprints.
 
-    ``rect = (center_xy, yaw, half_xy)``。SAT 判为相交（含接触）时返回 0；否则两矩形不相交，
-    最小距离必在某个顶点到对方某条边之间取到，取 4×4×2 = 32 个「顶点到边」距离的最小值。
-    ⚠ 调用方的判据必须用严格不等号（``gap > g``）：相交时恒为 0，写成 ``≥ 0`` 等于没有约束。
+    ``rect = (center_xy, yaw, half_xy)``. Returns 0 when SAT finds intersection (including contact); otherwise the rectangles are disjoint,
+    and the minimum distance is attained between some vertex and some edge of the other, so take the minimum of 4x4x2 = 32 vertex-to-edge distances.
+    WARNING: callers must use a strict inequality (``gap > g``): intersections always give 0, so writing ``>= 0`` imposes no constraint.
     """
     ca = _rect_corners(*rect_a)
     cb = _rect_corners(*rect_b)
@@ -155,49 +155,49 @@ def footprint_gap(rect_a, rect_b):
 
 
 def peg_footprint(root_xy, yaw, length, radius):
-    """整根杆的桌面轮廓：中心 root − (length/2)·u，半尺寸 (length, radius)。"""
+    """Tabletop footprint of the whole peg: center root - (length/2)*u, half size (length, radius)."""
     root = np.asarray(root_xy, dtype=np.float64).reshape(2)
     u = np.array([np.cos(yaw), np.sin(yaw)], dtype=np.float64)
     return (root - 0.5 * float(length) * u, float(yaw), (float(length), float(radius)))
 
 
 def box_footprint(box_xy, box_yaw, depth, outer_radius):
-    """孔板的桌面轮廓：中心 box_xy，半尺寸 (depth, outer_radius)，朝向 box_yaw。"""
+    """Tabletop footprint of the board: center box_xy, half size (depth, outer_radius), oriented at box_yaw."""
     return (np.asarray(box_xy, dtype=np.float64).reshape(2), float(box_yaw), (float(depth), float(outer_radius)))
 
 
 def native_blocks(cls):
-    """本环境的 ``(decision, native)`` 原值块；外部导出与内部解析共用同一份。"""
+    """Original ``(decision, native)`` blocks of this env; shared by external export and internal parsing."""
     return _native_decision(cls), copy.deepcopy(NATIVE_SAMPLING)
 
 
 def _native_decision(cls):
-    """按方案第二节 2.14 切出 decision 块（原值阶段等于原值）。
+    """Slice the decision block per plan section 2.14 (equals the original in the original-value stage).
 
-    V4（计划 2.18）：xhard 新值整体挂在顶层 ``xhard`` 子键下（守卫只放行这些键偏离），
-    默认值取自 ``cls.configs["xhard4"]``；原三档可见的四个键与 V3 逐字相同。
-    V5（计划 2.8）：``xhard`` 子键去掉 ``near_target_distractor``，新增 ``peg_min_pair_gap_m`` /
-    ``peg_box_min_gap_m`` / ``peg_x_max_m``；顶层原三档可见部分不动。
+    V4 (plan 2.18): xhard new values all hang under the top-level ``xhard`` subkey (the guard only lets these keys deviate),
+    defaults taken from ``cls.configs["xhard4"]``; the four keys visible to the original three tiers are verbatim identical to V3.
+    V5 (plan 2.8): the ``xhard`` subkey drops ``near_target_distractor`` and adds ``peg_min_pair_gap_m`` /
+    ``peg_box_min_gap_m`` / ``peg_x_max_m``; the top-level part visible to the original three tiers is unchanged.
     """
     return {
-        # 场上杆的总数：原值 3 根（offsets 决定构造期的排布）。
+        # Total pegs on the table: original value 3 (offsets decide the construction-time layout).
         "peg_count": 3,
         "peg_offsets": [0.1, 0, -0.1],
-        # 新增干扰杆相对目标杆的距离与方位约束：本轮不启用。
+        # Distance and bearing constraints of new distractor pegs relative to the target peg: not enabled this round.
         "near_target_distractor": None,
-        # 杆在桌面内的转角范围：原值 ±45°（表达式 (u*2-1)*radians(45)）。
+        # Peg rotation range on the table: original value +-45 deg (expression (u*2-1)*radians(45)).
         "peg_yaw_range": {"half_span_deg": 45},
-        # xhard：4 根杆、±180°（V4 A1/B11）；V5 四根同一采样器 + 轮廓间隔（计划 2.8）
+        # xhard: 4 pegs, +-180 deg (V4 A1/B11); V5 all four from the same sampler + footprint gaps (plan 2.8)
         "xhard4": copy.deepcopy(cls.configs["xhard4"]),
     }
 
 
 def _resolve_sampling_config(cls, override):
-    """拆出本实例专属的 decision／native 副本；不抽随机数，必须在 Generator 之前调用。"""
+    """Split out this instance's private decision/native copies; draws no random numbers, must be called before the Generator."""
     decision_default, native_default = native_blocks(cls)
     decision, native = split_sampling_config(override, native_default, decision_default)
     assert_native_decision(decision, decision_default, cls.__name__)
-    # V6：旧快照缺的新值档子树从源码申报补齐（本环境不加档，只可能补 xhard）；原三档不读这些键
+    # V6: missing new-value tier subtrees in old snapshots are filled from source declarations (this env adds no tiers, only xhard may be filled); original three tiers do not read these keys
     fill_missing_newvalue(decision, decision_default)
     native["decision"] = decision
     return native
@@ -220,8 +220,8 @@ class InsertPeg(BaseEnv):
     cube_spawn_center = (0, 0)
     _clearance = 0.01
 
-    # V4（A4/A6）：本环境原本没有难度分档，现有全局常量即 hard；三档同值，
-    # difficulty 只在 xhard 生效。消费点读 decision（可被 sampling_config 覆盖），这里是默认值来源。
+    # V4 (A4/A6): this env originally had no difficulty tiers; the existing global constants are hard; the three tiers share values,
+    # difficulty only takes effect for xhard. Consumers read decision (overridable by sampling_config); this is the source of defaults.
     config_native = {
         "peg_count": 3,
         "peg_offsets": [0.1, 0, -0.1],
@@ -229,17 +229,17 @@ class InsertPeg(BaseEnv):
         "peg_yaw_range": {"half_span_deg": 45},
     }
     config_xhard4 = {
-        # peg_offsets 的长度决定杆数（构造期临时排布，第 4 根放在 y_base+0.2 处，随后被重采样覆盖）；
-        # peg_count 同步为 4：会改变 _load_scene 里那次 randint 的取值域（结果仍被 overridden_to=0 覆盖）
+        # The length of peg_offsets decides the peg count (temporary construction layout; the 4th peg goes at y_base+0.2 and is then overwritten by resampling);
+        # peg_count synced to 4: changes the value range of that randint in _load_scene (result still overwritten by overridden_to=0)
         "peg_count": 4,
         "peg_offsets": [0.1, 0, -0.1, -0.2],
         "peg_yaw_range": {"half_span_deg": 180},
-        # V5（计划 2.8）：删除 V4 的 near_target_distractor（L28）；4 根杆由 _xhard_sample_pegs 一个循环抽，
-        # 原生两条杆根判据（离孔板中心 > radius*6、杆根两两 > length*1.5）保留，另加两条轮廓间隔：
-        # 任意两杆轮廓 > peg_min_pair_gap_m（L24，严格不等号），杆轮廓与孔板轮廓 > peg_box_min_gap_m（L26）。
+        # V5 (plan 2.8): remove V4's near_target_distractor (L28); all 4 pegs are drawn in one loop by _xhard_sample_pegs,
+        # the two native peg-root criteria (distance to board center > radius*6, peg roots pairwise > length*1.5) are kept, plus two footprint gaps:
+        # any two peg footprints > peg_min_pair_gap_m (L24, strict inequality), peg footprint to board footprint > peg_box_min_gap_m (L26).
         "peg_min_pair_gap_m": 0.03,
         "peg_box_min_gap_m": 0.01,
-        # L52：杆区 x 上界由原生的 x_offset + x_span = 0.2 收到 0.1（下界 −0.2 与 y 范围不动）
+        # L52: peg region x upper bound shrinks from native x_offset + x_span = 0.2 to 0.1 (lower bound -0.2 and y range unchanged)
         "peg_x_max_m": 0.1,
     }
     configs = {
@@ -253,12 +253,12 @@ class InsertPeg(BaseEnv):
                      sampling_config=None,
                      native_episode_spec=None,
                      **kwargs):
-        # 必须落在任何随机数调用与 super().__init__() 之前
+        # Must happen before any RNG call and before super().__init__()
         self._sampling = _resolve_sampling_config(type(self), sampling_config)
         self._spec = SpecRecorder(native_episode_spec, "InsertPeg", {"seed": seed},
                                   difficulty=kwargs.get("difficulty"))
-        # 初始化序号从 -1 起，_initialize_episode 每次进来先加一；
-        # _load_scene 里的取值点用不带序号的路径，所以这里只作兜底。
+        # Initialization index starts at -1; _initialize_episode increments it on each entry;
+        # value points in _load_scene use index-free paths, so this is only a fallback.
         self._native_init_index = -1
         self.use_demonstrationwrapper=False
         self.demonstration_record_traj=False
@@ -304,10 +304,10 @@ class InsertPeg(BaseEnv):
                 self.difficulty = "medium"
             else:
                 self.difficulty = "hard"
-        # V6（计划 2.13 / M2）：本环境原版无梯度、不加档，传入 xhard1/2/3 明确报错
+        # V6 (plan 2.13 / M2): this env has no gradient in the original and adds no tiers; passing xhard1/2/3 raises an explicit error
         require_xhard4_only(self.difficulty, "InsertPeg")
         if is_newvalue_difficulty(self.difficulty):
-            # V4 B11：抓杆按等价朝向归约，并同步补偿 insert_peg 的局部平移；原三档不设此属性
+            # V4 B11: peg grasp reduced to an equivalent orientation, with insert_peg's local translation compensated accordingly; original three tiers do not set this attribute
             self._xhard_peg_yaw_reduction = True
 
         self.restore_flag=False
@@ -358,7 +358,7 @@ class InsertPeg(BaseEnv):
 
         decision_cfg = self._sampling["decision"]
         if is_newvalue_difficulty(self.difficulty):
-            # V4：xhard 的 peg_count / peg_offsets / peg_yaw_range 全部改读 xhard 子键（V5 起另有两条间隔与 x 上界，只在 _xhard_sample_pegs 里读）
+            # V4: xhard's peg_count / peg_offsets / peg_yaw_range all read the xhard subkey (since V5 there are also two gaps and an x upper bound, read only in _xhard_sample_pegs)
             decision_cfg = decision_cfg[self.difficulty]
         native_pos = self._sampling["positions"]
         offsets = list(decision_cfg["peg_offsets"])  # X-axis differences for the 3 pegs
@@ -400,7 +400,7 @@ class InsertPeg(BaseEnv):
 
         # Randomly select one peg from the 3 pegs
         target_cfg = self._sampling["parameters"]["target_peg"]
-        # 这次抽样的结果原本就被 0 覆盖；记进 sampling_trace 以证明它照常发生（红线 R8）
+        # The result of this draw was always overwritten by 0; recorded in sampling_trace to prove it still happens (red line R8)
         random_peg_idx = self._spec.value(
             "objects.sampling_trace.random_peg_idx",
             int(torch.randint(0, decision_cfg["peg_count"], (1,), generator=self._hb_generator).item()),
@@ -421,7 +421,7 @@ class InsertPeg(BaseEnv):
    
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
-        # 每次初始化各自记一份规格，不复用上一次的结果
+        # Each initialization records its own spec, never reusing the previous result
         self._native_init_index = getattr(self, "_native_init_index", -1) + 1
         with torch.device(self.device):
             self.end_steps=None
@@ -459,8 +459,8 @@ class InsertPeg(BaseEnv):
             if xhard:
                 xhard_cfg = self._sampling["decision"][self.difficulty]
                 yaw_half_span_deg = xhard_cfg["peg_yaw_range"]["half_span_deg"]
-                # V5（计划 2.8 / L27a）：4 根杆全部交给 _xhard_sample_pegs 一个循环抽（紧接在下面这个原生
-                # 循环之后、obj/dir 之前），原生循环在 xhard 下一根都不跑；循环体逐字保留不动。
+                # V5 (plan 2.8 / L27a): all 4 pegs are handed to one loop in _xhard_sample_pegs (right after the native
+                # loop below and before obj/dir); under xhard the native loop runs zero pegs; the loop body is kept verbatim.
                 uniform_pegs = []
                 yaw_dk = f"{self.difficulty}.peg_yaw_range"
             else:
@@ -487,14 +487,14 @@ class InsertPeg(BaseEnv):
 
                 if candidate_xy is None:
                     if xhard:
-                        # 2.2④：xhard 放不下即判该局失败（任务性失败，可换 seed），不静默截断
+                        # 2.2-4: under xhard, failing to place fails the episode (task failure, seed can be changed); no silent truncation
                         raise SceneGenerationError(
-                            f"InsertPeg xhard：peg_{i} 在 {max_sampling_attempts} 次内找不到满足判据的位置")
+                            f"InsertPeg xhard: peg_{i} found no position satisfying the criteria within {max_sampling_attempts} attempts")
                     raise RuntimeError("Failed to sample peg positions satisfying placement constraints.")
 
                 yaw_value = (torch.rand(1, generator=self._hb_generator).item() * 2 - 1) * np.radians(yaw_half_span_deg)
 
-                # 拒绝采样的失败尝试照常发生；这里冻结被接受的位姿
+                # Failed rejection-sampling attempts happen as usual; the accepted pose is frozen here
                 candidate_xy_list, yaw_value = self._spec.value(
                     f"initializations.{self._native_init_index}.pegs.{i}",
                     [[float(candidate_xy[0]), float(candidate_xy[1])], yaw_value],
@@ -538,12 +538,12 @@ class InsertPeg(BaseEnv):
                 f"initializations.{self._native_init_index}.dir_sample",
                 int(torch.randint(0, 2, (1,), generator=self._hb_generator).item()),
             )
-            # 两个采样值现在是规格里的整数（原为张量），映射语义不变
+            # Both sampled values are now integers from the spec (originally tensors); mapping semantics unchanged
             self.obj_flag = -1 if obj_sample == 0 else 1
             self.direction = -1 if dir_sample == 0 else 1
 
             if xhard:
-                # V5：V4 的「第 4 根杆贴近目标杆」已删除（L28），这里只重置抓取翻转记录（B11）
+                # V5: V4's "4th peg near the target peg" was removed (L28); only the grasp flip record is reset here (B11)
                 self._peg_grasp_flipped = False
                 self._peg_grasp_flip_log = []
             
@@ -594,8 +594,8 @@ class InsertPeg(BaseEnv):
             tail_x = float(self.peg_tail.pose.p.tolist()[0][0])
             logger.debug(f"agent_x: {agent_x}, head_x: {head_x}, tail_x: {tail_x}")
             if xhard:
-                # V6 审查修复 D6（用户 K10「d6修」）：near/far 按机器人基座到杆两端的 XY 欧氏距离判定，
-                # 不再只比 x 轴（审查 xhard4 ep5 第二布局：x 轴判头近、欧氏距离头 0.61363 m > 尾 0.63401 m 反向）；原三档不动
+                # V6 review fix D6 (user K10 "fix d6"): near/far decided by XY Euclidean distance from the robot base to both peg ends,
+                # no longer comparing x only (review xhard4 ep5 second layout: x axis says head is near, but Euclidean head 0.61363 m > tail 0.63401 m reversed); original three tiers untouched
                 base_xy = np.asarray(self.agent.robot.pose.p.tolist()[0][:2], dtype=np.float64)
                 head_xy = np.asarray(self.peg_head.pose.p.tolist()[0][:2], dtype=np.float64)
                 tail_xy = np.asarray(self.peg_tail.pose.p.tolist()[0][:2], dtype=np.float64)
@@ -686,24 +686,24 @@ class InsertPeg(BaseEnv):
             self.task_list = tasks
 
     def _xhard_sample_pegs(self, box_xy, box_yaw, xhard_cfg):
-        """V5 xhard（计划 2.8 / L24～L29 / L52）：4 根杆一个循环、同一套规则抽位姿。
+        """V5 xhard (plan 2.8 / L24-L29 / L52): 4 pegs in one loop, poses drawn with the same rules.
 
-        每根杆最多 ``max_attempts``（512）次尝试，每次：
-          1. 按原生取法抽 x、y 各一次 rand（x 上界收到 ``peg_x_max_m``，L52；y 与原生相同）；
-          2. 原生两条杆根判据（离孔板中心 ≤ radius*6 或离任一已放杆根 ≤ length*1.5 → 重抽，L25 保留）；
-          3. 通过后才抽 yaw（lazy，±half_span_deg）；
-          4. 杆轮廓与孔板轮廓 ``footprint_gap ≤ peg_box_min_gap_m`` → 重抽（L26）；
-          5. 与任一已放杆 ``footprint_gap ≤ peg_min_pair_gap_m`` → 重抽（L24，严格不等号）。
-        耗尽即抛 ``SceneGenerationError``（任务性失败，可换 seed）。只在被接受的那次调用 ``_spec.value``，
-        尝试次数与实测最小间隔用 ``record`` 留痕（N18）；回放冻结规格时对冻结值复核两种间隔，
-        不合格抛 ``EpisodeSpecError``（N17 / L29）。目标恒为 peg_0（只是第一个被抽的）。
+        Each peg gets at most ``max_attempts`` (512) attempts; each attempt:
+          1. draw one rand each for x and y the native way (x upper bound shrunk to ``peg_x_max_m``, L52; y same as native);
+          2. the two native peg-root criteria (distance to board center <= radius*6 or to any placed peg root <= length*1.5 -> redraw, L25 kept);
+          3. only after passing, draw yaw (lazy, +-half_span_deg);
+          4. peg footprint to board footprint ``footprint_gap <= peg_box_min_gap_m`` -> redraw (L26);
+          5. to any placed peg ``footprint_gap <= peg_min_pair_gap_m`` -> redraw (L24, strict inequality).
+        On exhaustion raise ``SceneGenerationError`` (task failure, seed can be changed). ``_spec.value`` is called only for the accepted attempt;
+        attempt count and measured minimum gaps are traced via ``record`` (N18); when replaying a frozen spec both gaps are re-checked on the frozen values,
+        raising ``EpisodeSpecError`` on violation (N17 / L29). The target is always peg_0 (just the first one drawn).
         """
         peg_sampling = self._sampling["positions"]["peg_sampling"]
         max_attempts = peg_sampling["max_attempts"]
         x_lo = peg_sampling["x_offset"]
         x_span = float(xhard_cfg["peg_x_max_m"]) - x_lo
         if not x_span > 0:
-            raise SamplingConfigError(f"InsertPeg xhard：peg_x_max_m 必须大于 x 下界 {x_lo}")
+            raise SamplingConfigError(f"InsertPeg xhard: peg_x_max_m must be greater than the x lower bound {x_lo}")
         yaw_half = np.radians(xhard_cfg["peg_yaw_range"]["half_span_deg"])
         pair_gap = float(xhard_cfg["peg_min_pair_gap_m"])
         box_gap = float(xhard_cfg["peg_box_min_gap_m"])
@@ -737,10 +737,10 @@ class InsertPeg(BaseEnv):
                 break
             if accepted is None:
                 raise SceneGenerationError(
-                    f"InsertPeg xhard：peg_{i} 在 {max_attempts} 次内找不到满足判据（杆根 + 轮廓间隔）的位置")
+                    f"InsertPeg xhard: peg_{i} found no position satisfying the criteria (peg root + footprint gaps) within {max_attempts} attempts")
             attempts_log.append(attempts)
             candidate_xy, yaw_value = accepted
-            # 拒绝采样的失败尝试照常发生；这里冻结被接受的位姿
+            # Failed rejection-sampling attempts happen as usual; the accepted pose is frozen here
             candidate_xy_list, yaw_value = self._spec.value(
                 f"{prefix}.pegs.{i}",
                 [[float(candidate_xy[0]), float(candidate_xy[1])], yaw_value],
@@ -748,16 +748,16 @@ class InsertPeg(BaseEnv):
             )
             candidate_xy = np.array(candidate_xy_list, dtype=np.float32)
             fp = peg_footprint(candidate_xy, yaw_value, self.length, self.radius)
-            # N17：回放时这里是冻结值，必须重查两种间隔（导出时恒成立，复查不抽随机数）
+            # N17: on replay these are frozen values, so both gaps must be re-checked (always holds on export; the re-check draws no random numbers)
             gap_box = footprint_gap(fp, box_fp)
             if not gap_box > box_gap:
                 raise EpisodeSpecError(
-                    f"InsertPeg xhard：peg_{i} 与孔板轮廓间隔 {gap_box:.4f} m 不大于 {box_gap} m（冻结规格违反 V5 规则）")
+                    f"InsertPeg xhard: peg_{i} to board footprint gap {gap_box:.4f} m is not greater than {box_gap} m (frozen spec violates V5 rule)")
             for j, prev_fp in enumerate(placed_fp):
                 gap_pair = footprint_gap(fp, prev_fp)
                 if not gap_pair > pair_gap:
                     raise EpisodeSpecError(
-                        f"InsertPeg xhard：peg_{i} 与 peg_{j} 轮廓间隔 {gap_pair:.4f} m 不大于 {pair_gap} m（冻结规格违反 V5 规则）")
+                        f"InsertPeg xhard: peg_{i} to peg_{j} footprint gap {gap_pair:.4f} m is not greater than {pair_gap} m (frozen spec violates V5 rule)")
             yaw_angles = torch.tensor([[0.0, 0.0, yaw_value]], dtype=torch.float32)
             yaw_quat = matrix_to_quaternion(euler_angles_to_matrix(yaw_angles, convention="XYZ"))[0].detach().cpu().numpy().tolist()
             peg.set_pose(sapien.Pose(p=[float(candidate_xy[0]), float(candidate_xy[1]), 0.0], q=yaw_quat))

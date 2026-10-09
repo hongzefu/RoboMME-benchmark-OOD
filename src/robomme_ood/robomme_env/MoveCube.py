@@ -51,21 +51,21 @@ capabilities can be simulated and trained properly. Hence there is extra code fo
 """
 
 
-# ── decision／native 两块的原值（newtaskRelease-v3 步 3，映射见方案第二节 2.13）────────
+# ── Original values of the decision/native blocks (newtaskRelease-v3 step 3, mapping in plan section 2.13) ────────
 NATIVE_SAMPLING = {
     "parameters": {
         "peg_size": {
             "length_expression": "0.1 + (0.05 - 0.05) * rand()",
             "radius_expression": "0.01 + (0.005 - 0.005) * rand()",
-            "note": "两次 rand 结果被乘 0 消掉，但必须保留以免平移随机流（红线 R8）",
+            "note": "the two rand results are multiplied by 0, but must be kept to avoid shifting the random stream (red line R8)",
         },
         "way_selection": {"sampler": "torch.randint(len(self.ways))"},
         "obj_selection": {"sampler": "torch.randint(0, 2)", "mapping": [-1, 1]},
         "dir_sample": {"sampler": "torch.randint(0, 2)", "consumed": False,
-                        "note": "抽了但未使用，保留为 sampling_trace"},
-        "direction_rule": "evaluate 按两套布局的实际 y 差给 ±1，不再随机抽",
-        "reset_rule": "step 切换到已生成的执行位姿",
-        "recovery": "本环境没有 inject_fail_grasp，只接收入口恢复模式，实际恢复动作为 null",
+                        "note": "drawn but unused, kept as sampling_trace"},
+        "direction_rule": "evaluate gives +-1 by the actual y difference of the two layouts, no longer drawn randomly",
+        "reset_rule": "step switches to the already generated execution pose",
+        "recovery": "this env has no inject_fail_grasp; it only accepts the entry recovery mode, the actual recovery action is null",
     },
     "positions": {
         "goal_demo": {"region_center": [0.0, 0.0], "region_half_size": 0.15,
@@ -79,46 +79,46 @@ NATIVE_SAMPLING = {
 
 
 def native_blocks(cls):
-    """本环境的 ``(decision, native)`` 原值块；外部导出与内部解析共用同一份。"""
+    """Original ``(decision, native)`` blocks of this env; shared by external export and internal parsing."""
     return _native_decision(cls), copy.deepcopy(NATIVE_SAMPLING)
 
 
 def _native_decision(cls):
-    """按方案第二节 2.13 切出 decision 块（原值阶段等于原值）。
+    """Slice the decision block per plan section 2.13 (equals the original in the original-value stage).
 
-    V4（计划 2.17）：原 xhard 档的新值一律挂在名为 ``xhard4`` 的子键下（守卫只放行这些键偏离），
-    默认值取自 ``cls.configs["xhard4"]``；原三档可见部分与 V3 逐字相同。
+    V4 (plan 2.17): new values of the original xhard tier all hang under the subkey named ``xhard4`` (the guard only lets these keys deviate),
+    defaults taken from ``cls.configs["xhard4"]``; the part visible to the original three tiers is verbatim identical to V3.
 
-    V5（计划 2.9，L30/L33）：V4 的 ``corner_bias`` 已删除。
-    V6（计划 2.6）：V5 的 ``center_exclusion`` 已删除，演示段与执行段各自暴露一份 ``region``
-    （统一区域 U，两段各自声明、各自消费）。
+    V5 (plan 2.9, L30/L33): V4's ``corner_bias`` was removed.
+    V6 (plan 2.6): V5's ``center_exclusion`` was removed; the demonstration and execution segments each expose a ``region``
+    (unified region U, declared and consumed separately by each segment).
     """
     xhard4 = cls.configs["xhard4"]
     return {
-        # 演示阶段的方块与杆位置采样规则（原值：杆基位 y=±0.2、xy 各抖动 ±0.05；
-        # 方块候选中心 xy 各 ±0.1，再在 half_size 0.05 的小区里生成）。
+        # Cube and peg position sampling rules of the demonstration stage (original: peg base y=+-0.2, xy jitter +-0.05 each;
+        # cube candidate center xy +-0.1 each, then spawned within a small region of half_size 0.05).
         "demo_layout": {
             "peg_position_policy": {"base_y_abs": 0.2, "base_y_threshold": 0.5, "jitter_span": 0.1},
             "cube_position_policy": {"center_span": 0.2, "center_offset": -0.1, "region_half_size": 0.05},
-            # V6 xhard4：统一区域 U（计划 2.6；两段各自声明、各自消费，取值相同）
+            # V6 xhard4: unified region U (plan 2.6; declared and consumed separately by each segment, same values)
             "xhard4": {"region": copy.deepcopy(xhard4["region"])},
         },
-        # 执行阶段另抽一套，原规则与演示相同但必须分开，不能误合并。
+        # The execution stage draws another set; same rules as the demonstration but must stay separate, never merged by mistake.
         "execution_layout": {
             "peg_position_policy": {"base_y_abs": 0.2, "base_y_threshold": 0.5, "jitter_span": 0.1},
             "cube_position_policy": {"center_span": 0.2, "center_offset": -0.1, "region_half_size": 0.05},
-            # V6 xhard4：执行段的统一区域 U，与演示段各自声明、各自消费（两套不可合并）
+            # V6 xhard4: unified region U of the execution segment, declared and consumed separately from the demonstration segment (the two sets must not merge)
             "xhard4": {"region": copy.deepcopy(xhard4["region"])},
         },
-        # 杆在桌面内的转角范围：原值 ±π/4（表达式为 u*span - offset）。
-        # V4 xhard4：±π（A1，仍只绕世界 z；joint7 冲突按等价朝向归约，见 B11）。
+        # Peg rotation range on the table: original value +-pi/4 (expression u*span - offset).
+        # V4 xhard4: +-pi (A1, still only about world z; joint7 conflicts reduced to an equivalent orientation, see B11).
         "peg_yaw_range": {"span_rad": np.pi / 2, "offset_rad": np.pi / 4,
                           "xhard4": dict(xhard4["peg_yaw_range"])},
     }
 
 
 def _resolve_sampling_config(cls, override):
-    """拆出本实例专属的 decision／native 副本；不抽随机数，必须在 Generator 之前调用。"""
+    """Split out this instance's private decision/native copies; draws no random numbers, must be called before the Generator."""
     decision_default, native_default = native_blocks(cls)
     decision, native = split_sampling_config(override, native_default, decision_default)
     assert_native_decision(decision, decision_default, cls.__name__)
@@ -126,30 +126,30 @@ def _resolve_sampling_config(cls, override):
     return native
 
 
-# ── V6 xhard4 统一区域 U（计划 2.6）：纯数值判据，不抽随机数，只在 xhard4 分支被调用 ──────────
-# 机械臂基座的桌面 xy（与 ``MoveCube._load_agent`` 的 ``sapien.Pose(p=[-0.615, 0, 0])`` 同值）
+# ── V6 xhard4 unified region U (plan 2.6): purely numeric criteria, draws no random numbers, called only in the xhard4 branch ──────────
+# Tabletop xy of the arm base (same value as ``sapien.Pose(p=[-0.615, 0, 0])`` in ``MoveCube._load_agent``)
 ROBOT_BASE_XY = (-0.615, 0.0)
-# 推起点几何（``solve_push_to_target`` / ``solve_push_to_target_with_peg``）：方块沿推方向后退 0.10 起推，
-# 带杆推时再沿法向侧移 0.10；U 的成对约束要求这三个推起点离基座也落在 ``base_dist`` 区间内
+# Push start geometry (``solve_push_to_target`` / ``solve_push_to_target_with_peg``): the cube backs off 0.10 along the push direction to start,
+# and with a peg also shifts 0.10 along the normal; U's pairwise constraint requires these three push starts to also lie within ``base_dist`` from the base
 PUSH_BACKOFF_M = 0.10
 PEG_PUSH_LATERAL_M = 0.10
 
 
 def _peg_axis_extent(length):
-    """杆轴线段在杆根坐标系里沿杆朝向 u 的区间 ``(t_min, t_max)``（米）。
+    """Interval ``(t_min, t_max)`` (meters) of the peg axis segment along peg direction u in the peg-root frame.
 
-    由 ``utils/object_generation.py::build_peg`` 的几何推出：head link 以杆根为中心，tail link
-    经固定关节挂在 ``−length·u``；两段的碰撞盒半长 ``0.45·length``、可视盒半长 ``0.5·length``。
-    取碰撞与可视外形的并集（即可视外形），``length=0.1`` 时为 ``(−0.15, +0.05)``，与 P2 实测一致。
-    xhard4 每次建杆后由 ``MoveCube._xhard4_verify_peg_extent`` 用实际形状复核，二者不符即报错。
+    Derived from the geometry of ``utils/object_generation.py::build_peg``: the head link is centered at the peg root, the tail link
+    hangs at ``-length*u`` via a fixed joint; both collision boxes have half length ``0.45*length``, visual boxes ``0.5*length``.
+    Take the union of collision and visual shapes (i.e. the visual shape); for ``length=0.1`` it is ``(-0.15, +0.05)``, matching P2 measurements.
+    For xhard4, ``MoveCube._xhard4_verify_peg_extent`` re-checks against the actual shape after each peg is built and raises on mismatch.
     """
-    head_half = 0.5 * float(length)          # 可视盒半长（碰撞盒 0.45·length 被它包住）
-    tail_center = -float(length)             # tail 固定关节的 pose_in_parent
+    head_half = 0.5 * float(length)          # Visual box half length (encloses the 0.45*length collision box)
+    tail_center = -float(length)             # pose_in_parent of the tail fixed joint
     return (tail_center - head_half, head_half)
 
 
 def _peg_root_xy(base_y, x_jitter, y_jitter):
-    """与 ``_load_scene`` 建杆时的 float32 平移逐位同算法，得到杆根 xy（float64）。"""
+    """Bit-identical algorithm to the float32 translation used when ``_load_scene`` builds the peg; returns the peg root xy (float64)."""
     translation = np.array([0.0, base_y, 0.0], dtype=np.float32)
     translation[1] = base_y
     translation[:2] += np.array([x_jitter, y_jitter], dtype=np.float32)
@@ -157,10 +157,10 @@ def _peg_root_xy(base_y, x_jitter, y_jitter):
 
 
 def _peg_geometry(root, yaw, length, extent):
-    """杆根 ``root``、朝向 ``yaw`` → ``(抓取点 xy, 杆身线段端点 a, b)``（float64）。
+    """Peg root ``root``, yaw ``yaw`` -> ``(grasp point xy, peg body segment endpoints a, b)`` (float64).
 
-    抓取点 = tail link 中心 = ``root − length·u``（``evaluate`` 里 ``grasp_target = peg_tail``，
-    ``grasp_and_lift_peg_side`` 抓的就是它）；杆身线段 = ``root + t·u``，``t ∈ extent``。
+    Grasp point = tail link center = ``root - length*u`` (``grasp_target = peg_tail`` in ``evaluate``,
+    which is what ``grasp_and_lift_peg_side`` grasps); peg body segment = ``root + t*u``, ``t in extent``.
     """
     u = np.array([np.cos(float(yaw)), np.sin(float(yaw))], dtype=np.float64)
     root = np.asarray(root, dtype=np.float64)
@@ -168,35 +168,35 @@ def _peg_geometry(root, yaw, length, extent):
 
 
 def _in_region_u(xy, region):
-    """点（物体中心／抓取点）是否在统一区域 U 内：圆环 ∧ 离基座区间。违反返回说明文字，否则 None。"""
+    """Whether a point (object center / grasp point) is inside unified region U: annulus AND base-distance interval. Returns a description on violation, else None."""
     xy = np.asarray(xy, dtype=np.float64)
     rc = float(np.linalg.norm(xy - region["center"]))
     if not (region["r_in"] <= rc <= region["r_out"]):
-        return f"离圆环圆心 {rc:.6f} 不在 [{region['r_in']}, {region['r_out']}]"
+        return f"distance to annulus center {rc:.6f} not in [{region['r_in']}, {region['r_out']}]"
     rb = float(np.linalg.norm(xy - np.asarray(ROBOT_BASE_XY, dtype=np.float64)))
     if not (region["base_lo"] <= rb <= region["base_hi"]):
-        return f"离基座 {rb:.6f} 不在 [{region['base_lo']}, {region['base_hi']}]"
+        return f"distance to base {rb:.6f} not in [{region['base_lo']}, {region['base_hi']}]"
     return None
 
 
 def _peg_region_violation(root, yaw, length, extent, region):
-    """杆规则：抓取点在 U 内，且杆身线段离圆环圆心 ≥ r_in（杆整体不进圆环内孔）。违反返回说明文字。"""
+    """Peg rule: grasp point inside U, and the peg body segment at distance >= r_in from the annulus center (the peg never enters the inner hole). Returns a description on violation."""
     grasp, a, b = _peg_geometry(root, yaw, length, extent)
     why = _in_region_u(grasp, region)
     if why is not None:
-        return f"抓取点{why}"
+        return f"grasp point {why}"
     d = point_segment_distance_xy(region["center"], a, b)
     if d < region["r_in"]:
-        return f"杆身线段离圆环圆心 {d:.6f} < r_in {region['r_in']}"
+        return f"peg body segment distance to annulus center {d:.6f} < r_in {region['r_in']}"
     return None
 
 
 def _assert_peg_in_region(root, yaw, length, extent, region, spec_prefix):
-    """N17：回放冻结规格时杆位姿不经拒绝循环，按同一规则复核，违反抛 ``EpisodeSpecError``。"""
+    """N17: when replaying a frozen spec the peg pose skips the rejection loop; re-check by the same rule and raise ``EpisodeSpecError`` on violation."""
     why = _peg_region_violation(root, yaw, length, extent, region)
     if why is not None:
         raise EpisodeSpecError(
-            f"MoveCube xhard4：{spec_prefix}.peg_offsets/peg_yaw 违反统一区域 U（冻结或注入值）：{why}")
+            f"MoveCube xhard4: {spec_prefix}.peg_offsets/peg_yaw violate unified region U (frozen or injected values): {why}")
 
 
 @register_env("MoveCube", override=True)
@@ -216,30 +216,30 @@ class MoveCube(BaseEnv):
     cube_spawn_center = (0, 0)
     _clearance = 0.01
 
-    # V4（A4/A6）：本环境原本没有难度分档，现有全局常量即 hard；三档同值，
-    # difficulty 只在 xhard4 生效。消费点读的是 decision（可被 sampling_config 覆盖），
-    # 这里是 decision 的默认值来源。
+    # V4 (A4/A6): this env originally had no difficulty tiers; the existing global constants are hard; the three tiers share values,
+    # difficulty only takes effect for xhard4. Consumers read decision (overridable by sampling_config);
+    # this is the source of decision defaults.
     config_native = {
         "peg_yaw_range": {"span_rad": np.pi / 2, "offset_rad": np.pi / 4},
         "corner_bias": 0.0,
     }
     config_xhard4 = {
-        # ±180°：u*2π - π（A1）
+        # +-180 deg: u*2pi - pi (A1)
         "peg_yaw_range": {"span_rad": 2 * np.pi, "offset_rad": np.pi},
-        # V6（计划 2.6，M8；用户 2026-09-25 定圆环版）：统一区域 U，替代 V5 的 (0,0)、R=0.05 中心圆禁区与
-        # 三个互不相同的小框。方块中心、goal 中心、杆抓取点（杆尾 = 杆根 − 0.10·u）共用：
-        #   圆环 r_in ≤ |p − center| ≤ r_out（center = 可达环带 [0.31, 0.80] 的中点 (−0.06, 0)），
-        #   保险 base_dist[0] ≤ |p − 基座(−0.615, 0)| ≤ base_dist[1]；
-        # 成对：0.10（原 cube_rejection 的 5×半边长）≤ |方块 − goal| ≤ push_len_max，三个推起点离基座也在 base_dist；
-        # 杆：杆身线段离 center ≥ r_in；方块离杆身 ≥ peg_gap，goal 离杆身 ≥ goal_peg_gap。
-        # 依据：artifacts/newtask-v6/plan-probes/reach/（A/B/C 三路实测）与 reach/U/region.py 离线定义。
-        # 三个 *_max_trials 是杆／goal／方块各自拒绝循环的预算（方块受推距与推起点约束，单次接受率最低约 0.5%，
-        # 故给 4096；离线估计最坏段耗尽概率约 1e-9），超出抛 SceneGenerationError。
-        # V9（计划 1002-newtask-v9-movecube-region-800-plan.md §2，用户 2026-10-02 定最终版）：圆环由 V6 的
-        # 0.12–0.20 扩到 r_in 0.24、r_out 0.42；base_dist 由 [0.35, 0.76]（两头各留 4 cm）改为 [0.31, 0.80]，
-        # 正好是可达边界——依据 docs/validation/newtask-v6/records/legacy/plan-probes/reach/{A,B} 探针实测：
-        # 末端全 yaw 可达 0.31–0.80 m，抓杆 0.27–0.80 m 全部成功（0.80–0.85 m 仅 48%，不在 V9 范围内）。
-        # 区域 U = 圆环 0.24–0.42 ∩ 离基座 0.31–0.80，只剩左右两块；center、push_len_max、两个 gap 与三个预算不变。
+        # V6 (plan 2.6, M8; user 2026-09-25 chose the annulus version): unified region U replaces V5's (0,0), R=0.05 central exclusion disk and
+        # three different small boxes. Shared by cube center, goal center and peg grasp point (peg tail = peg root - 0.10*u):
+        #   annulus r_in <= |p - center| <= r_out (center = midpoint (-0.06, 0) of the reachable band [0.31, 0.80]),
+        #   safety base_dist[0] <= |p - base(-0.615, 0)| <= base_dist[1];
+        # pairwise: 0.10 (5x half size from the original cube_rejection) <= |cube - goal| <= push_len_max, and the three push starts also within base_dist from the base;
+        # peg: peg body segment >= r_in from center; cube >= peg_gap from the peg body, goal >= goal_peg_gap from the peg body.
+        # Basis: artifacts/newtask-v6/plan-probes/reach/ (A/B/C measurements) and the offline definition in reach/U/region.py.
+        # The three *_max_trials are the budgets of the peg / goal / cube rejection loops (cubes are constrained by push distance and push starts; single-draw acceptance as low as ~0.5%,
+        # hence 4096; offline estimate of worst-segment exhaustion probability ~1e-9); exceeding raises SceneGenerationError.
+        # V9 (plan 1002-newtask-v9-movecube-region-800-plan.md section 2, user 2026-10-02 final version): the annulus expands from V6's
+        # 0.12-0.20 to r_in 0.24, r_out 0.42; base_dist changes from [0.35, 0.76] (4 cm margin at each end) to [0.31, 0.80],
+        # exactly the reachability boundary -- based on probe measurements in docs/validation/newtask-v6/records/legacy/plan-probes/reach/{A,B}:
+        # end effector reachable at all yaw in 0.31-0.80 m, peg grasps all succeed in 0.27-0.80 m (0.80-0.85 m only 48%, outside V9 range).
+        # Region U = annulus 0.24-0.42 AND base distance 0.31-0.80, leaving only left and right patches; center, push_len_max, the two gaps and three budgets unchanged.
         "region": {"center": [-0.06, 0.0], "r_in": 0.24, "r_out": 0.42, "base_dist": [0.31, 0.80],
                    "push_len_max": 0.30, "peg_gap": 0.04, "goal_peg_gap": 0.02,
                    "peg_max_trials": 128, "goal_max_trials": 256, "cube_max_trials": 4096},
@@ -255,12 +255,12 @@ class MoveCube(BaseEnv):
                      sampling_config=None,
                      native_episode_spec=None,
                      **kwargs):
-        # 必须落在任何随机数调用与 super().__init__() 之前
+        # Must happen before any RNG call and before super().__init__()
         self._sampling = _resolve_sampling_config(type(self), sampling_config)
         self._spec = SpecRecorder(native_episode_spec, "MoveCube", {"seed": seed},
                                   difficulty=kwargs.get("difficulty"))
-        # 初始化序号从 -1 起，_initialize_episode 每次进来先加一；
-        # _load_scene 里的取值点用不带序号的路径，所以这里只作兜底。
+        # Initialization index starts at -1; _initialize_episode increments it on each entry;
+        # value points in _load_scene use index-free paths, so this is only a fallback.
         self._native_init_index = -1
         self.reset_in_proecess=False
         self.robot_init_qpos_noise = robot_init_qpos_noise
@@ -307,8 +307,8 @@ class MoveCube(BaseEnv):
                 self.difficulty = "hard"
         require_xhard4_only(self.difficulty, "MoveCube")
         if self.difficulty == "xhard4":
-            # V4 B11：抓杆时按等价朝向归约（只改夹爪姿态，并同步补偿抓杆后的推杆路点）；
-            # 求解器按这个开关分叉，原三档不设此属性、走原路径
+            # V4 B11: reduce to an equivalent orientation when grasping the peg (only the gripper pose changes, with the post-grasp peg push waypoints compensated);
+            # the solver branches on this flag; original three tiers do not set this attribute and take the original path
             self._xhard_peg_yaw_reduction = True
 
         self.restore_flag=False
@@ -357,8 +357,8 @@ class MoveCube(BaseEnv):
         exec_layout = self._sampling["decision"]["execution_layout"]
         peg_yaw_range = self._sampling["decision"]["peg_yaw_range"]
         native_pos = self._sampling["positions"]
-        # V6 xhard4（计划 2.6）：统一区域 U 走独立分支（随机调用次序在分支内重排，xhard4 重冻）；
-        # 原三档不经过该分支，下面的原路径与 V3 原值逐字相同（V1 闸门）。
+        # V6 xhard4 (plan 2.6): unified region U takes an independent branch (random call order rearranged within it, xhard4 re-frozen);
+        # the original three tiers never enter it; the original path below is verbatim identical to the V3 original values (V1 gate).
         if self.difficulty == "xhard4":
             self._load_scene_xhard4_region(demo_layout, exec_layout, peg_yaw_range, native_pos)
             return
@@ -551,13 +551,13 @@ class MoveCube(BaseEnv):
         self._store_goal_poses()
 
     def _sample_obj_and_dir(self):
-        """obj_sample 与 dir_sample 两次抽样（原三档与 xhard4 共用；次序与原代码相同）。"""
+        """The obj_sample and dir_sample draws (shared by the original three tiers and xhard4; same order as the original code)."""
         obj_sample = self._spec.value(
             "objects.obj_sample",
             int(torch.randint(0, 2, (1,), generator=self._hb_generator).item()),
         )
         self.obj_flag = -1 if obj_sample == 0 else 1
-        # 这次抽样原本就没被消费；记进 sampling_trace 以证明它照常发生（红线 R8）
+        # This draw was never consumed originally; recorded in sampling_trace to prove it still happens (red line R8)
         dir_sample = self._spec.value(
             "objects.sampling_trace.dir_sample",
             int(torch.randint(0, 2, (1,), generator=self._hb_generator).item()),
@@ -565,7 +565,7 @@ class MoveCube(BaseEnv):
         #self.direction = -1 if dir_sample.item() == 0 else 1
 
     def _store_goal_poses(self):
-        """两段 goal 圆盘位姿的 float64 副本（不抽随机数；原三档与 xhard4 共用）。"""
+        """float64 copies of the two segments' goal disk poses (no random draws; shared by the original three tiers and xhard4)."""
         goal2_p = np.array(self.goal_site_2.pose.p.detach().cpu().numpy(), dtype=np.float64, copy=True)
         self.goal_site_2_pose_p = goal2_p
 
@@ -578,20 +578,20 @@ class MoveCube(BaseEnv):
         goal1_q = np.array(self.goal_site.pose.q.detach().cpu().numpy(), dtype=np.float64, copy=True)
         self.goal_site_1_pose_q = goal1_q
 
-    # ── V6 xhard4：统一区域 U（计划 2.6）─────────────────────────────────────────────
+    # ── V6 xhard4: unified region U (plan 2.6) ─────────────────────────────────────────────
     def _load_scene_xhard4_region(self, demo_layout, exec_layout, peg_yaw_range, native_pos):
-        """V6 xhard4 布局：方块中心、goal 中心、杆抓取点三者共用统一区域 U（圆环 ∧ 离基座区间）。
+        """V6 xhard4 layout: cube center, goal center and peg grasp point all share unified region U (annulus AND base-distance interval).
 
-        随机调用次序（只在本分支内，xhard4 重冻）：
-        演示段杆（每次试验 3 次 ``torch.rand``：抓取点 x、y、yaw；拒绝就整组重抽）→ 执行段杆（同）→
-        obj_sample、dir_sample → 演示段 goal → 执行段 goal → 演示段方块 → 执行段方块。
-        V5 的 base_y 抽样、方块候选中心两级采样、``center_exclusion`` 圆禁区、演示／执行段 goal 不同框全部删除。
+        Random call order (only within this branch, xhard4 re-frozen):
+        demonstration peg (3 ``torch.rand`` per trial: grasp point x, y, yaw; redraw the whole group on rejection) -> execution peg (same) ->
+        obj_sample, dir_sample -> demonstration goal -> execution goal -> demonstration cube -> execution cube.
+        V5's base_y draw, two-level cube candidate center sampling, ``center_exclusion`` disk and differing demonstration/execution goal boxes are all removed.
 
-        杆：抓取点（杆尾 = 杆根 − length·u）在 U 内均匀、yaw ∈ ±π，杆根由二者推出；杆身线段离圆环圆心 ≥ r_in。
-        goal：中心在 U 内，离本段杆身 ≥ goal_peg_gap。
-        方块：中心在 U 内，离本段杆身 ≥ peg_gap，离本段 goal ∈ [min_cg, push_len_max]，三个推起点离基座在区间内。
-        规格键沿用原路径：``layout.<seg>.peg_offsets = [0.0, 杆根 x, 杆根 y]``（base_y 恒 0、两个「抖动」即杆根 xy）。
-        回放冻结值不经拒绝循环，杆由本方法、goal／方块由 spawn 函数按同一规则复核（N17）。
+        Peg: grasp point (peg tail = peg root - length*u) uniform in U, yaw in +-pi, peg root derived from both; peg body segment >= r_in from the annulus center.
+        Goal: center in U, >= goal_peg_gap from this segment's peg body.
+        Cube: center in U, >= peg_gap from this segment's peg body, distance to this segment's goal in [min_cg, push_len_max], three push starts within the base interval.
+        Spec keys follow the original path: ``layout.<seg>.peg_offsets = [0.0, peg root x, peg root y]`` (base_y always 0; the two "jitters" are the peg root xy).
+        Frozen values on replay skip the rejection loop; the peg is re-checked by this method, goal/cube by the spawn functions with the same rules (N17).
         """
         yaw_policy = peg_yaw_range["xhard4"]
         dk_yaw = "peg_yaw_range.xhard4"
@@ -600,7 +600,7 @@ class MoveCube(BaseEnv):
                    "execution": self._xhard4_region(exec_layout, "execution_layout")}
         trials = {"demo": {}, "execution": {}}
         pegs = {}
-        for seg, label in (("demo", "演示段"), ("execution", "执行段")):
+        for seg, label in (("demo", "demonstration segment"), ("execution", "execution segment")):
             region = regions[seg]
             root_x, root_y, yaw, trials[seg]["peg_trials"] = self._xhard4_sample_peg_in_region(
                 region, yaw_policy, peg_extent, label)
@@ -608,7 +608,7 @@ class MoveCube(BaseEnv):
                 f"layout.{seg}.peg_offsets", [0.0, root_x, root_y], decision_key=f"{region['key']}.xhard4.region")
             yaw = self._spec.value(f"layout.{seg}.peg_yaw", yaw, decision_key=dk_yaw)
             root = _peg_root_xy(base_y, root_x, root_y)
-            # N17：回放时上面两处 value 返回冻结值、不经拒绝循环，必须按同一规则复核
+            # N17: on replay the two value calls above return frozen values without the rejection loop, so they must be re-checked by the same rules
             _assert_peg_in_region(root, yaw, self.length, peg_extent, region, f"layout.{seg}")
             translation = np.array([0.0, base_y, 0.0], dtype=np.float32)
             translation[1] = base_y
@@ -625,7 +625,7 @@ class MoveCube(BaseEnv):
                     self, length=self.length, radius=self.radius, initial_pose=pose, name='peg',
                     head_color="#EC7357", tail_color="#EC7357",
                 )
-                # 杆规则所用的杆轴线段必须与刚建好的杆的实际碰撞/可视几何一致，否则判据形同虚设
+                # The peg axis segment used by the peg rule must match the actual collision/visual geometry of the peg just built, otherwise the criterion is meaningless
                 self._xhard4_verify_peg_extent(peg_extent)
                 self.pegs = [self.peg]
                 self.peg_heads = [self.peg_head]
@@ -643,8 +643,8 @@ class MoveCube(BaseEnv):
         base_xy = tuple(ROBOT_BASE_XY)
         goals = {}
         for seg, name, attr, goal_key, label in (
-                ("demo", "goal_site", "goal_site", "goal_demo", "演示段"),
-                ("execution", "goal_site_2", "goal_site_2", "goal_execution", "执行段")):
+                ("demo", "goal_site", "goal_site", "goal_demo", "demonstration segment"),
+                ("execution", "goal_site_2", "goal_site_2", "goal_execution", "execution segment")):
             region = regions[seg]
             radius = self.cube_half_size * native_pos[goal_key]["radius_factor"]
             try:
@@ -653,7 +653,7 @@ class MoveCube(BaseEnv):
                     avoid=None,
                     include_existing=False,
                     include_goal=False,
-                    # 采样框 = 圆环外接正方形（spawn 内部会把框收缩一个圆盘半径）
+                    # Sampling box = bounding square of the annulus (spawn shrinks the box by one disk radius internally)
                     region_center=[float(region["center"][0]), float(region["center"][1])],
                     region_half_size=region["r_out"] + radius,
                     radius=radius,
@@ -670,14 +670,14 @@ class MoveCube(BaseEnv):
                 )
             except RuntimeError as exc:
                 if not isinstance(exc, SceneGenerationError):
-                    raise SceneGenerationError(f"MoveCube xhard4：{label} goal 生成失败：{exc}") from exc
+                    raise SceneGenerationError(f"MoveCube xhard4: {label} goal spawn failed: {exc}") from exc
                 raise
             setattr(self, attr, goal)
             goals[seg] = np.asarray(goal.pose.p, dtype=np.float64).reshape(-1)[:2]
 
         min_cg = self.cube_half_size * native_pos["cube_rejection"]["min_distance_factor"]
-        for seg, name, attr, label in (("demo", "fixed_cube", "cube", "演示段"),
-                                       ("execution", "fixed_cube_2", "cube_2", "执行段")):
+        for seg, name, attr, label in (("demo", "fixed_cube", "cube", "demonstration segment"),
+                                       ("execution", "fixed_cube_2", "cube_2", "execution segment")):
             region = regions[seg]
             try:
                 cube = spawn_random_cube(
@@ -687,12 +687,12 @@ class MoveCube(BaseEnv):
                     name_prefix=name,
                     recorder=self._spec,
                     spec_path=f"layout.{seg}.cube_pose",
-                    # 采样框 = 圆环外接正方形（spawn 内部会把框收缩一个方块半边长）
+                    # Sampling box = bounding square of the annulus (spawn shrinks the box by one cube half size internally)
                     region_half_size=region["r_out"] + self.cube_half_size,
                     generator=self._hb_generator,
                     half_size=self.cube_half_size,
                     max_trials=region["cube_max_trials"],
-                    # 两段方块从不同时在场、goal 无碰撞体：不以任何 actor 作障碍，约束全部由下面的区域规则给出
+                    # Cubes of the two segments are never present together and the goal has no collider: no actor acts as an obstacle; all constraints come from the region rules below
                     include_existing=False,
                     include_goal=False,
                     annulus=region["annulus"],
@@ -703,14 +703,14 @@ class MoveCube(BaseEnv):
                 )
             except RuntimeError as exc:
                 if not isinstance(exc, SceneGenerationError):
-                    raise SceneGenerationError(f"MoveCube xhard4：{label}方块生成失败：{exc}") from exc
+                    raise SceneGenerationError(f"MoveCube xhard4: {label} cube spawn failed: {exc}") from exc
                 raise
             setattr(self, attr, cube)
         self.cube_init_pose = self.cube.pose
         self.cube_init_pose_2 = self.cube_2.pose
         self._store_goal_poses()
 
-        # 只读记录本局实际生效的区域规则与杆循环尝试次数（N18；不抽随机数，排在全部取值点之后）
+        # Read-only record of the region rules actually in effect this episode and the peg loop attempt counts (N18; no random draws, after all value points)
         for seg in ("demo", "execution"):
             self._spec.record(f"layout.{seg}.region", dict(
                 regions[seg]["decision"], peg_axis_extent_m=list(peg_extent), robot_base_xy=list(ROBOT_BASE_XY),
@@ -718,11 +718,11 @@ class MoveCube(BaseEnv):
             self._spec.record(f"layout.{seg}.region_trials", dict(trials[seg]))
 
     def _xhard4_region(self, layout, key):
-        """取并校验 xhard4 的统一区域 U（计划 2.6）；缺字段或数值不合法时拒绝，不许静默放宽。"""
+        """Fetch and validate xhard4's unified region U (plan 2.6); reject on missing fields or invalid values, never silently relax."""
         cfg = layout["xhard4"]["region"]
-        where = f"MoveCube xhard4：decision.{key}.xhard4.region"
+        where = f"MoveCube xhard4: decision.{key}.xhard4.region"
         if not isinstance(cfg, dict):
-            raise SamplingConfigError(f"{where} 必须是字典，收到 {cfg!r}")
+            raise SamplingConfigError(f"{where} must be a dict, got {cfg!r}")
         try:
             center = np.asarray(cfg["center"], dtype=np.float64).reshape(-1)
             r_in, r_out = float(cfg["r_in"]), float(cfg["r_out"])
@@ -730,19 +730,19 @@ class MoveCube(BaseEnv):
             nums = {k: float(cfg[k]) for k in ("push_len_max", "peg_gap", "goal_peg_gap")}
             budgets = {k: cfg[k] for k in ("peg_max_trials", "goal_max_trials", "cube_max_trials")}
         except (KeyError, TypeError, ValueError) as exc:
-            raise SamplingConfigError(f"{where} 缺字段或类型不对：{exc}") from exc
+            raise SamplingConfigError(f"{where} has missing fields or wrong types: {exc}") from exc
         if center.shape != (2,) or not np.all(np.isfinite(center)):
-            raise SamplingConfigError(f"{where}.center 必须是两个有限数，收到 {cfg['center']!r}")
+            raise SamplingConfigError(f"{where}.center must be two finite numbers, got {cfg['center']!r}")
         if not (np.isfinite(r_in) and np.isfinite(r_out) and 0.0 <= r_in < r_out):
-            raise SamplingConfigError(f"{where} 须满足 0 ≤ r_in < r_out，收到 ({cfg['r_in']!r}, {cfg['r_out']!r})")
+            raise SamplingConfigError(f"{where} must satisfy 0 <= r_in < r_out, got ({cfg['r_in']!r}, {cfg['r_out']!r})")
         if not (np.isfinite(base_lo) and np.isfinite(base_hi) and 0.0 <= base_lo < base_hi):
-            raise SamplingConfigError(f"{where}.base_dist 须为 [lo, hi] 且 0 ≤ lo < hi，收到 {cfg['base_dist']!r}")
+            raise SamplingConfigError(f"{where}.base_dist must be [lo, hi] with 0 <= lo < hi, got {cfg['base_dist']!r}")
         for k, v in nums.items():
             if not (np.isfinite(v) and v >= 0.0):
-                raise SamplingConfigError(f"{where}.{k} 必须是 ≥0 的有限数，收到 {cfg[k]!r}")
+                raise SamplingConfigError(f"{where}.{k} must be a finite number >= 0, got {cfg[k]!r}")
         for k, v in budgets.items():
             if isinstance(v, bool) or not isinstance(v, (int, np.integer)) or int(v) < 1:
-                raise SamplingConfigError(f"{where}.{k} 必须是 ≥1 的整数，收到 {v!r}")
+                raise SamplingConfigError(f"{where}.{k} must be an integer >= 1, got {v!r}")
         return {
             "key": key,
             "center": center,
@@ -757,11 +757,11 @@ class MoveCube(BaseEnv):
         }
 
     def _xhard4_sample_peg_in_region(self, region, yaw_policy, extent, seg_label):
-        """V6 xhard4：每次试验按 (抓取点 x, 抓取点 y, yaw) 各抽一次 ``torch.rand``，推出杆根后按杆规则判，
-        违反就整组重抽。抓取点在圆环外接正方形里均匀抽（拒绝后即 U 内均匀）。
+        """V6 xhard4: each trial draws one ``torch.rand`` each for (grasp point x, grasp point y, yaw), derives the peg root and checks the peg rule,
+        redrawing the whole group on violation. The grasp point is drawn uniformly in the annulus bounding square (uniform within U after rejection).
 
-        返回 ``(杆根 x, 杆根 y, yaw, 尝试次数)``；判定用的杆根与建杆时一样经 float32 平移（``_peg_root_xy``），
-        保证回放复核与生成时逐位同判。超过 ``peg_max_trials`` 抛真 ``SceneGenerationError``。
+        Returns ``(peg root x, peg root y, yaw, attempts)``; the peg root used for checking goes through the same float32 translation as peg building (``_peg_root_xy``),
+        so replay re-checks and generation agree bit for bit. Exceeding ``peg_max_trials`` raises a real ``SceneGenerationError``.
         """
         cx, cy = float(region["center"][0]), float(region["center"][1])
         side = 2.0 * region["r_out"]
@@ -775,20 +775,20 @@ class MoveCube(BaseEnv):
             if _peg_region_violation(root, yaw, self.length, extent, region) is None:
                 return float(root_x), float(root_y), float(yaw), trial
         raise SceneGenerationError(
-            f"MoveCube xhard4：{seg_label}杆 {region['peg_max_trials']} 次重抽全部违反统一区域 U")
+            f"MoveCube xhard4: {seg_label} peg: all {region['peg_max_trials']} redraws violate unified region U")
 
     def _xhard4_verify_peg_extent(self, extent):
-        """用刚建好的杆的实际碰撞盒与可视盒复核杆规则（V6 统一区域 U）所用的轴线段区间（取二者并集）。
+        """Re-check the axis segment interval used by the peg rule (V6 unified region U) against the actual collision and visual boxes of the peg just built (union of both).
 
-        读 head/tail 两个 link 的 box 形状半长、形状局部位姿与 tail 固定关节的 ``pose_in_parent``／``pose_in_child``，
-        得到沿杆朝向（link 局部 x 轴）的实际区间；与 ``_peg_axis_extent`` 不一致就抛 RuntimeError
-        （属代码类错误：说明 build_peg 的几何变了而判据没跟上）。
+        Reads the box half sizes and local shape poses of the head/tail links and the tail fixed joint's ``pose_in_parent`` / ``pose_in_child``,
+        giving the actual interval along the peg direction (link-local x axis); raises RuntimeError if it differs from ``_peg_axis_extent``
+        (a code error: build_peg geometry changed but the criterion did not follow).
         """
         lo, hi = np.inf, -np.inf
         for link in (self.peg_head, self.peg_tail):
             comp = link._objs[0]
             joint = comp.get_joint()
-            # 固定关节只有沿 x 的平移（build_peg）：link 原点在父 link 系的 x = pose_in_parent.x − pose_in_child.x
+            # The fixed joint only translates along x (build_peg): link origin in the parent link frame x = pose_in_parent.x - pose_in_child.x
             offset = 0.0 if comp.get_parent() is None else (
                 float(joint.get_pose_in_parent().p[0]) - float(joint.get_pose_in_child().p[0]))
             shapes = [(float(sh.half_size[0]), float(sh.local_pose.p[0])) for sh in comp.get_collision_shapes()]
@@ -797,16 +797,16 @@ class MoveCube(BaseEnv):
                     if hasattr(rs, "half_size"):
                         shapes.append((float(rs.half_size[0]), float(rs.local_pose.p[0])))
             if not shapes:
-                raise RuntimeError(f"MoveCube xhard4：杆 link {link.name} 没有可读的 box 形状，无法复核杆规则所用的杆轴线段")
+                raise RuntimeError(f"MoveCube xhard4: peg link {link.name} has no readable box shape; cannot re-check the peg axis segment used by the peg rule")
             for half, local_x in shapes:
                 lo = min(lo, offset + local_x - half)
                 hi = max(hi, offset + local_x + half)
         if abs(lo - extent[0]) > 1e-6 or abs(hi - extent[1]) > 1e-6:
             raise RuntimeError(
-                f"MoveCube xhard4：杆规则用的杆轴线段 {tuple(extent)} 与实际几何 ({lo}, {hi}) 不一致")
+                f"MoveCube xhard4: peg axis segment {tuple(extent)} used by the peg rule differs from the actual geometry ({lo}, {hi})")
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
-        # 每次初始化各自记一份规格，不复用上一次的结果
+        # Each initialization records its own spec, never reusing the previous result
         self._native_init_index = getattr(self, "_native_init_index", -1) + 1
         with torch.device(self.device):
             self.table_scene.initialize(env_idx)
@@ -840,7 +840,7 @@ class MoveCube(BaseEnv):
 
             self.agent.reset(qpos)            
             if self.difficulty == "xhard4":
-                # B11：每次初始化清掉上一次抓杆的归约标记（由 grasp_and_lift_peg_side 重新设置）
+                # B11: each initialization clears the reduction flag of the previous peg grasp (set again by grasp_and_lift_peg_side)
                 self._peg_grasp_flipped = False
                 self._peg_grasp_flip_log = []
             self.cube_2.set_pose(sapien.Pose(p=[10,10,1]))#only need the pose!

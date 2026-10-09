@@ -41,5 +41,5 @@ def suppress_warnings():
     
 suppress_warnings()
 
-# robomme_ood：本包注册的 16 个环境 id，顺序同上方导入顺序（包 __init__ 据此断言注册表归属）
+# robomme_ood: the 16 env ids registered by this package, in the same order as the imports above (the package __init__ asserts registry ownership from this)
 ENV_IDS = ("BinFill", "PickXtimes", "SwingXtimes", "ButtonUnmask", "VideoUnmask", "PickHighlight", "VideoUnmaskSwap", "VideoRepick", "VideoPlaceButton", "VideoPlaceOrder", "ButtonUnmaskSwap", "InsertPeg", "MoveCube", "PatternLock", "StopCube", "RouteStick",)

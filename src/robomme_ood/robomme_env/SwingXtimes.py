@@ -27,9 +27,9 @@ from mani_skill.utils.geometry.rotation_conversions import (
 
 from .utils.SceneGenerationError import SceneGenerationError
 from .utils import *
-# V5 L3（仿 VideoPlaceOrder 的 K2 修法）：上一行的 `from .utils import *` 会把同名子模块
-# `utils.SceneGenerationError` 盖到名字 `SceneGenerationError` 上（import 自省核实），原三档的
-# raise / except 因此是 TypeError（按 H2 原三档保持现状）。xhard 用下面这个别名拿到真正的异常类。
+# V5 L3 (following VideoPlaceOrder's K2 fix): the `from .utils import *` line above lets the same-named submodule
+# `utils.SceneGenerationError` shadow the name `SceneGenerationError` (confirmed by import introspection), so in the original three tiers
+# raise / except become TypeError (original three tiers kept as is per H2). xhard uses the alias below to get the real exception class.
 from .utils.SceneGenerationError import SceneGenerationError as _RealSceneGenerationError
 from .utils.subgoal_evaluate_func import static_check, too_many_swings
 from .utils import subgoal_language
@@ -44,12 +44,12 @@ from ..logging_utils import logger
 
 
 def _scene_gen_error(difficulty):
-    """V5 L3：按档选场景生成异常类。
+    """V5 L3: select the scene-generation exception class by tier.
 
-    xhard 返回真正的 ``SceneGenerationError``（可重试的任务性失败）；原三档原样返回本模块里
-    被遮蔽的名字 ``SceneGenerationError``（子模块，raise / except 时仍是 TypeError，行为逐字不变）。
-    用法：``raise _scene_gen_error(self.difficulty)("说明")``、``except _scene_gen_error(self.difficulty):``；
-    只在 xhard 路径上执行的代码直接用 ``_RealSceneGenerationError``。
+    xhard returns the real ``SceneGenerationError`` (retryable task failure); original three tiers return this module's
+    shadowed name ``SceneGenerationError`` as is (a submodule, so raise / except still give TypeError; behavior verbatim unchanged).
+    Usage: ``raise _scene_gen_error(self.difficulty)("message")``, ``except _scene_gen_error(self.difficulty):``;
+    code executed only on the xhard path uses ``_RealSceneGenerationError`` directly.
     """
     return _RealSceneGenerationError if is_newvalue_difficulty(difficulty) else SceneGenerationError
 
@@ -69,9 +69,9 @@ capabilities can be simulated and trained properly. Hence there is extra code fo
 """
 
 
-# ── decision／native 两块的原值（newtaskRelease-v3 步 3，映射见方案第二节 2.3）────────
-# decision：摆动轮数范围、颜色数、额外其他颜色干扰物（本轮不启用）。
-# native：颜色排列与目标选择、方块／两个圆盘／按钮的区域与几何、左右顺序与成功阈值、恢复规则。
+# ── Original values of the decision/native blocks (newtaskRelease-v3 step 3, mapping in plan section 2.3) ────────
+# decision: swing round range, color count, extra other-color distractors (not enabled this round).
+# native: color order and target selection, regions and geometry of the cube / two disks / button, left-right order and success threshold, recovery rules.
 NATIVE_SAMPLING = {
     "parameters": {
         "cubes_per_color": 1,
@@ -87,7 +87,7 @@ NATIVE_SAMPLING = {
         },
         "side_order": {"first": "right", "second": "left", "max_swings": "2 * num_repeats"},
         "swing_thresholds": {"distance": 0.03, "z": 0.12, "height": 0.1},
-        "recovery": "沿用入口给定的 fail recover 模式与原 generator",
+        "recovery": "keep the entry-provided fail recover mode and the original generator",
     },
     "positions": {
         "button": {"center_xy": [-0.2, 0], "scale": 1.5},
@@ -106,11 +106,11 @@ NATIVE_SAMPLING = {
 }
 
 
-# ── V4 xhard 专属 decision（计划 2.5，A5 / B2）─────────────────────────────────
-# distractor：四个「其他颜色」干扰方块，黄／青／品红／第 4 色各一（BLOCK_DISTRACTOR_COLORS，V7），
-# 区域沿用原方块区域（中心 [-0.1,0]、半边长 0.25，容量宽松）。
-# 干扰色**不并入** native.color_pool：并入会改变 randperm(len(color_groups)) 的长度，平移原三档随机流。
-# min_center_dist_m：V5 L44（计划 2.14），6 块（3 有色 + 3 干扰）两两中心距下限（米）；本环境没有 corner_bias。
+# ── V4 xhard-specific decision (plan 2.5, A5 / B2) ─────────────────────────────────
+# distractor: four "other color" distractor cubes, one each of yellow/cyan/magenta/4th color (BLOCK_DISTRACTOR_COLORS, V7),
+# region follows the original cube region (center [-0.1,0], half size 0.25, generous capacity).
+# Distractor colors are **not merged** into native.color_pool: merging would change the length of randperm(len(color_groups)) and shift the original three tiers' random stream.
+# min_center_dist_m: V5 L44 (plan 2.14), minimum pairwise center distance (meters) of the 6 cubes (3 colored + 3 distractors); this env has no corner_bias.
 XHARD_DECISION = {
     "distractor": {
         "colors": [entry["name"] for entry in BLOCK_DISTRACTOR_COLORS],
@@ -122,30 +122,30 @@ XHARD_DECISION = {
 
 
 def _newvalue_decision(n_distractors):
-    """V6（计划 2.8）：新值族某档的 decision 子树——键结构与 ``XHARD_DECISION`` 完全相同，
-    只把干扰方块颜色截成 ``BLOCK_DISTRACTOR_COLORS`` 前 k 个；区域、中心距沿用 xhard。"""
+    """V6 (plan 2.8): decision subtree of one new-value tier -- key structure identical to ``XHARD_DECISION``,
+    only truncating distractor cube colors to the first k of ``BLOCK_DISTRACTOR_COLORS``; region and center distance follow xhard."""
     tree = copy.deepcopy(XHARD_DECISION)
     tree["distractor"]["colors"] = [entry["name"] for entry in BLOCK_DISTRACTOR_COLORS[:n_distractors]]
     return tree
 
 
-# V6 新值族档位表：干扰块数 xhard1=1、xhard2=2、xhard3=3、xhard4=3。
+# V6 new-value tier table: distractor count xhard1=1, xhard2=2, xhard3=3, xhard4=3.
 NEWVALUE_DECISION = {
     "xhard1": _newvalue_decision(1),
     "xhard2": _newvalue_decision(2),
     "xhard3": _newvalue_decision(3),
     "xhard4": _newvalue_decision(4),
-    # v8（1001 方案 §1 表 1）：xhard5 干扰块取 4——BLOCK_DISTRACTOR_COLORS 只有黄／青／品红／橙 4 色。
+    # v8 (1001 plan 1 table 1): xhard5 takes 4 distractor cubes -- BLOCK_DISTRACTOR_COLORS only has 4 colors: yellow/cyan/magenta/orange.
     "xhard5": _newvalue_decision(4),
 }
 
 
 def _disk_avoid_obb(target, clearance):
-    """把圆盘换算成方块拒绝采样可用的预制 OBB ``(中心, 轴, 半边长)``。
+    """Convert a disk into a prebuilt OBB ``(center, axes, half extents)`` usable by cube rejection sampling.
 
-    圆盘是 ``add_collision=False`` 的纯视觉 actor，``get_actor_obb`` 取不到网格，直接放进
-    ``avoid`` 会被 ``spawn_random_cube`` 静默忽略（2026-09-22 实测）。干扰方块在圆盘之后放，
-    必须显式给出外接正方形：半边长 = 圆盘半径 + 圆盘间距 − 方块自带间距。
+    The disk is a visual-only actor with ``add_collision=False``; ``get_actor_obb`` cannot get its mesh, so putting it directly into
+    ``avoid`` is silently ignored by ``spawn_random_cube`` (measured 2026-09-22). Distractor cubes are placed after the disks,
+    so the bounding square must be given explicitly: half extent = disk radius + disk gap - the cube's own gap.
     """
     p = target.pose.p
     if isinstance(p, torch.Tensor):
@@ -158,34 +158,34 @@ def _disk_avoid_obb(target, clearance):
 
 
 def native_blocks(cls):
-    """本环境的 ``(decision, native)`` 原值块；外部导出与内部解析共用同一份。"""
+    """Original ``(decision, native)`` blocks of this env; shared by external export and internal parsing."""
     return _native_decision(cls), copy.deepcopy(NATIVE_SAMPLING)
 
 
 def _native_decision(cls):
-    """按方案第二节 2.3 切出 decision 块（原值阶段等于原值）。"""
+    """Slice the decision block per plan section 2.3 (equals the original in the original-value stage)."""
     return {
-        # 一轮＝右、左各一次；原值取自类属性的 number_min/number_max。
+        # One round = one right and one left; original values from the class attributes number_min/number_max.
         "number_range": {
             difficulty: [cfg["number_min"], cfg["number_max"]]
             for difficulty, cfg in cls.configs.items()
         },
         "color": {difficulty: cfg["color"] for difficulty, cfg in cls.configs.items()},
         "distractor": None,
-        # V4 xhard 专属（计划 2.5）：键名为 xhard，守卫只放行这一子树取新值，原三档可见部分不变。
+        # V4 xhard-specific (plan 2.5): key named xhard; the guard only lets this subtree take new values; the part visible to the original three tiers is unchanged.
         "xhard4": copy.deepcopy(XHARD_DECISION),
-        # V6（计划 2.8）：xhard 之后追加 xhard1/2/3 三棵同结构子树（新值族，守卫同样放行）。
-        # v8（1001 方案 §2.1）：再追加 xhard5（只有本环境与 StopCube 有这一档，R8）。
+        # V6 (plan 2.8): append three same-structure subtrees xhard1/2/3 after xhard (new-value family, likewise admitted by the guard).
+        # v8 (1001 plan 2.1): additionally append xhard5 (only this env and StopCube have this tier, R8).
         **{tier: copy.deepcopy(NEWVALUE_DECISION[tier]) for tier in ("xhard1", "xhard2", "xhard3", "xhard5")},
     }
 
 
 def _resolve_sampling_config(cls, override):
-    """拆出本实例专属的 decision／native 副本；不抽随机数，必须在 Generator 之前调用。"""
+    """Split out this instance's private decision/native copies; draws no random numbers, must be called before the Generator."""
     decision_default, native_default = native_blocks(cls)
     decision, native = split_sampling_config(override, native_default, decision_default)
     assert_native_decision(decision, decision_default, cls.__name__)
-    # V6：旧快照（如 V5 快照）缺 xhard1/2/3 子树时从源码申报补齐
+    # V6: old snapshots (e.g. V5 snapshots) missing xhard1/2/3 subtrees get them filled from source declarations
     fill_missing_newvalue(decision, decision_default)
     native["decision"] = decision
     return native
@@ -225,7 +225,7 @@ class SwingXtimes(BaseEnv):
     'number_max':2
     }
 
-    # v8 定值（1001 方案 §1 表 1 / §2.1）：每档一个定数，摆动轮数 4/5/6/7/8、干扰块 1/2/3/4/4（BLOCK_DISTRACTOR_COLORS）。
+    # v8 fixed values (1001 plan 1 table 1 / 2.1): one fixed number per tier, swing rounds 4/5/6/7/8, distractor cubes 1/2/3/4/4 (BLOCK_DISTRACTOR_COLORS).
     config_xhard4 = {
         'color': 3,
         'number_min': 7,
@@ -250,7 +250,7 @@ class SwingXtimes(BaseEnv):
         'number_max': 6,
     }
 
-    # v8 新增：xhard5 摆动 8 轮（干扰 4 块，见 NEWVALUE_DECISION）。
+    # New in v8: xhard5 swings 8 rounds (4 distractor cubes, see NEWVALUE_DECISION).
     config_xhard5 = {
         'color': 3,
         'number_min': 8,
@@ -266,7 +266,7 @@ class SwingXtimes(BaseEnv):
         'xhard1': config_xhard1,
         'xhard2': config_xhard2,
         'xhard3': config_xhard3,
-        # v8：xhard5 追加在末尾（测试断言前几键的顺序不变）
+        # v8: xhard5 appended at the end (tests assert the order of the leading keys is unchanged)
         'xhard5': config_xhard5,
     }
 
@@ -275,12 +275,12 @@ class SwingXtimes(BaseEnv):
                      sampling_config=None,
                      native_episode_spec=None,
                      **kwargs):
-        # 必须落在任何随机数调用与 super().__init__() 之前
+        # Must happen before any RNG call and before super().__init__()
         self._sampling = _resolve_sampling_config(type(self), sampling_config)
         self._spec = SpecRecorder(native_episode_spec, "SwingXtimes", {"seed": seed},
                                   difficulty=kwargs.get("difficulty"))
-        # 初始化序号从 -1 起，_initialize_episode 每次进来先加一；
-        # _load_scene 里的取值点用不带序号的路径，所以这里只作兜底。
+        # Initialization index starts at -1; _initialize_episode increments it on each entry;
+        # value points in _load_scene use index-free paths, so this is only a fallback.
         self._native_init_index = -1
         self.use_demonstrationwrapper=False
         self.demonstration_record_traj=False
@@ -402,17 +402,17 @@ class SwingXtimes(BaseEnv):
                 "blue": (self.blue_cubes, self.blue_cube_names),
                 "green": (self.green_cubes, self.green_cube_names),
             }
-            # V4（计划 2.5）：颜色池里出现红蓝绿以外的名字时按名动态建表，不再 KeyError；
-            # 原快照只含红蓝绿，这段一次都不进，原三档行为不变。
+            # V4 (plan 2.5): when the color pool contains names other than red/blue/green, build the table dynamically by name instead of KeyError;
+            # the original snapshot only has red/blue/green, so this block is never entered; original three tiers' behavior unchanged.
             for entry in self._sampling["parameters"]["color_pool"]:
                 if entry["name"] not in _color_lists:
                     extra_cubes, extra_names = [], []
                     setattr(self, f"{entry['name']}_cubes", extra_cubes)
                     setattr(self, f"{entry['name']}_cube_names", extra_names)
                     _color_lists[entry["name"]] = (extra_cubes, extra_names)
-            # 按对象回填颜色名用（xhard 路径读；原三档只写不读）
+            # Used to backfill color names per object (read on the xhard path; original three tiers only write, never read)
             self._cube_color_of = []
-            # 颜色池取自快照（顺序与原字面量一致：红、蓝、绿）
+            # Color pool from the snapshot (same order as the original literal: red, blue, green)
             color_groups = [
                 {
                     "color": tuple(entry["rgba"]),
@@ -436,11 +436,11 @@ class SwingXtimes(BaseEnv):
             logger.debug(f"Target color selected: {self.target_color_name}")
 
             if is_newvalue_difficulty(self.difficulty):
-                # V5（计划 2.14）：xhard 的有色方块另走一支——两两中心距规则与精确 OBB 障碍；
-                # 取值点、抽样次数上限与颜色／命名登记与下面原代码相同。
+                # V5 (plan 2.14): xhard's colored cubes take a separate branch -- pairwise center distance rule and exact OBB obstacles;
+                # value points, draw count cap and color/name registration are the same as the original code below.
                 self._spawn_colored_cubes_xhard(generator, avoid, color_groups)
             else:
-                # 原三档：下面整段逐字保留原代码（仅缩进一级），行为不变（H2）。
+                # Original three tiers: the whole block below keeps the original code verbatim (only indented one level), behavior unchanged (H2).
                 # Generate cubes for each color group
                 for idx, group in enumerate(color_groups):
                     if idx < self._sampling["decision"]["color"][self.difficulty]:
@@ -541,7 +541,7 @@ class SwingXtimes(BaseEnv):
                 logger.debug(f"Swapped: target_0 y={temp_1_y:.3f}, target_1 y={temp_0_y:.3f} (swapped to ensure target_0.y < target_1.y)")
 
             if is_newvalue_difficulty(self.difficulty):
-                # V4 xhard：目标候选池与 all_cubes 解耦、颜色按对象回填（计划 2.5，与 PickXtimes 同构）
+                # V4 xhard: target candidate pool decoupled from all_cubes, colors backfilled per object (plan 2.5, same structure as PickXtimes)
                 self._select_target_xhard(generator)
             # Randomly select one cube from all available cubes as the target
             elif len(self.all_cubes) > 0:
@@ -571,7 +571,7 @@ class SwingXtimes(BaseEnv):
 
 
 
-        except _scene_gen_error(self.difficulty):  # V5 L3：xhard 用真类，原三档仍是被遮蔽的原名字
+        except _scene_gen_error(self.difficulty):  # V5 L3: xhard uses the real class; original three tiers still use the shadowed original name
             raise
         except Exception as exc:
             raise _scene_gen_error(self.difficulty)(
@@ -591,11 +591,11 @@ class SwingXtimes(BaseEnv):
                 'segment':self.target_cube,
             })
 
-        # 摆动成功阈值与抬升高度取自快照（原值 distance 0.03 / z 0.12 / height 0.1）
+        # Swing success threshold and lift height taken from the snapshot (original values distance 0.03 / z 0.12 / height 0.1)
         _swing_cfg = self._sampling["parameters"]["swing_thresholds"]
         for i in range(self.num_repeats):
-            # V6 审查修复 N10（用户「n10 修复 a」）：序数改用共享序数表 subgoal_language._ordinal_word——
-            # 前十项与原本地列表逐字相同（原三档与 xhard1～3 文本不变），第 11 轮起给 eleventh…twentieth 而不是 11th
+            # V6 review fix N10 (user "n10 fix a"): ordinals now use the shared ordinal table subgoal_language._ordinal_word --
+            # the first ten entries are verbatim identical to the original local list (text of the original three tiers and xhard1-3 unchanged); from round 11 it gives eleventh...twentieth instead of 11th
             ordinal = subgoal_language._ordinal_word(i)
             tasks.append({
                 "func": (lambda: is_obj_swing_onto(self,obj=self.target_cube,target=self.target_right,distance_threshold=_swing_cfg["distance"],z_threshold=_swing_cfg["z"])),
@@ -653,7 +653,7 @@ class SwingXtimes(BaseEnv):
         self.recovery_pickup_indices, self.recovery_pickup_tasks = task4recovery(self.task_list)
         if self.robomme_failure_recovery:
             # Only inject an intentional failed grasp when recovery mode is enabled
-            # 恢复动作的选择是一次真实抽样：原位置照常抽，回注模式下用冻结的索引
+            # Choosing the recovery action is a real draw: the original draw happens as usual; re-injection mode uses the frozen index
             self.fail_grasp_task_index = self._spec.value(
                 "actions.recovery.selected_action_index",
                 inject_fail_grasp(
@@ -665,22 +665,22 @@ class SwingXtimes(BaseEnv):
         else:
             self.fail_grasp_task_index = None
 
-        # V4 xhard：干扰方块是新增的随机取值，追加在本函数全部既有取值点（含恢复动作抽样）之后（N5）。
+        # V4 xhard: distractor cubes are new random values appended after all existing value points of this function (including the recovery action draw) (N5).
         if is_newvalue_difficulty(self.difficulty):
             self._spawn_distractors_xhard(generator, avoid)
 
     def _color_name_of(self, cube):
-        """按对象查颜色名（xhard 路径用）；查不到说明登记漏了，直接报错而不是残留旧值。"""
+        """Look up the color name by object (xhard path); a miss means registration was skipped, so raise instead of leaving a stale value."""
         for actor, name in self._cube_color_of:
             if actor is cube:
                 return name
-        raise _RealSceneGenerationError("SwingXtimes xhard: 目标方块不在颜色登记表里")
+        raise _RealSceneGenerationError("SwingXtimes xhard: target cube is not in the color registry")
 
     def _select_target_xhard(self, generator):
-        """V4 xhard 的目标方块选择：从显式候选列表抽，颜色按对象回填。
+        """V4 xhard target cube selection: draw from the explicit candidate list, colors backfilled per object.
 
-        抽样位置与原路径的 ``objects.target_cube_idx`` 相同（一次 randint），只是上界取候选池长度；
-        候选池只含有色方块，之后追加的干扰方块永远不会被抽成目标。
+        The draw position is the same as the original path's ``objects.target_cube_idx`` (one randint), only the upper bound is the candidate pool length;
+        the candidate pool only has colored cubes, so distractor cubes appended later can never be drawn as the target.
         """
         self._spec.record("objects.cube_count", {
             "requested": min(self._sampling["decision"]["color"][self.difficulty],
@@ -690,7 +690,7 @@ class SwingXtimes(BaseEnv):
         })
         self.target_candidates = list(self.all_cubes)
         if not self.target_candidates:
-            raise _RealSceneGenerationError("SwingXtimes xhard: 没有可选的目标候选方块")
+            raise _RealSceneGenerationError("SwingXtimes xhard: no target candidate cube available")
         self._spec.record(
             "objects.target_candidates", [self._color_name_of(cube) for cube in self.target_candidates]
         )
@@ -704,28 +704,28 @@ class SwingXtimes(BaseEnv):
         self.non_target_cubes = [cube for cube in self.all_cubes if cube is not self.target_cube]
 
     def _append_cube_obstacle_xhard(self, cube, avoid):
-        """V5（计划 2.0① / 2.14）：把刚放下的方块以精确 OBB 登记为后续物体的障碍与中心距参考点。
+        """V5 (plan 2.0-1 / 2.14): register the cube just placed as an exact OBB, serving as an obstacle and center distance reference for later objects.
 
-        不再把 actor 本身放进 ``avoid``：actor 路径经 ``_trimesh_box_to_obb2d``，对正方体约 2/3 的姿态
-        退化成线段，``min_gap`` 在其法向上失效。纯几何，不抽随机数。
+        The actor itself is no longer put into ``avoid``: the actor path via ``_trimesh_box_to_obb2d`` degenerates into a segment for ~2/3 of
+        cube poses, voiding ``min_gap`` along its normal. Pure geometry, no random draws.
         """
         obb = cube_obb2d_exact(cube, self.cube_half_size)
         self._xhard_cube_obbs.append(obb)
         avoid.append(obb)
 
     def _spawn_colored_cubes_xhard(self, generator, avoid, color_groups):
-        """V5 xhard（计划 2.14）：放三个有色方块（目标候选）。
+        """V5 xhard (plan 2.14): place the three colored cubes (target candidates).
 
-        与原三档共用循环的差别只有两条：候选中心与已放方块两两距离 ≥ ``min_center_dist_m``（L44，经
-        ``spawn_random_cube(min_center_dist=...)``，自身不抽随机数）；放下的方块以 ``cube_obb2d_exact``
-        精确 OBB 进 ``avoid``（其后的两个圆盘与干扰方块都据此避让）。区域、间距、yaw、取值点路径、
-        每块拒绝预算（默认 256）与原循环相同；放不下抛真 ``SceneGenerationError``（L3）。
+        Only two differences from the loop shared with the original three tiers: candidate centers keep pairwise distance >= ``min_center_dist_m`` to placed cubes (L44, via
+        ``spawn_random_cube(min_center_dist=...)``, which draws no random numbers itself); placed cubes enter ``avoid`` as ``cube_obb2d_exact``
+        exact OBBs (the two disks and distractor cubes after them avoid accordingly). Region, gap, yaw, value point paths and
+        per-cube rejection budget (default 256) are the same as the original loop; on failure raise a real ``SceneGenerationError`` (L3).
         """
         cubes_cfg = self._sampling["positions"]["cubes"]
         cubes_per_color = self._sampling["parameters"]["cubes_per_color"]
         min_center_dist = float(self._sampling["decision"][self.difficulty]["min_center_dist_m"])
         self._spec.record("layout.cube_min_center_dist", min_center_dist)
-        # 已放方块（有色 + 干扰共用一张表）的精确 OBB；既作中心距规则的参考点，也作 avoid 里的障碍
+        # Exact OBBs of placed cubes (colored + distractors share one table); both reference points for the center distance rule and obstacles in avoid
         self._xhard_cube_obbs = []
         for idx, group in enumerate(color_groups):
             if idx < self._sampling["decision"]["color"][self.difficulty]:
@@ -751,7 +751,7 @@ class SwingXtimes(BaseEnv):
                         )
                     except RuntimeError as exc:
                         raise _RealSceneGenerationError(
-                            f"SwingXtimes xhard: 方块 {cube_name} 放不下: {exc}"
+                            f"SwingXtimes xhard: cube {cube_name} does not fit: {exc}"
                         ) from exc
 
                     self.all_cubes.append(cube)
@@ -764,12 +764,12 @@ class SwingXtimes(BaseEnv):
                 logger.debug(f"Generated {len(group['list'])} {group['name']} cubes")
 
     def _spawn_distractors_xhard(self, generator, avoid):
-        """V4 xhard：放三个「其他颜色」干扰方块（A5/B2：黄／青／品红各一）。
+        """V4 xhard: place three "other color" distractor cubes (A5/B2: one each of yellow/cyan/magenta).
 
-        干扰方块进 ``all_cubes`` 与 ``non_target_cubes``（抓错即触发 failure_func 判失败），
-        不进 ``target_candidates``；两个圆盘经 ``_disk_avoid_obb`` 显式避让。
-        放不下直接抛 ``SceneGenerationError``（2.2④，不许静默截断）。
-        V5：与有色方块共用中心距规则与精确 OBB 障碍（计划 2.14）。
+        Distractor cubes go into ``all_cubes`` and ``non_target_cubes`` (picking one triggers failure_func),
+        not into ``target_candidates``; the two disks are explicitly avoided via ``_disk_avoid_obb``.
+        If one cannot be placed raise ``SceneGenerationError`` directly (2.2-4, no silent truncation).
+        V5: share the center distance rule and exact OBB obstacles with colored cubes (plan 2.14).
         """
         min_center_dist = float(self._sampling["decision"][self.difficulty]["min_center_dist_m"])
         dcfg = self._sampling["decision"][self.difficulty]["distractor"]
@@ -777,7 +777,7 @@ class SwingXtimes(BaseEnv):
         names = list(dcfg["colors"])
         unknown = [name for name in names if name not in palette]
         if unknown:
-            raise _RealSceneGenerationError(f"SwingXtimes xhard: 干扰色不在 BLOCK_DISTRACTOR_COLORS 里: {unknown}")
+            raise _RealSceneGenerationError(f"SwingXtimes xhard: distractor color not in BLOCK_DISTRACTOR_COLORS: {unknown}")
         target_geom = self._sampling["positions"]["target_geometry"]
         clearance = self.cube_half_size * (target_geom["radius_factor"] + target_geom["min_gap_factor"]) \
             - self.cube_half_size
@@ -804,7 +804,7 @@ class SwingXtimes(BaseEnv):
                     min_center_dist=(min_center_dist, self._xhard_cube_obbs),
                 )
             except RuntimeError as exc:
-                raise _RealSceneGenerationError(f"SwingXtimes xhard: 干扰方块 {cube_name} 放不下: {exc}") from exc
+                raise _RealSceneGenerationError(f"SwingXtimes xhard: distractor cube {cube_name} does not fit: {exc}") from exc
             self.all_cubes.append(cube)
             self.distractor_cubes.append(cube)
             self._cube_color_of.append((cube, name))
@@ -816,13 +816,13 @@ class SwingXtimes(BaseEnv):
                           {"requested": len(names), "actual": len(self.distractor_cubes)})
         if len(self.distractor_cubes) != len(names):
             raise _RealSceneGenerationError(
-                f"SwingXtimes xhard: 干扰方块请求 {len(names)} 实际 {len(self.distractor_cubes)}"
+                f"SwingXtimes xhard: distractor cubes requested {len(names)} actual {len(self.distractor_cubes)}"
             )
-        # failure_func 在调用时才读 self.non_target_cubes，这里重建即可让干扰方块参与判失败
+        # failure_func reads self.non_target_cubes only when called; rebuilding it here lets distractor cubes take part in failure checks
         self.non_target_cubes = [cube for cube in self.all_cubes if cube is not self.target_cube]
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
-        # 每次初始化各自记一份规格，不复用上一次的结果
+        # Each initialization records its own spec, never reusing the previous result
         self._native_init_index = getattr(self, "_native_init_index", -1) + 1
         with torch.device(self.device):
             b = len(env_idx)
