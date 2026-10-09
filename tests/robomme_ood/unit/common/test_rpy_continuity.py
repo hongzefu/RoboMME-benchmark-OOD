@@ -1,7 +1,7 @@
-"""官方 rpy_util（两个包共用：robomme_ood 经 shim 借用同一模块）——ee 位姿的四元数与 RPY 连续性。
+"""Official rpy_util (shared by both packages: robomme_ood borrows the same module via shim): quaternion and RPY continuity of the ee pose.
 
-手算算例：绕 z 转 90° 的 wxyz = (cos45°, 0, 0, sin45°)；四元数 q 与 −q 表示同一旋转，按上一帧点积取号；
-yaw 从 3.1 跨到 −3.1（实际只转了 0.083 rad）时连续化成 3.1832；非有限或零范数四元数回退成单位四元数。
+Hand-computed examples: rotation of 90° about z is wxyz = (cos45°, 0, 0, sin45°); quaternions q and −q represent the same rotation, sign chosen by dot product with the previous frame;
+when yaw goes from 3.1 to −3.1 (actually only 0.083 rad of rotation) it is unwrapped to 3.1832; non-finite or zero-norm quaternions fall back to the identity quaternion.
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def test_sign_alignment():
     prev = torch.tensor([[S, 0, 0, S]])
     np.testing.assert_allclose(ru.align_quat_sign_with_prev_torch(q, prev).numpy(), [[S, 0, 0, S]], atol=1e-7)
     assert ru.align_quat_sign_with_prev_torch(q, None) is q
-    assert ru.align_quat_sign_with_prev_torch(q, torch.zeros(4)) is q  # 形状不符不对齐
+    assert ru.align_quat_sign_with_prev_torch(q, torch.zeros(4)) is q  # shape mismatch: no alignment
 
 
 def test_unwrap_across_pi():
@@ -63,13 +63,13 @@ def test_normalize_scales_to_unit():
 
 def test_pose_dict_pipeline_updates_cache_and_stays_continuous():
     p = torch.tensor([0.1, 0.2, 0.3])
-    yaws = [3.0, 3.1, -3.1, -3.0]  # 主值在 ±π 处跳变
+    yaws = [3.0, 3.1, -3.1, -3.0]  # principal value jumps at ±π
     prev_q = prev_rpy = None
     out = []
     for y in yaws:
         q = ru.rpy_xyz_to_quat_wxyz_torch(torch.tensor([0.0, 0.0, y], dtype=torch.float64))
         pose, prev_q, prev_rpy = ru.build_endeffector_pose_dict(p, q, prev_q, prev_rpy)
         assert pose["pose"] is p and set(pose) == {"pose", "quat", "rpy"}
-        assert torch.equal(prev_rpy, pose["rpy"]) and prev_rpy is not pose["rpy"]  # 缓存是副本
+        assert torch.equal(prev_rpy, pose["rpy"]) and prev_rpy is not pose["rpy"]  # the cache is a copy
         out.append(float(pose["rpy"][2]))
-    np.testing.assert_allclose(np.diff(out), [0.1, 2 * math.pi - 6.2, 0.1], atol=1e-9)  # 每帧真实转角
+    np.testing.assert_allclose(np.diff(out), [0.1, 2 * math.pi - 6.2, 0.1], atol=1e-9)  # true rotation per frame

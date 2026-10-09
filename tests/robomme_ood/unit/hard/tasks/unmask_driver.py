@@ -1,12 +1,12 @@
-"""VideoUnmask／ButtonUnmask／两个 Swap 任务真值表的公共原语：按「藏着第 k 种颜色方块的容器」抓放。
+"""Shared primitives for the VideoUnmask/ButtonUnmask/two Swap task truth tables: pick and place by "the container hiding the cube of the k-th color".
 
-藏物关系用俯视几何独立判定（方块中心与容器中心重合），不读生产的 ``bin_k`` 命名约定。
+The hiding relation is judged independently by top-view geometry (cube center coincides with container center), without reading production's ``bin_k`` naming convention.
 """
 from __future__ import annotations
 
 import numpy as np
 
-LIFT_BIN_Z = 0.2  # 容器抬起高度：高于 is_bin_pickup 的抬起判据
+LIFT_BIN_Z = 0.2  # container lift height: above the lift criterion of is_bin_pickup
 
 
 def bin_hiding(w, cube, bins):
@@ -34,5 +34,5 @@ def put_down(w, b):
 
 
 def colour_cubes(env):
-    """按生产 ``color_names`` 顺序给出每种颜色的被藏方块（任务表的第 k 次抓取对应第 k 种颜色）。"""
+    """Gives the hidden cube of each color in production ``color_names`` order (the k-th pick in the task table corresponds to the k-th color)."""
     return [getattr(env, f"target_cube_{name}") for name in env.color_names]

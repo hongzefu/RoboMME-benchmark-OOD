@@ -1,9 +1,9 @@
-"""MoveCube 新值档真值表（V9 只交付 xhard4）：执行段用演示指定的那一种方式（抓放／夹爪推／用杆推）把方块移到目标。
+"""MoveCube new-value tier truth table (V9 delivers only xhard4): in the execution segment move the cube to the goal using the one method the demonstration specified (pick-and-place/gripper push/stick push).
 
-三种方式各取包内第一个用到它的正式局（方式由规格 ``initializations.1.way_idx`` 选出，与环境实际 ``way`` 核对）。
-演示段在 CPU 世界里走完，复位时方块与目标换到执行段布局（生产 step 的复位逻辑）。
-错误与边界：抓放方式下直接推到目标、抓杆即失败；推的方式下抓起方块即失败；杆推方式下先推方块即失败；
-推到判定含夹爪须张开；距离阈值内外。
+Each of the three methods uses the first packaged formal episode that uses it (method selected by the spec's ``initializations.1.way_idx``, cross-checked with the env's actual ``way``).
+The demonstration segment is walked through in the CPU world; on reset the cube and goal switch to the execution layout (production step's reset logic).
+Errors and boundaries: under pick-and-place, pushing directly to the goal or grasping the peg fails; under push, picking up the cube fails; under stick push, pushing the cube first fails;
+reaching the goal requires the gripper open; inside/outside the distance threshold.
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def _row_for_way(way):
     for k, row in enumerate(rows):
         if ways[row["spec"]["initializations"]["1"]["way_idx"]] == way:
             return k
-    raise AssertionError(f"包内没有用 {way} 的正式局")
+    raise AssertionError(f"no packaged formal episode uses {way} as its method")
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ def _onto_goal(w, obj, offset=0.0):
 
 
 def _demo(w):
-    """演示段：按本局方式走一遍，然后模拟复位（reset_in_proecess 一步），停在执行段第一项。"""
+    """Demonstration segment: walk through once with this episode's method, then emulate the reset (one reset_in_proecess step), stopping at the first execution item."""
     env = w.env
     w.still()
     for _ in range(400):
@@ -73,7 +73,7 @@ def _demo(w):
             env.reset_in_proecess = False
             continue
         assert w.step()["fail"] is False, name
-    raise AssertionError("演示段未走完")
+    raise AssertionError("demonstration segment not finished")
 
 
 def test_grasp_putdown_way(world):
@@ -89,7 +89,7 @@ def test_grasp_putdown_way(world):
 def test_grasp_putdown_rejects_push_and_peg(world):
     w = world("grasp_putdown")
     _demo(w)
-    _onto_goal(w, w.env.cube)  # 没抓就推到目标
+    _onto_goal(w, w.env.cube)  # pushed to the goal without grasping
     assert w.step() == {"success": False, "fail": True}
     w = world("grasp_putdown")
     _demo(w)
@@ -101,7 +101,7 @@ def test_gripper_push_way_and_open_gripper_requirement(world):
     w = world("gripper_push")
     _demo(w)
     q = w.agent.robot.get_qpos().clone()
-    q[0, -2:] = 0.0  # 夹爪闭合：推到目标也不算（must_gripper_open）
+    q[0, -2:] = 0.0  # gripper closed: reaching the goal does not count either (must_gripper_open)
     w.agent.robot.set_qpos(q)
     _onto_goal(w, w.env.cube)
     assert w.step() == OK
@@ -129,14 +129,14 @@ def test_peg_push_way(world):
 def test_peg_push_rejects_cube_first_and_distance_boundary(world):
     w = world("peg_push")
     _demo(w)
-    _onto_goal(w, w.env.cube)  # 先推方块（没拿杆）
+    _onto_goal(w, w.env.cube)  # push the cube first (without taking the stick)
     assert w.step() == {"success": False, "fail": True}
     w = world("peg_push")
     _demo(w)
     w.grasp(w.env.grasp_target)
     w.step()
     w.agent.held = None
-    # 距离内外（不复刻生产阈值公式）：离目标中心两个方块边长不算推到，半个方块边长算推到
+    # inside/outside distance (without replicating production's threshold formula): two cube edge lengths from the goal center does not count as reached, half a cube edge length does
     edge = 2 * w.env.cube_half_size
     _onto_goal(w, w.env.cube, offset=2 * edge)
     assert w.step() == OK

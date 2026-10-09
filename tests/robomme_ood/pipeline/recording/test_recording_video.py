@@ -1,8 +1,8 @@
-"""C10 录像合成：真实调用 RobommeRecordWrapper 的 ``_video_*`` 方法与 close 的落盘命名。
+"""C10 video composition: real calls to RobommeRecordWrapper's ``_video_*`` methods and the file naming of close.
 
-- 日常门禁：合成帧 ≥64×64，核 h5 原像素不被 overlay 修改、NO RECORD 过滤、不补 reset 帧、
-  帧尺寸归一、成功／FAILED／NO_OBJECT 命名、编码失败不影响 h5；mp4 写出替换为记账替身。
-- slow：真实 libx264 编码并读回帧数（依赖 ffmpeg，缺失时记「未验证」）。
+- Daily gate: synthetic frames ≥64×64; checks the h5 raw pixels are not modified by the overlay, NO RECORD filtering, no reset frame added,
+  frame size normalization, success/FAILED/NO_OBJECT naming, encoding failure does not affect h5; mp4 writing is replaced with a bookkeeping stand-in.
+- slow: real libx264 encoding and read back of the frame count (needs ffmpeg; recorded as "Unverified" if missing).
 """
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def wrapper(mod, tmp_path):
 
 @pytest.fixture
 def writes(mod, monkeypatch):
-    """记账替身：记下每次写 mp4 的文件名与帧（不调 ffmpeg）。"""
+    """Bookkeeping stand-in: records the file name and frames of every mp4 write (does not call ffmpeg)."""
     log = []
 
     def fake_write(self, frames, output_path):
@@ -61,47 +61,47 @@ def writes(mod, monkeypatch):
 
 def test_prepare_step_frames_leaves_inputs_untouched(wrapper):
     base = front_rgb(5)
-    wrist = wrist_rgb(5)[:32, :32].copy()  # 尺寸不同 → 走缩放分支
+    wrist = wrist_rgb(5)[:32, :32].copy()  # different size → takes the resize branch
     seg = segmentation(True)[..., 0]
     seg_result = seg.copy()
     snap = [copy.deepcopy(x) for x in (base, wrist, seg, seg_result)]
     wrapper.segmentation_points = [[14, 24]]
     out = wrapper._video_prepare_step_frames(base, wrist, seg, seg_result, np.zeros_like(seg))
     for before, after in zip(snap, (base, wrist, seg, seg_result)):
-        assert before.tobytes() == after.tobytes()  # 写进 h5 的原像素没被 overlay 改动
+        assert before.tobytes() == after.tobytes()  # raw pixels written into h5 not modified by the overlay
     comb = out["combined"]
     assert comb.shape == (IMG, 5 * IMG, 3) and comb.dtype == np.uint8
     np.testing.assert_array_equal(comb[:, :IMG], base)
-    # 第 3 块：原始分割上色——方块内为该 id 的颜色、方块外为黑
+    # tile 3: raw segmentation colorized: inside the square the color of that id, outside black
     color = wrapper.color_map[SEG_ID]
     assert comb[SEG_ROWS[0], 2 * IMG + SEG_COLS[0]].tolist() == color
     assert comb[0, 2 * IMG].tolist() == [0, 0, 0]
-    # 第 5 块：底图加红点，红点在缓存中心 (14, 24)
+    # tile 5: base image plus red dot, red dot at the cached center (14, 24)
     assert comb[14, 4 * IMG + 24].tolist() == RED
     assert base[14, 24].tolist() != RED
-    # online 行：分割结果全 0 → 第 4 块全黑
+    # online row: segmentation all 0 → tile 4 all black
     assert not out["combined_online"][:, 3 * IMG:4 * IMG].any()
 
 
 def test_apply_overlays_border_and_text(wrapper):
-    """只断言性质：文字区叠在原帧上方、行数多则更高、存在最小高度；原像素区不变。具体行高不在本块钉值。"""
+    """Asserts properties only: the text area is stacked above the original frame, more lines make it taller, there is a minimum height; the original pixel area is unchanged. Exact line height is not pinned in this block."""
     frame = front_rgb(3)
     snap = frame.copy()
-    out3 = wrapper._video_apply_overlays(frame, True, ["a b", None, "c", "d"])  # None 被过滤 → 3 行
+    out3 = wrapper._video_apply_overlays(frame, True, ["a b", None, "c", "d"])  # None filtered out → 3 lines
     assert frame.tobytes() == snap.tobytes()
     h3 = out3.shape[0] - IMG
     body = out3[h3:]
-    assert body[0, 0].tolist() == RED and body[-1, -1].tolist() == RED  # 演示帧加红框
+    assert body[0, 0].tolist() == RED and body[-1, -1].tolist() == RED  # demonstration frames get a red border
     np.testing.assert_array_equal(body[IMG // 4:-IMG // 4, IMG // 4:-IMG // 4], frame[IMG // 4:-IMG // 4, IMG // 4:-IMG // 4])
     plain = wrapper._video_apply_overlays(frame, False, [])
-    np.testing.assert_array_equal(plain, frame)  # 非演示、无目标 → 原样
+    np.testing.assert_array_equal(plain, frame)  # non-demonstration, no goal → unchanged
     one = wrapper._video_apply_overlays(frame, False, "x")
     two = wrapper._video_apply_overlays(frame, False, ["x", "y"])
     h1, h2 = one.shape[0] - IMG, two.shape[0] - IMG
-    np.testing.assert_array_equal(one[h1:], frame)  # 非演示：原像素区逐像素不变
-    assert 0 < h1 < h3  # 3 行文字区高于 1 行
-    assert h1 == h2  # 存在最小高度：1 行与 2 行都取到同一最小值
-    assert out3.shape[1] == one.shape[1] == IMG  # 宽度不变
+    np.testing.assert_array_equal(one[h1:], frame)  # non-demonstration: original pixel area unchanged pixel by pixel
+    assert 0 < h1 < h3  # 3-line text area taller than 1-line
+    assert h1 == h2  # minimum height exists: 1 line and 2 lines both take the same minimum
+    assert out3.shape[1] == one.shape[1] == IMG  # width unchanged
 
 
 def test_append_step_frame_normalizes_size(wrapper):
@@ -136,14 +136,14 @@ def test_flush_skips_when_empty_or_disabled(wrapper, writes, tmp_path):
 
 def test_flush_swallows_encoder_failure(wrapper, mod, monkeypatch):
     def boom(self, frames, path):
-        raise RuntimeError("编码器坏了")
+        raise RuntimeError("encoder broken")
 
     monkeypatch.setattr(mod.RobommeRecordWrapper, "_video_write_mp4", boom)
     wrapper.video_frames = [front_rgb(1)]
-    wrapper._video_flush_episode_files(True, "p", "s")  # 不抛
+    wrapper._video_flush_episode_files(True, "p", "s")  # does not raise
 
 
-# ---------------------------------------------------------------- 闭环里的录像
+# ---------------------------------------------------------------- video in the closed loop
 
 
 EPISODE = [
@@ -154,7 +154,7 @@ EPISODE = [
     Event(name="pick", demo=False, task_index=1),
     Event(name="pick", demo=False, task_index=2, terminated=True, success=True),
 ]
-RECORDED = 4  # 非 NO RECORD 的步数；reset 不产生帧
+RECORDED = 4  # number of non-NO RECORD steps; reset produces no frame
 
 
 def _goal_patch(mod, monkeypatch, goals):
@@ -168,7 +168,7 @@ def test_episode_video_frames_and_name(mod, writes, monkeypatch, tmp_path):
     frames = writes[0][1]
     assert len(frames) == RECORDED
     assert len({f.shape for f in frames}) == 1
-    # 演示帧（前 2 帧）四角是红框；在线帧底部左角是底图像素（B 通道 200），不是红
+    # demonstration frames (first 2) have red borders in the corners; online frames' bottom-left corner is base image pixel (B channel 200), not red
     for f in frames[:2]:
         assert f[-1, 0].tolist() == RED
     for f in frames[2:]:
@@ -176,7 +176,7 @@ def test_episode_video_frames_and_name(mod, writes, monkeypatch, tmp_path):
     with h5py.File(path, "r") as f:
         ep = f["episode_3"]
         n = len([k for k in ep if k.startswith("timestep_")])
-        assert n == RECORDED  # 录像帧与 h5 记录一一对应
+        assert n == RECORDED  # video frames correspond one-to-one with h5 records
         np.testing.assert_array_equal(ep["timestep_0/obs/front_rgb"][()], front_rgb(2))
         assert [s.decode() for s in ep["setup/task_goal"][()]] == ["Goal A, now", "goal/b"]
 
@@ -204,7 +204,7 @@ def test_fail_recover_suffix(mod, writes, monkeypatch, tmp_path, fail, suffix):
 
 
 def test_no_object_video_when_target_missing(mod, writes, monkeypatch, tmp_path):
-    """子目标切换时分割图里找不到目标 → 该帧另进 NO_OBJECT 录像，grounded 文本退回任务名。"""
+    """When the target cannot be found in the segmentation map at a subgoal switch → that frame also goes into the NO_OBJECT video, and grounded text falls back to the task name."""
     _goal_patch(mod, monkeypatch, [])
     events = [
         Event(name="pick", task_index=0, subgoal="pick <obj>"),
@@ -222,7 +222,7 @@ def test_no_object_video_when_target_missing(mod, writes, monkeypatch, tmp_path)
 
 def test_encoder_failure_does_not_block_h5(mod, monkeypatch, tmp_path):
     def boom(self, frames, path):
-        raise RuntimeError("编码器坏了")
+        raise RuntimeError("encoder broken")
 
     monkeypatch.setattr(mod.RobommeRecordWrapper, "_video_write_mp4", boom)
     _, _, path, _ = run_episode(mod.RobommeRecordWrapper, tmp_path, EPISODE)
@@ -230,7 +230,7 @@ def test_encoder_failure_does_not_block_h5(mod, monkeypatch, tmp_path):
         assert len([k for k in f["episode_3"] if k.startswith("timestep_")]) == RECORDED
 
 
-# ---------------------------------------------------------------- slow：真实编码
+# ---------------------------------------------------------------- slow: real encoding
 
 
 def _need_ffmpeg():
@@ -239,7 +239,7 @@ def _need_ffmpeg():
 
         imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:  # noqa: BLE001
-        pytest.skip("未验证：缺 ffmpeg")
+        pytest.skip("Unverified: ffmpeg missing")
 
 
 @pytest.mark.slow

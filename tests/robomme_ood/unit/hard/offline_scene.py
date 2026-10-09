@@ -1,20 +1,20 @@
-"""离线场景（hard 包单元测试公共夹具）：不建 SAPIEN 场景，跑任务类**真实的** ``__init__`` 与 ``_load_scene``。
+"""Offline scene (shared fixture for hard-package unit tests): builds no SAPIEN scene, runs the task class's **real** ``__init__`` and ``_load_scene``.
 
-手法（以旧蓝本 ``test_v5_xhard_pickswing::OfflineScene`` 为基础，推广到 16 个任务）：
+Technique (based on the old blueprint ``test_v5_xhard_pickswing::OfflineScene``, generalized to 16 tasks):
 
-* ``BaseEnv.__init__`` 换成只设几个属性的替身（``num_envs``、``device``、``scene``），任务类自己的 ``__init__``
-  （取值点、SpecRecorder、难度归一）原样执行——测试不复刻任何取值逻辑；
-* ``scene`` 是 :class:`FakeScene`：``create_actor_builder()``／``create_articulation_builder()`` 返回只记录
-  碰撞形状与初始位姿的构建器，``build*`` 返回带 float32 批维位姿的 :class:`FakeActor`；``actors.build_cube``、
-  ``build_button`` 等**真实**构建函数照常执行，只是最终落到假构建器上；
-* ``get_actor_obb`` 换成与 ManiSkill ``get_component_mesh`` 同一条 trimesh 路径（盒子／圆柱 → 局部位姿 → 合并 →
-  实体位姿 → ``bounding_box_oriented``），对静态体与无碰撞体照真实行为抛错；
-* 各任务模块里的 ``TableSceneBuilder`` 换成空构建器（桌面与机器人不参与布局取值）。
+* ``BaseEnv.__init__`` is replaced with a stand-in that only sets a few attributes (``num_envs``, ``device``, ``scene``); the task class's own ``__init__``
+  (value sites, SpecRecorder, difficulty normalization) runs unchanged; the tests replicate no value logic;
+* ``scene`` is a :class:`FakeScene`: ``create_actor_builder()``/``create_articulation_builder()`` return builders that only record
+  collision shapes and initial poses, ``build*`` returns a :class:`FakeActor` with float32 batched poses; **real** builder functions such as ``actors.build_cube``,
+  ``build_button`` run as usual, they just end up on the fake builders;
+* ``get_actor_obb`` is replaced with the same trimesh path as ManiSkill ``get_component_mesh`` (box/cylinder → local pose → merge →
+  entity pose → ``bounding_box_oriented``), raising for static and collision-free bodies just like the real behavior;
+* ``TableSceneBuilder`` in each task module is replaced with an empty builder (table and robot do not take part in layout values).
 
-保真度的检验就是包内规格回放：离线回放 ``native_episode_spec`` 时每个取值点的「原抽样」都要与冻结值逐位相等
-（``mismatches == 0``），任何一处几何替身与真实不符都会让拒绝采样多抽或少抽而暴露出来。
+Fidelity is checked by packaged spec replay: when ``native_episode_spec`` is replayed offline, the "original draw" at every value site must equal the frozen value bit for bit
+(``mismatches == 0``); any geometry stand-in that differs from reality would make rejection sampling draw more or fewer times and be exposed.
 
-本文件计划原写在 ``tests/robomme_ood/_support/offline_scene.py``；``_support`` 归主会话，T4 先放在本目录，是否上移由主会话定。
+The plan originally put this file at ``tests/robomme_ood/_support/offline_scene.py``; ``_support`` belongs to the main session, so T4 keeps it in this directory for now, and the main session decides whether to move it up.
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ _MP_UTILS = importlib.import_module("mani_skill.examples.motionplanning.base_mot
 from robomme_ood.robomme_env.utils import object_generation as og
 
 ALL_TASKS = hard_specs.ALL_TASKS
-# 运行时四项与评估链一致（取自生产常量，不在测试里另写）
+# The four runtime items match the evaluation chain (taken from production constants, not rewritten in tests)
 RUNTIME = {k: v for k, v in hard_specs.RUNTIME.items()}
 
 
@@ -52,7 +52,7 @@ def task_class(task: str):
     return getattr(task_module(task), task)
 
 
-# ---------------------------------------------------------------- 位姿与形状
+# ---------------------------------------------------------------- poses and shapes
 
 
 def _as_sapien_pose(pose) -> sapien.Pose:
@@ -64,11 +64,11 @@ def _as_sapien_pose(pose) -> sapien.Pose:
         p = pose.p.reshape(-1, 3)[0].detach().cpu().numpy().astype(np.float32)
         q = pose.q.reshape(-1, 4)[0].detach().cpu().numpy().astype(np.float32)
         return sapien.Pose(p=p, q=q)
-    raise TypeError(f"不支持的位姿类型 {type(pose).__name__}")
+    raise TypeError(f"unsupported pose type {type(pose).__name__}")
 
 
 def _batched(pose: sapien.Pose) -> Pose:
-    """真实 CPU 仿真里 actor.pose 是 float32、带批维 1 的 ManiSkill Pose。"""
+    """In real CPU simulation actor.pose is a float32 ManiSkill Pose with batch dim 1."""
     return Pose.create_from_pq(
         torch.tensor(np.asarray(pose.p, dtype=np.float32).reshape(1, 3)),
         torch.tensor(np.asarray(pose.q, dtype=np.float32).reshape(1, 4)),
@@ -76,7 +76,7 @@ def _batched(pose: sapien.Pose) -> Pose:
 
 
 class FakeShape:
-    """碰撞或可视形状：盒体带 ``half_size``（与 physx／render 盒体同为 float32 数组），其余形状不带该属性。"""
+    """Collision or visual shape: boxes carry ``half_size`` (a float32 array like physx/render boxes), other shapes do not have this attribute."""
 
     def __init__(self, kind: str, local_pose, **dims):
         self.kind = kind
@@ -93,7 +93,7 @@ class FakeShape:
         return self.local_pose
 
     def mesh(self) -> trimesh.Trimesh:
-        """与 ``mani_skill.utils.geometry.trimesh_utils.get_component_meshes`` 同一套 trimesh 原语。"""
+        """The same trimesh primitives as ``mani_skill.utils.geometry.trimesh_utils.get_component_meshes``."""
         if self.kind == "box":
             m = trimesh.creation.box(extents=2 * self.half_size)
         elif self.kind == "cylinder":
@@ -109,7 +109,7 @@ class FakeShape:
 
 
 class _ShapeRecorder:
-    """构建器公共部分：记录碰撞形状与盒体可视形状；其余视觉与物理属性设置一律接受并忽略。"""
+    """Common builder part: records collision shapes and box visual shapes; all other visual and physical property setters are accepted and ignored."""
 
     def _init_shapes(self):
         self.shapes: list[FakeShape] = []
@@ -135,13 +135,13 @@ class _ShapeRecorder:
         self.name = name
 
     def __getattr__(self, name):
-        # 其余 add_*_visual 与 set_* 物理／渲染属性：接受并忽略；未知的碰撞形状一律拒绝（防止静默丢形状）
+        # Other add_*_visual and set_* physics/render properties: accepted and ignored; unknown collision shapes are always rejected (to prevent silently dropping shapes)
         if name.startswith(("add_", "set_")) and "collision" not in name:
             return lambda *a, **k: None
-        raise AttributeError(f"{type(self).__name__} 没有替身方法 {name}")
+        raise AttributeError(f"{type(self).__name__} has no stand-in method {name}")
 
 
-# 刚体种类 → 真实 physx 组件类（find_component_by_type 用 issubclass 判定，与 sapien 一致）
+# Rigid body kind → real physx component class (find_component_by_type uses issubclass, same as sapien)
 _COMPONENT_CLASS = {
     "dynamic": physx.PhysxRigidDynamicComponent,
     "kinematic": physx.PhysxRigidDynamicComponent,
@@ -167,7 +167,7 @@ class FakeJointDesc:
     def __getattr__(self, name):
         if name.startswith("set_"):
             return lambda *a, **k: None
-        raise AttributeError(f"FakeJointDesc 没有替身方法 {name}")
+        raise AttributeError(f"FakeJointDesc has no stand-in method {name}")
 
 
 class FakeRigidComponent:
@@ -215,7 +215,7 @@ class FakeEntity:
 
 
 class FakeActor:
-    """actor／link 替身：名字、float32 批维位姿、刚体种类、碰撞与可视形状，以及 ``_objs[0]`` 实体接口。"""
+    """actor/link stand-in: name, float32 batched pose, rigid body kind, collision and visual shapes, and the ``_objs[0]`` entity interface."""
 
     def __init__(self, name, pose: sapien.Pose, body: str, shapes, visuals=(), initial_pose=None,
                  joint=None, parent=None):
@@ -228,9 +228,9 @@ class FakeActor:
         self._fake_parent = parent
         self._component = FakeRigidComponent(self)
         self._entity = FakeEntity(self)
-        # ManiSkill：Actor._objs 是 sapien.Entity；Link._objs 是 PhysxArticulationLinkComponent
+        # ManiSkill: Actor._objs is sapien.Entity; Link._objs is PhysxArticulationLinkComponent
         self._objs = [self._component] if body == "link" else [self._entity]
-        # ManiSkill Actor.initial_pose：构建器给定的初始位姿（Pose.create 转成批维）
+        # ManiSkill Actor.initial_pose: initial pose given by the builder (Pose.create converts to batched)
         self.initial_pose = None if initial_pose is None else Pose.create(initial_pose)
 
     @property
@@ -318,7 +318,7 @@ class FakeArticulation:
             if parent is None:
                 pose = root_pose
             else:
-                # 关节零位：child = parent · pose_in_parent · pose_in_child⁻¹
+                # Joint zero position: child = parent · pose_in_parent · pose_in_child⁻¹
                 pose = parent._pose * lb.pose_in_parent * lb.pose_in_child.inv()
             joint = FakeJointDesc(lb.joint_name or "", lb.pose_in_parent, lb.pose_in_child)
             link = FakeActor(lb.name, pose, "link", lb.shapes, lb.visuals, joint=joint, parent=parent)
@@ -326,7 +326,7 @@ class FakeArticulation:
             self.links.append(link)
             if lb.joint_name is not None:
                 self.joints.append(joint)
-        # 自由度 = 非固定关节数（按钮的移动副 1 个；杆的两段是固定关节，0 个）
+        # Degrees of freedom = number of non-fixed joints (the button's prismatic joint is 1; the stick's two segments are fixed joints, 0)
         self.dof = sum(1 for lb in link_builders if lb.joint_name is not None and getattr(lb, "joint_type", None) != "fixed")
         self._fake_qpos = [0.0] * len(self.joints)
 
@@ -339,7 +339,7 @@ class FakeArticulation:
         self.set_pose(value)
 
     def set_pose(self, value):
-        """根位姿改动时各 link 随根刚性平移旋转（关节保持零位）。"""
+        """When the root pose changes, each link translates and rotates rigidly with the root (joints stay at zero)."""
         new = _as_sapien_pose(value)
         delta = new * self._pose.inv()
         for link in self.links:
@@ -350,7 +350,7 @@ class FakeArticulation:
         return self._pose
 
     def get_qpos(self):
-        """关节位置（批维 1）；按钮按下深度 = -qpos，由真值表的世界替身经 :meth:`set_qpos` 改写。"""
+        """Joint positions (batch dim 1); button press depth = -qpos, rewritten via :meth:`set_qpos` by the truth-table world stand-in."""
         return torch.tensor([self._fake_qpos], dtype=torch.float32)
 
     @property
@@ -375,7 +375,7 @@ class FakeArticulation:
     def __getattr__(self, name):
         if name.startswith("set_"):
             return lambda *a, **k: None
-        raise AttributeError(f"FakeArticulation 没有替身方法 {name}")
+        raise AttributeError(f"FakeArticulation has no stand-in method {name}")
 
 
 class FakeArticulationBuilder:
@@ -400,11 +400,11 @@ class FakeArticulationBuilder:
     def __getattr__(self, name):
         if name.startswith("set_"):
             return lambda *a, **k: None
-        raise AttributeError(f"FakeArticulationBuilder 没有替身方法 {name}")
+        raise AttributeError(f"FakeArticulationBuilder has no stand-in method {name}")
 
 
 class FakeScene:
-    """只够 ``_load_scene`` 用的场景替身；记录建出的 actor 与 articulation。"""
+    """Scene stand-in just sufficient for ``_load_scene``; records the actors and articulations built."""
 
     def __init__(self):
         self.device = torch.device("cpu")
@@ -421,14 +421,14 @@ class FakeScene:
     def actor_by_name(self, name):
         hits = [a for a in self.actors if a.name == name]
         if len(hits) != 1:
-            raise KeyError(f"{name}: {len(hits)} 个")
+            raise KeyError(f"{name}: {len(hits)} found")
         return hits[0]
 
 
 def fake_get_actor_obb(actor, to_world_frame=True, vis=False):
-    """与真实 ``get_actor_obb`` 同路径：取实体上的 ``PhysxRigidDynamicComponent``（静态体取不到 → 与真实一样在
-    ``get_component_meshes(None)`` 处抛 AttributeError），合并碰撞网格（无形状 → ``assert mesh is not None`` 失败），
-    乘实体位姿后取 ``bounding_box_oriented``。"""
+    """Same path as the real ``get_actor_obb``: take the entity's ``PhysxRigidDynamicComponent`` (static bodies have none → raises AttributeError at
+    ``get_component_meshes(None)`` just like reality), merge collision meshes (no shapes → ``assert mesh is not None`` fails),
+    apply the entity pose and take ``bounding_box_oriented``."""
     comp = actor._objs[0].find_component_by_type(physx.PhysxRigidDynamicComponent)
     if comp is None:
         raise AttributeError("'NoneType' object has no attribute 'get_collision_shapes'")
@@ -445,7 +445,7 @@ def fake_get_actor_obb(actor, to_world_frame=True, vis=False):
     return mesh.bounding_box_oriented
 
 
-TCP_UP_Z = 0.25  # TCP 初始高度（远离桌面与全部判定阈值）
+TCP_UP_Z = 0.25  # initial TCP height (far from the table and all verdict thresholds)
 
 
 def _pose_at(xyz, q=(1.0, 0.0, 0.0, 0.0)) -> Pose:
@@ -453,7 +453,7 @@ def _pose_at(xyz, q=(1.0, 0.0, 0.0, 0.0)) -> Pose:
                                torch.tensor([list(map(float, q))], dtype=torch.float32))
 
 
-#: 机械臂基座位姿（ManiSkill TableSceneBuilder.initialize 把 Panda 放在 x=-0.615 处；InsertPeg 读它定朝向）
+#: Arm base pose (ManiSkill TableSceneBuilder.initialize places Panda at x=-0.615; InsertPeg reads it to set orientation)
 ROBOT_BASE_XYZ = (-0.615, 0.0, 0.0)
 
 
@@ -495,7 +495,7 @@ class FakeAgent:
 
 
 class FakeRenderMaterial:
-    """``sapien.render.RenderMaterial`` 替身：真实构造器要起渲染上下文（实测每次约 0.6 s），布局取值不读材质。"""
+    """Stand-in for ``sapien.render.RenderMaterial``: the real constructor starts a render context (measured about 0.6 s each), and layout values do not read materials."""
 
     def __init__(self, *a, **k):
         pass
@@ -503,7 +503,7 @@ class FakeRenderMaterial:
     def __getattr__(self, name):
         if name.startswith("set_"):
             return lambda *a, **k: None
-        raise AttributeError(f"FakeRenderMaterial 没有替身方法 {name}")
+        raise AttributeError(f"FakeRenderMaterial has no stand-in method {name}")
 
 
 class _FakeTableSceneBuilder:
@@ -518,14 +518,14 @@ class _FakeTableSceneBuilder:
 
 
 def _fake_base_init(self, *args, **kwargs):
-    """``BaseEnv.__init__`` 替身：不建仿真，只设 ``_load_scene`` 需要的几个属性。"""
+    """Stand-in for ``BaseEnv.__init__``: builds no simulation, only sets the few attributes ``_load_scene`` needs."""
     self.num_envs = 1
     self.device = torch.device("cpu")
     self._sim_device = self.device
     self.robot_uids = kwargs.get("robot_uids")
     self._fake_base_kwargs = dict(kwargs)
     self.scene = FakeScene()
-    # 真实 BaseEnv 在 _load_scene 之前先 _load_agent；原三档有的任务在建场时就读 agent（如 PickHighlight 的按钮失败判据）
+    # Real BaseEnv runs _load_agent before _load_scene; some original-tier tasks read agent while building the scene (e.g. PickHighlight's button failure criterion)
     self.agent = FakeAgent()
 
 
@@ -541,7 +541,7 @@ def _modules_with(name: str):
 
 @contextlib.contextmanager
 def offline_scene():
-    """装上／卸下离线替身（进程内、可恢复；不落盘）。"""
+    """Install/uninstall the offline stand-ins (in-process, reversible; not written to disk)."""
     saved: list[tuple[Any, str, Any]] = []
 
     def patch(obj, name, value):
@@ -551,7 +551,7 @@ def offline_scene():
     try:
         patch(BaseEnv, "__init__", _fake_base_init)
         patch(sapien.render, "RenderMaterial", FakeRenderMaterial)
-        # 被测代码有的在函数体内 ``from ...base_motionplanner.utils import get_actor_obb``，源模块也要换
+        # Some code under test does ``from ...base_motionplanner.utils import get_actor_obb`` inside function bodies, so the source module must be replaced too
         for mod in [_MP_UTILS, *_modules_with("get_actor_obb")]:
             patch(mod, "get_actor_obb", fake_get_actor_obb)
         for mod in _modules_with("TableSceneBuilder"):
@@ -564,8 +564,8 @@ def offline_scene():
 
 def make_offline(task: str, *, seed: int, difficulty: str, sampling_config=None, spec=None, load: bool = True,
                  **extra):
-    """按评估链的参数（runtime 四项 + seed + difficulty + sampling_config + native_episode_spec）实例化任务类，
-    再跑一次真实 ``_load_scene``。必须在 :func:`offline_scene` 内调用。"""
+    """Instantiate the task class with the evaluation chain's parameters (four runtime items + seed + difficulty + sampling_config + native_episode_spec),
+    then run the real ``_load_scene`` once. Must be called inside :func:`offline_scene`."""
     cls = task_class(task)
     kwargs = dict(RUNTIME)
     kwargs.update(seed=int(seed), difficulty=difficulty)
@@ -585,7 +585,7 @@ def run_offline(task: str, **kw):
         return make_offline(task, **kw)
 
 
-# ---------------------------------------------------------------- 包内规格
+# ---------------------------------------------------------------- packaged specs
 
 
 _SPECS_CACHE: dict[str, tuple[dict, list[dict]]] = {}
@@ -598,13 +598,13 @@ def _load(tier: str) -> tuple[dict, list[dict]]:
 
 
 def packaged(tier: str) -> tuple[dict, list[dict]]:
-    """包内某档规格（经生产 ``load_specs`` 全量校验）；同进程缓存，调用方拿到的是深拷贝。"""
+    """Packaged specs of a tier (fully validated by production ``load_specs``); cached in-process, callers get a deep copy."""
     header, rows = _load(tier)
     return copy.deepcopy(header), copy.deepcopy(rows)
 
 
 def delivered_cells() -> list[tuple[str, str]]:
-    """V9 实际交付的 (任务, 档)，取自生产常量 ``V9_CELLS``。"""
+    """(task, tier) pairs actually delivered in V9, taken from the production constant ``V9_CELLS``."""
     return sorted(hard_specs.V9_CELLS)
 
 
@@ -617,7 +617,7 @@ def cells_of(*tasks: str) -> list[tuple[str, str]]:
 
 
 def delivered_rows(task: str, tier: str, n: int | None = None) -> tuple[dict, list[dict]]:
-    """包内该格的正式局（``delivered``），按 candidate 升序（与 builder 的排序一致）；``n`` 取前 n 行（深拷贝）。"""
+    """Formal episodes (``delivered``) of this packaged cell, in ascending candidate order (same as the builder's ordering); ``n`` takes the first n rows (deep copy)."""
     header, rows = _load(tier)
     chosen = sorted((r for r in rows if r["task"] == task and hard_specs.delivered(r)),
                     key=lambda r: int(r["candidate"]))
@@ -626,13 +626,13 @@ def delivered_rows(task: str, tier: str, n: int | None = None) -> tuple[dict, li
 
 
 def replay_row(task: str, tier: str, header: dict, row: dict):
-    """把包内一行规格按评估链参数回放到离线 ``_load_scene``，返回 env。"""
+    """Replay a packaged spec row into the offline ``_load_scene`` with the evaluation chain's parameters; return env."""
     return run_offline(task, seed=row["seed"], difficulty=tier, sampling_config=header["sampling_config"][task],
                        spec=row["spec"])
 
 
 def export_spec(task: str, tier: str, seed: int, header: dict | None = None):
-    """导出模式跑一次离线 ``_load_scene``；返回 (env, spec 文档)。"""
+    """Run the offline ``_load_scene`` once in export mode; return (env, spec document)."""
     if header is None:
         header, _ = packaged(tier)
     env = run_offline(task, seed=seed, difficulty=tier, sampling_config=header["sampling_config"][task])

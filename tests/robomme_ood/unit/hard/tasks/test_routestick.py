@@ -1,8 +1,8 @@
-"""RouteStick 新值档真值表（xhard1～xhard3）：执行段按演示的落点序列、每段从演示规定的一侧绕过杆。
+"""RouteStick new-value tier truth table (xhard1-xhard3): in the execution segment follow the demonstrated stop sequence, going around each peg from the side the demonstration specified.
 
-方向判据：本段 TCP 轨迹相对「上一落点 → 本落点」连线的平均叉积，正为 clockwise、负为 counterclockwise
-（生产 ``direction_fail``）。测试在连线中点外侧放一个途经点（高于全部高度阈值），侧向由手算法向量给出。
-错误与边界：落点对但绕向反即失败；途经点恰在连线上（叉积为零）即失败；失败锁存；跳到别的落点即失败。
+Direction criterion: the mean cross product of this segment's TCP trajectory relative to the "previous stop → this stop" chord, positive is clockwise, negative counterclockwise
+(production ``direction_fail``). The test places a waypoint outside the chord midpoint (above all height thresholds), with the side given by a hand-computed normal vector.
+Errors and boundaries: right stop but wrong winding fails; waypoint exactly on the chord (zero cross product) fails; failure is latched; jumping to another stop fails.
 """
 from __future__ import annotations
 
@@ -25,14 +25,14 @@ def world():
 
 
 def _via(w, prev, cur, side):
-    """途经点：连线中点沿左法向 (−ly, lx) 偏移 side×0.1 m；side=+1 叉积为正（clockwise）。"""
+    """Waypoint: chord midpoint offset by side×0.1 m along the left normal (−ly, lx); side=+1 gives a positive cross product (clockwise)."""
     p, c = w.xyz(prev)[:2], w.xyz(cur)[:2]
     line = c - p
     n = np.array([-line[1], line[0]]) / np.linalg.norm(line)
     return (p + c) / 2 + side * 0.1 * n
 
 
-VIA_STEPS = 8  # 途经点停留步数：轨迹点以途经点为主（复位那一刻的 TCP 点也在第一段轨迹里，见交回说明）
+VIA_STEPS = 8  # steps spent at the waypoint: trajectory points are dominated by the waypoint (the TCP point at the moment of reset is also in the first segment's trajectory, see the handover notes)
 
 
 def _segment(w, prev, cur, side):
@@ -69,13 +69,13 @@ def test_reversed_side_fails_and_latches(world, tier):
     path, dirs = w.env.selected_buttons, w.env.swing_directions
     assert _segment(w, path[0], path[1], -_sign(dirs[0]))["fail"] is True
     SD.hover(w, w.xyz(path[1])[:2])
-    assert w.step()["fail"] is True, "失败锁存"
+    assert w.step()["fail"] is True, "failure latched"
 
 
 @pytest.mark.parametrize("tier", TIERS[:1])
 def test_path_on_the_line_fails(world, tier):
-    """第二段整段沿连线走（叉积为零）→ 失败。用第二段：第一段的轨迹缓存里还留着复位那一刻的 TCP 点
-    （生产 ``_gripper_xy_trace`` 在执行段开始时不清空，见交回的生产问题），第一段之后缓存才被清空。"""
+    """The whole second segment moves along the chord (zero cross product) → failure. The second segment is used because the first segment's trajectory cache still holds the TCP point from the moment of reset
+    (production ``_gripper_xy_trace`` is not cleared at the start of the execution segment, see the production issue in the handover notes); the cache is only cleared after the first segment."""
     w = world(tier)
     SD.run_demo(w)
     path, dirs = w.env.selected_buttons, w.env.swing_directions

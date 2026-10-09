@@ -1,8 +1,8 @@
-"""VideoRepick 新值档真值表（xhard1、xhard2）：演示拾放目标 → 多次交换 → 执行段把同一个方块（身份，不是位置）拾放 N 次后按按钮。
+"""VideoRepick new-value tier truth table (xhard1, xhard2): demonstration picks and places the target → several swaps → in the execution segment pick and place the same cube (identity, not position) N times, then press the button.
 
-经任务类真实 ``step``（交换动画在 step 里）走完演示与交换；N 取自本局 ``num_repeats``。
-错误与边界：执行段抓「目标交换前所在位置」上现在的方块即失败；少拾放一次就按按钮即失败（时间窗内）；
-演示里那一次拾放不计入执行段次数。
+The demonstration and swaps are walked through via the task class's real ``step`` (swap animation is in step); N comes from this episode's ``num_repeats``.
+Errors and boundaries: in the execution segment picking the cube now at "the target's pre-swap position" fails; pressing the button one pick-and-place short fails (within the time window);
+the one pick-and-place in the demonstration does not count toward the execution segment count.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def world():
 
 
 def _demo_and_swaps(w):
-    """演示段：抓起目标 → 放下 → 静止 → 等全部交换结束 → 复位。返回目标在交换前的位置。"""
+    """Demonstration segment: pick up target → put down → stay still → wait for all swaps to end → reset. Returns the target's pre-swap position."""
     env = w.env
     cube = env.target_cube_1
     w.grasp(cube)
@@ -38,7 +38,7 @@ def _demo_and_swaps(w):
         out = w.step()
         assert out == OK, int(env.elapsed_steps)
     first_exec = next(i for i, t in enumerate(env.task_list) if not t["demonstration"])
-    assert w.stage == first_exec, "演示与交换项全部完成"
+    assert w.stage == first_exec, "all demonstration and swap items complete"
     return origin
 
 
@@ -69,9 +69,9 @@ def test_one_short_then_button_fails(world, tier):
     assert w.step()["fail"] is True
 
 
-#: 选格（T13 离线探针，xhard1／xhard2 各前 8 个正式局）：「目标交换前位置上现在是另一个方块」
-#: 在 xhard1 第 0、2、5 局成立，xhard2 第 0、1、2、5、6 局成立；第 0 局两档都成立（原 skip 实际未触发），
-#: 仍按档显式钉格并把触发条件写成前置断言，包内规格若变动使条件不再成立则响亮失败而不是静默 skip。
+#: Cell choice (T13 offline probe, first 8 formal episodes each of xhard1/xhard2): "another cube is now at the target's pre-swap position"
+#: holds in xhard1 episodes 0, 2, 5 and xhard2 episodes 0, 1, 2, 5, 6; episode 0 holds in both tiers (the original skip never actually triggered),
+#: but cells are still pinned explicitly per tier with the trigger condition as a precondition assertion; if the packaged specs change so the condition no longer holds, the test fails loudly instead of silently skipping.
 OLD_POS_K = {"xhard1": 0, "xhard2": 0}
 
 
@@ -81,6 +81,6 @@ def test_original_position_cube_is_a_trap(world, tier):
     origin = _demo_and_swaps(w)
     impostor = bin_at(w, origin, w.env.spawned_cubes)
     assert impostor is not None and impostor is not w.env.target_cube_1, \
-        "选格失效：目标交换前的位置上现在没有别的方块，须重选 OLD_POS_K"
+        "cell choice invalid: no other cube is now at the target's pre-swap position; reselect OLD_POS_K"
     w.grasp(impostor)
     assert w.step() == {"success": False, "fail": True}

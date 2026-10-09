@@ -1,8 +1,8 @@
-"""VideoUnmaskSwap 新值档真值表（xhard1、xhard2）：容器经多次交换后，抓起仍藏着目标颜色方块的那个容器（跟随身份）。
+"""VideoUnmaskSwap new-value tier truth table (xhard1, xhard2): after the containers are swapped several times, pick up the container still hiding the target-color cube (following identity).
 
-经真实 ``step`` 走完揭示与全部交换窗口（方块随容器移动由生产的停放／落回逻辑完成），再按交换后的几何藏物关系抓放：
-正例成功；抓「目标方块交换前所在位置」上现在的容器（若已换成别的容器）即失败；抬干扰容器即失败；
-交换没走完（静止项未完成）之前抓对的容器不推进。
+Walk through the reveal and all swap windows via the real ``step`` (cubes moving with containers is done by production's parking/drop-back logic), then pick and place by the post-swap geometric hiding relation:
+positive case succeeds; picking the container now at "the target cube's pre-swap position" (if it has been replaced by another container) fails; lifting a distractor container fails;
+picking the right container before the swaps finish (stillness item not complete) does not advance.
 """
 from __future__ import annotations
 
@@ -27,16 +27,16 @@ def world():
 def test_follow_identity_through_swaps_succeeds(world, tier):
     w = world(tier)
     S.run_through_swaps(w)
-    assert w.stage == 1, "交换全部走完后静止项完成"
+    assert w.stage == 1, "stillness item complete after all swaps finish"
     bins = S.bins_in_order(w)
     assert [b.name for b in bins] == [w.env.selected_bins[i].name for i in range(w.env.pick_times)]
     assert S.pick_sequence(w, bins) == {"success": True, "fail": False}
 
 
-#: 选格（T13 离线探针，xhard1／xhard2 各前 8 个正式局）：「目标方块交换前位置上现在是另一个容器」
-#: 在 xhard1 第 0、1、2、4、7 局成立，xhard2 第 1、3、4、5、7 局成立；原先只参数化 xhard1 第 0 局，
-#: xhard2 从未覆盖（其第 0 局不成立）。按档钉能触发的局，触发条件写成前置断言：包内规格若变动使条件
-#: 不再成立，用例响亮失败而不是静默 skip。
+#: Cell choice (T13 offline probe, first 8 formal episodes each of xhard1/xhard2): "another container is now at the target cube's pre-swap position"
+#: holds in xhard1 episodes 0, 1, 2, 4, 7 and xhard2 episodes 1, 3, 4, 5, 7; originally only xhard1 episode 0 was parametrized,
+#: and xhard2 was never covered (its episode 0 does not hold). Episodes that can trigger it are pinned per tier with the trigger condition as a precondition assertion: if the packaged specs change so the condition
+#: no longer holds, the test fails loudly instead of silently skipping.
 OLD_POS_K = {"xhard1": 0, "xhard2": 1}
 
 
@@ -48,7 +48,7 @@ def test_original_position_is_a_trap(world, tier):
     right = S.bins_in_order(w)[0]
     impostor = S.bin_at(w, origin[target.name], w.env.spawned_bins)
     assert impostor is not None and impostor is not right, \
-        "选格失效：目标方块交换前的位置上现在没有别的容器，须重选 OLD_POS_K"
+        "cell choice invalid: no other container is now at the target cube's pre-swap position; reselect OLD_POS_K"
     D.lift(w, impostor)
     assert w.tick() == {"success": False, "fail": True}
 

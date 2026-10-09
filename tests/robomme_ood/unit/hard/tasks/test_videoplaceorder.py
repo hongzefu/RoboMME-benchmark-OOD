@@ -1,8 +1,8 @@
-"""VideoPlaceOrder 新值档真值表（xhard1、xhard2）：执行段把被问方块放到它在演示里「第 k 次」放到的目标台（时间序）。
+"""VideoPlaceOrder new-value tier truth table (xhard1, xhard2): in the execution segment place the asked cube on the target stand it was placed on "the k-th time" in the demonstration (temporal order).
 
-答案由演示段实际发生的放置事件推出：被问方块按时间排的第 ``which_in_subset`` 次目标台放置（k 是题面里的序数）。
-目标台在演示收尾时交换位置，答案跟随台的身份。错误与边界：第一次／最后一次（若不是第 k 次）冒充、
-答案台交换前所在位置上现在的台、执行段抓别的方块均为失败；按钮插在放置序列中间不影响序数。
+The answer is derived from the placement events that actually happened in the demonstration segment: the asked cube's ``which_in_subset``-th target-stand placement in time order (k is the ordinal in the prompt).
+Target stands swap positions at the end of the demonstration, and the answer follows the stand's identity. Errors and boundaries: impersonation by the first/last placement (if not the k-th),
+the stand now at the answer stand's pre-swap position, and picking another cube in the execution segment are all failures; a button press in the middle of the placement sequence does not affect the ordinal.
 """
 from __future__ import annotations
 
@@ -41,17 +41,17 @@ def _place(w, target):
 def test_place_onto_kth_visit_succeeds(world, tier, k):
     w = world(tier, k)
     log = DD.run_demo(w)
-    assert log.button_at is not None, "演示里按过按钮"
+    assert log.button_at is not None, "the button was pressed in the demonstration"
     visits = _visits(w, log)
     answer = visits[w.env.which_in_subset - 1]
     assert answer is w.env.target_target
     assert _place(w, answer) == {"success": True, "fail": False}
 
 
-#: 选格（T12 实测，xhard1／xhard2 各前 8 个正式局）：首／末次冒充在第 0 局即可构造（8/8 局都可）；
-#: 「答案台交换前位置上现在的台」只在部分局存在（xhard1 第 1、2、4、7 局，xhard2 第 0～6 局），
-#: 原先固定取 xhard1 第 0 局时该分支不成立、断言空转。下面按档钉确定能触发的局，并把触发条件写成前置断言：
-#: 包内规格若变动使条件不再成立，用例响亮失败而不是静默空转。
+#: Cell choice (measured in T12, first 8 formal episodes each of xhard1/xhard2): first/last impersonation can be built in episode 0 (possible in 8/8 episodes);
+#: "the stand now at the answer stand's pre-swap position" exists only in some episodes (xhard1 episodes 1, 2, 4, 7; xhard2 episodes 0-6);
+#: when xhard1 episode 0 was used for everything, this branch did not hold and the assertion was vacuous. Below, episodes that can trigger it are pinned per tier, and the trigger condition is written as a precondition assertion:
+#: if the packaged specs change so the condition no longer holds, the test fails loudly instead of silently doing nothing.
 ORDINAL_K = {"xhard1": 0, "xhard2": 0}
 OLD_POS_K = {"xhard1": 1, "xhard2": 0}
 
@@ -63,7 +63,7 @@ def test_other_ordinal_fails(world, tier):
     visits = _visits(w, log)
     answer = visits[w.env.which_in_subset - 1]
     decoy = next((t for t in (visits[0], visits[-1]) if t is not answer), None)
-    assert decoy is not None, "选格失效：本局首末两次都落在答案台上，序数冒充无从构造，须重选 ORDINAL_K"
+    assert decoy is not None, "cell choice invalid: first and last placements both landed on the answer stand in this episode, so ordinal impersonation cannot be built; reselect ORDINAL_K"
     assert _place(w, decoy) == {"success": False, "fail": True}
 
 
@@ -75,7 +75,7 @@ def test_answer_old_position_and_wrong_cube_fail(world, tier):
     answer = _visits(w, log)[w.env.which_in_subset - 1]
     impostor = bin_at(w, pre[answer.name], w.env.targets)
     assert impostor is not None and impostor is not answer, \
-        "选格失效：答案台交换前的位置上现在没有别的台，须重选 OLD_POS_K"
+        "cell choice invalid: no other stand is now at the answer stand's pre-swap position; reselect OLD_POS_K"
     assert _place(w, impostor) == {"success": False, "fail": True}
     w = World.build(TASK, tier)
     DD.run_demo(w)

@@ -1,6 +1,6 @@
-"""VideoUnmaskSwap 新值档（xhard1、xhard2）：内环交换次数／时间窗、藏物、干扰容器与外环交换均衡，包内规格回放与自导出。
+"""VideoUnmaskSwap new-value tiers (xhard1, xhard2): inner-loop swap count/time windows, hidden objects, distractor containers and balanced outer-loop swaps, packaged spec replay and self-export.
 
-Swap 任务的离线建场较重（含交换路径可行性预判），每格只把第 1 行放进日常门禁，第 2、3 行标 slow。
+Offline scene building of Swap tasks is heavy (includes swap-path feasibility pre-check), so only row 1 of each cell is in the daily gate; rows 2 and 3 are marked slow.
 """
 from __future__ import annotations
 

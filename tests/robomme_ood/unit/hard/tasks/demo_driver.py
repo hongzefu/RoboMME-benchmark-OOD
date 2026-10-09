@@ -1,6 +1,6 @@
-"""VideoPlaceButton／VideoPlaceOrder 真值表的演示段驱动：按任务表里演示项的对象（``segment``）在 CPU 世界里
-执行抓起、放到目标、按按钮、静止，经真实 ``step`` 推进到执行段；同时把实际发生的放置事件按时间记下来，
-供测试用手写规则独立推出答案（而不是读生产算好的 ``target_target``）。
+"""Demonstration-segment driver for the VideoPlaceButton/VideoPlaceOrder truth tables: following the objects of the demonstration items in the task table (``segment``), performs in the CPU world
+pick up, place onto target, press button, stay still, advancing through the real ``step`` to the execution segment; also records the placement events that actually happened in time order,
+so tests can derive the answer independently with hand-written rules (instead of reading production's precomputed ``target_target``).
 """
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 
 @dataclass
 class DemoLog:
-    placements: list = field(default_factory=list)  # [(方块 actor, 落点 actor, 是否在按钮之后)]
-    button_at: int | None = None  # 按钮在第几次放置之后按下（放置事件计数）
+    placements: list = field(default_factory=list)  # [(cube actor, landing actor, whether after the button)]
+    button_at: int | None = None  # after which placement the button was pressed (placement event count)
 
 
 def run_demo(w, max_steps: int = 2000) -> DemoLog:
@@ -32,13 +32,13 @@ def run_demo(w, max_steps: int = 2000) -> DemoLog:
         elif name == "press the button":
             w.press(env.button)
         out = w.step()
-        assert out["fail"] is False, f"演示段失败：{name}"
+        assert out["fail"] is False, f"demonstration segment failed: {name}"
         if name == "press the button" and w.stage > before:
             w.unpress(env.button)
             log.button_at = len(log.placements)
-    raise AssertionError("演示段未在步数上限内走完")
+    raise AssertionError("demonstration segment did not finish within the step limit")
 
 
 def target_placements(log: DemoLog, cube, targets):
-    """被问方块落到「目标台」（不含放回原位／桌面落点）的时间序列：[(落点, 是否在按钮之后)]。"""
+    """Time series of the asked cube landing on a "target stand" (excluding return-to-origin/table landings): [(landing, whether after the button)]."""
     return [(t, after) for c, t, after in log.placements if c is cube and t in targets]

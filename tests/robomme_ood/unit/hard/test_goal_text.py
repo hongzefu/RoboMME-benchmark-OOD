@@ -1,7 +1,7 @@
-"""16 任务新值档的目标文本（``utils/task_goal.get_language_goal``）：每个交付格取包内第 1 个正式局离线建场，
-目标文本必须与本局实际的对象、次数、序数、方向绑定。
+"""Goal text of the 16 tasks' new-value tiers (``utils/task_goal.get_language_goal``): each delivered cell builds the scene offline from packaged formal episode 1,
+and the goal text must be bound to this episode's actual objects, counts, ordinals and directions.
 
-期望独立得出：英文基数／序数词用本文件的小表（与生产的词表无关），颜色、次数取本局实际状态。
+Expectations are derived independently: English cardinal/ordinal words use this file's small table (independent of production's word table), colors and counts use the episode's actual state.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ ORDINAL = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth", 6: "six
 
 
 class _Wrapper:
-    """评估链里调用方传入的是包装器：``self.env.unwrapped`` 取环境，其余属性转发到环境。"""
+    """In the evaluation chain the caller passes a wrapper: ``self.env.unwrapped`` gets the env, other attributes forward to the env."""
 
     def __init__(self, env):
         self.env = type("E", (), {"unwrapped": env})()
@@ -50,7 +50,7 @@ def test_unmask_lists_hidden_colours_in_pick_order(task, tier):
     n = getattr(env, "xhard_pick_count", None) or env.pick_times
     (g,) = goals
     pos = [g.index(f"hiding the {c} cube") for c in env.color_names[:n]]
-    assert pos == sorted(pos), "颜色顺序与抓取顺序一致"
+    assert pos == sorted(pos), "color order matches pick order"
     assert g.count("hiding the") == n
     assert g.startswith("first press") == task.startswith("Button")
 

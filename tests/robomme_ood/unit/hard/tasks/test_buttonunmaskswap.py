@@ -1,7 +1,7 @@
-"""ButtonUnmaskSwap 新值档真值表（xhard1、xhard2）：先后按下两个不同按钮 → 等交换结束 → 抓起仍藏着目标颜色方块的容器。
+"""ButtonUnmaskSwap new-value tier truth table (xhard1, xhard2): press two different buttons in turn → wait for the swaps to end → pick up the container still hiding the target-color cube.
 
-错误与边界：重复按同一个按钮不推进；同一帧按下两个按钮只推进一项、第二项再也完成不了；
-缺第二个按钮不推进；交换结束前抓对的容器不推进；交换后抓干扰容器即失败；重建环境后按钮列表恢复为两个。
+Errors and boundaries: pressing the same button again does not advance; pressing two buttons in the same frame advances only one item and the second can never be completed;
+missing the second button does not advance; picking the right container before the swaps end does not advance; picking a distractor container after the swaps fails; after rebuilding the env the button list is back to two.
 """
 from __future__ import annotations
 
@@ -33,11 +33,11 @@ def _tap(w, button):
 @pytest.mark.parametrize("tier", TIERS)
 def test_two_buttons_then_follow_identity_succeeds(world, tier):
     w = world(tier)
-    assert len(w.env.button_list) == 2, "新建环境按钮列表恢复为两个（无跨局残留）"
+    assert len(w.env.button_list) == 2, "a newly built env restores the button list to two (no cross-episode residue)"
     assert _tap(w, w.env.button_left) == OK and w.stage == 1
     assert _tap(w, w.env.button_right) == OK and w.stage == 2
     S.run_through_swaps(w)
-    assert w.stage == 3, "等待交换结束项完成"
+    assert w.stage == 3, "the wait-for-swaps item is complete"
     bins = S.bins_in_order(w)
     assert [b.name for b in bins] == [w.env.selected_bins[i].name for i in range(w.env.pick_times)]
     assert S.pick_sequence(w, bins) == {"success": True, "fail": False}
@@ -54,13 +54,13 @@ def test_both_buttons_in_one_frame_strands_second_item(world, tier):
     assert w.stage == 1 and w.env.button_list == []
     for _ in range(3):
         _tap(w, w.env.button_right)
-    assert w.stage == 1, "两个按钮已在同一帧被移出列表，第二项无法再完成"
+    assert w.stage == 1, "both buttons were removed from the list in the same frame, so the second item can no longer be completed"
 
 
 @pytest.mark.parametrize("tier", TIERS[:1])
 def test_repeat_button_missing_button_early_pick_then_distractor(world, tier):
-    """一局里依次核：重复按同一个按钮不推进；缺第二个按钮时抓对的容器不推进；按齐两个按钮、
-    交换走完后抬干扰容器即失败（Swap 建场较重，几条负例共用一局）。"""
+    """Checks in sequence within one episode: pressing the same button again does not advance; with the second button missing, picking the right container does not advance; with both buttons pressed
+    and the swaps finished, lifting a distractor container fails (Swap scene building is heavy, so several negative cases share one episode)."""
     w = world(tier)
     _tap(w, w.env.button_left)
     assert _tap(w, w.env.button_left) == OK and w.stage == 1

@@ -1,8 +1,8 @@
-"""SwingXtimes 新值档真值表（xhard1～xhard5，N 取自本局 ``num_repeats``）：抓起 → 右→左摆 N 轮 → 放下 → 按钮为成功。
+"""SwingXtimes new-value tier truth table (xhard1-xhard5, N from this episode's ``num_repeats``): pick up → swing right→left N rounds → put down → button is success.
 
-错误与边界：左右反序不推进；在同一侧停留多步只计一次摆动（step 的进出滞回）；摆动总数超过上限即失败；
-抓非目标方块、提前按按钮即失败；距离阈值含等号、高度阈值不含等号（阈值改成 float32 精确可表示的值后核对）。
-全部经任务类真实 ``step``（摆动计数在 step 里）与 ``evaluate``。
+Errors and boundaries: reversed left/right order does not advance; staying several steps on the same side counts as one swing (step's enter/exit hysteresis); total swings above the cap fails;
+picking a non-target cube or pressing the button early fails; the distance threshold includes equality, the height threshold does not (checked after replacing thresholds with values exactly representable in float32).
+Everything goes through the task class's real ``step`` (swing counting is in step) and ``evaluate``.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from ..world import World, cpu_world
 TASK = "SwingXtimes"
 TIERS = O.tiers_of(TASK)
 OK = {"success": False, "fail": False}
-SWING_Z = 0.08  # 摆到目标上方的高度：低于进入阈值
+SWING_Z = 0.08  # height when swinging above a target: below the enter threshold
 AWAY_Z = 0.25
 
 
@@ -31,7 +31,7 @@ def _over(w, target, z=SWING_Z):
 
 
 def _between(w):
-    """离开两个目标：移到两目标连线中点上方高处（水平距两目标都远超退出阈值）。"""
+    """Leave both targets: move high above the midpoint of the line between the two targets (horizontal distance to both far beyond the exit threshold)."""
     a, b = w.xyz(w.env.target_right)[:2], w.xyz(w.env.target_left)[:2]
     mid = (a + b) / 2
     w.move(w.env.target_cube, (mid[0], mid[1], AWAY_Z))
@@ -81,7 +81,7 @@ def test_left_before_right_does_not_advance(world, tier):
     _pick(w)
     _over(w, w.env.target_left)
     assert w.step() == OK
-    assert w.stage == 1, "先摆左侧不推进（要求右→左）"
+    assert w.stage == 1, "swinging left first does not advance (right→left required)"
     _between(w)
     _over(w, w.env.target_right)
     assert w.step() == OK and w.stage == 2
@@ -99,7 +99,7 @@ def test_staying_on_one_side_counts_once(world, tier):
 
 @pytest.mark.parametrize("tier", TIERS)
 def test_exceeding_max_swings_fails(world, tier):
-    """摆动次数超过生产上限 ``max_swings`` 即失败（在多摆的那一轮之后）。"""
+    """Swinging more than the production cap ``max_swings`` fails (after the extra round)."""
     w = world(tier)
     _pick(w)
     limit = w.env.max_swings
@@ -131,8 +131,8 @@ def test_non_target_pickup_and_early_button_fail(world, tier):
 
 @pytest.mark.parametrize("tier", TIERS[:1])
 def test_swing_distance_inclusive_and_height_exclusive(world, tier):
-    """阈值等号：任务表的摆动判定读 sampling 参数 ``swing_thresholds``；把它换成 float32 精确可表示的
-    1/32 m 与 1/8 m，目标移到原点：水平距离恰为阈值 → 算到达（``<=``）；高度恰为阈值 → 不算（``<``）。"""
+    """Threshold equality: the task table's swing verdict reads the sampling parameter ``swing_thresholds``; replace it with float32-exact
+    1/32 m and 1/8 m and move the targets to the origin: horizontal distance exactly at the threshold → reached (``<=``); height exactly at the threshold → not reached (``<``)."""
     w = world(tier)
     _pick(w)
     thr = w.env._sampling["parameters"]["swing_thresholds"]

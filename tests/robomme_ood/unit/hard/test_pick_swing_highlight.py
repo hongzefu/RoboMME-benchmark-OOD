@@ -1,7 +1,7 @@
-"""PickXtimes／SwingXtimes／PickHighlight 新值档：离线真实 ``_load_scene`` 的布局、包内规格回放与自导出。
+"""PickXtimes/SwingXtimes/PickHighlight new-value tiers: layout of the real offline ``_load_scene``, packaged spec replay and self-export.
 
-参数化维度 = 各任务 V9 实际交付的档（``V9_CELLS``）。期望值来自包内 header 内嵌的 ``sampling_config``（该档的
-decision 子树）与手算几何（两两中心距、区域边界），不复刻生产的取值逻辑。
+Parametrization dimension = tiers actually delivered per task in V9 (``V9_CELLS``). Expected values come from the ``sampling_config`` embedded in the packaged header (that tier's
+decision subtree) and hand-computed geometry (pairwise center distances, region bounds); production's value logic is not replicated.
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def _inside(actor, center, half):
     return abs(x - center[0]) <= half[0] + 1e-9 and abs(y - center[1]) <= half[1] + 1e-9
 
 
-# ── 共有：回放、自导出、篡改负例 ─────────────────────────────────────────────
+# ── common: replay, self-export, tampering negative case ─────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("task,tier,k", C.replay_cases(*TASKS))
@@ -55,7 +55,7 @@ def test_tampered_spec_is_detected(task, tier):
     C.check_tamper_detected(task, tier)
 
 
-# ── PickXtimes／SwingXtimes：方块数、干扰块、间距、区域 ─────────────────────────
+# ── PickXtimes/SwingXtimes: cube count, distractors, spacing, region ─────────────────────────
 
 
 @pytest.mark.parametrize("task,tier", O.cells_of("PickXtimes", "SwingXtimes"))
@@ -64,18 +64,18 @@ def test_cube_counts_spacing_and_regions(task, tier):
     dec = _decision(task, tier)
     sub = dec[tier]
     colors = sub["distractor"]["colors"]
-    # 干扰块：颜色与个数等于本档 decision；三块有色候选数等于 decision.color[tier]
+    # distractors: colors and count equal this tier's decision; number of colored candidates among the three equals decision.color[tier]
     assert sorted(a.name for a in env.distractor_cubes) == sorted(f"cube_{c}_0" for c in colors)
     assert len(env.target_candidates) == dec["color"][tier]
     assert set(env.all_cubes) == set(env.target_candidates) | set(env.distractor_cubes)
     assert len(env.all_cubes) == len(env.target_candidates) + len(colors)
-    # 目标唯一且是有色候选之一；判失败集合 = 除目标外的全部方块（含全部干扰块）
+    # the target is unique and one of the colored candidates; the failure set = all cubes except the target (including all distractors)
     assert env.target_cube in env.target_candidates
     assert set(env.non_target_cubes) == set(env.all_cubes) - {env.target_cube}
     assert set(env.distractor_cubes) <= set(env.non_target_cubes)
     lo, hi = dec["number_range"][tier]
     assert lo <= env.num_repeats <= hi
-    # 手算：两两中心距不小于本档 min_center_dist_m
+    # by hand: pairwise center distance not below this tier's min_center_dist_m
     assert _min_pair(env.all_cubes) >= sub["min_center_dist_m"] - 1e-6
     reg = sub["distractor"]
     assert all(_inside(a, reg["region_center"], reg["region_half_size"]) for a in env.distractor_cubes)
@@ -90,7 +90,7 @@ def test_cube_counts_spacing_and_regions(task, tier):
 
 @pytest.mark.parametrize("task,tier", O.cells_of("PickXtimes", "SwingXtimes"))
 def test_grasping_any_non_target_cube_fails(task, tier):
-    """判失败集合：执行段第一步抓起任一非目标方块（含干扰块）即 fail；抓目标不 fail。"""
+    """Failure set: picking up any non-target cube (including distractors) at the first execution step is fail; picking the target is not."""
     with cpu_world():
         names = [a.name for a in World.build(task, tier).env.non_target_cubes]
         for name in names:
@@ -103,7 +103,7 @@ def test_grasping_any_non_target_cube_fails(task, tier):
         assert w.evaluate()["fail"] is False
 
 
-# ── PickHighlight：方块数、高亮数、颜色下限、区域 ─────────────────────────────
+# ── PickHighlight: cube count, highlight count, color lower bounds, region ─────────────────────────────
 
 
 @pytest.mark.parametrize("tier", O.tiers_of("PickHighlight"))
@@ -118,9 +118,9 @@ def test_pickhighlight_counts_colors_and_region(tier):
     assert set(env.target_cubes) <= set(env.all_cubes)
     reg = dec["cube_region"]
     assert all(_inside(a, reg["region_center"], reg["region_half_size"]) for a in env.all_cubes)
-    # 方块不相交的必要条件：中心距 ≥ 2 × 半边长
+    # necessary condition for disjoint cubes: center distance ≥ 2 × half side length
     assert _min_pair(env.all_cubes) >= 2 * env.cube_half_size - 1e-6
-    # 颜色：本档 HSV 下限（饱和度、明度）对每块颜色成立——用标准库 colorsys 独立换算
+    # colors: this tier's HSV lower bounds (saturation, value) hold for each cube color, converted independently with the standard library colorsys
     hsv = dec[tier]["block_color_hsv"]
     for rgba in row["spec"]["objects"]["color_rgba"].values():
         _, s, v = colorsys.rgb_to_hsv(*rgba[:3])
@@ -129,11 +129,11 @@ def test_pickhighlight_counts_colors_and_region(tier):
 
 @pytest.mark.parametrize("tier", O.tiers_of("PickHighlight"))
 def test_pickhighlight_grasping_unhighlighted_cube_fails(tier):
-    """判失败集合：按下按钮之后，抓起任一未高亮方块即 fail（任务表第 2 项起的 failure_func）。"""
+    """Failure set: after pressing the button, picking up any non-highlighted cube is fail (failure_func from task table item 2 on)."""
     with cpu_world():
         w = World.build("PickHighlight", tier)
         others = [a for a in w.env.all_cubes if a not in w.env.target_cubes]
-        assert others, "本档必须有未高亮方块"
+        assert others, "this tier must have non-highlighted cubes"
         for victim in others:
             w = World.build("PickHighlight", tier)
             w.press(w.env.button)

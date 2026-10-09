@@ -1,7 +1,7 @@
-"""BinFill 新值档真值表（xhard1、xhard2）：按语言序列逐色投入正确数量的方块，再按按钮为成功。
+"""BinFill new-value tier truth table (xhard1, xhard2): drop the correct number of cubes color by color following the language sequence, then press the button for success.
 
-错误与边界：少投一块就按按钮、按钮阶段多投一块、投错颜色（数量对但颜色不对）、提前按按钮均为失败；
-投入后方块被移出场景，计数只加一次。颜色与配额取自本局（包内规格回放）。
+Errors and boundaries: pressing the button one cube short, dropping one extra cube in the button phase, dropping the wrong color (right count, wrong color), and pressing the button early are all failures;
+after being dropped a cube is removed from the scene and counted only once. Colors and quotas come from this episode (packaged spec replay).
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _cubes(w, color):
 
 
 def _drop_in(w, cube):
-    """抓起 → 放进孔板（落在孔板中心、松手、夹爪抬开）。"""
+    """Pick up → put into the hole board (land at the board center, release, lift the gripper away)."""
     w.grasp(cube)
     a = w.tick()
     w.release_onto(cube, w.xyz(w.env.board_with_hole)[:2])
@@ -67,7 +67,7 @@ def test_extra_cube_in_button_stage_fails(world, tier):
     plan = list(w.env.binfill_language_sequence)
     _fill(w, plan)
     color, n = plan[0]
-    spare = _cubes(w, color)[n]  # 同色多一块
+    spare = _cubes(w, color)[n]  # one extra cube of the same color
     w.grasp(spare)
     w.tick()
     w.release_onto(spare, w.xyz(w.env.board_with_hole)[:2])
@@ -76,7 +76,7 @@ def test_extra_cube_in_button_stage_fails(world, tier):
 
 @pytest.mark.parametrize("tier", TIERS[:1])
 def test_wrong_colour_right_total_fails_at_button(world, tier):
-    """总块数对、颜色不对：用多余颜色的方块顶替最后一种颜色的一块 → 按按钮时计数不符即失败。"""
+    """Right total count, wrong color: replace one cube of the last color with a cube of a surplus color → count mismatch when pressing the button means failure."""
     w = world(tier)
     plan = list(w.env.binfill_language_sequence)
     color, n = plan[-1]
@@ -96,7 +96,7 @@ def test_early_button_fails_and_binned_cube_counts_once(world, tier):
     cube = _cubes(w, color)[0]
     _drop_in(w, cube)
     assert getattr(w.env, f"{color}_cubes_in_bin") == 1
-    # 投入的方块被移出孔板，再 evaluate 不会重复计数
+    # dropped cubes are moved out of the hole board, so another evaluate does not count them twice
     w.tick()
     w.tick()
     assert getattr(w.env, f"{color}_cubes_in_bin") == 1

@@ -1,7 +1,7 @@
-"""分割过滤与带坐标子目标填充（``utils/segmentation_utils.process_segmentation``），自旧 ``test_audit_fix`` 迁入并补边界。
+"""Segmentation filtering and coordinate-filled subgoals (``utils/segmentation_utils.process_segmentation``), migrated from the old ``test_audit_fix`` with added boundaries.
 
-手写 64×64 分割图：每个物体是一个 3×3 方块，中心坐标手算；子目标里的 ``<>`` 依次填各目标中心 ``<y, x>``。
-打了 ``_robomme_refresh_on_move_px`` 的目标在子目标未切换时，中心移动严格超过阈值才刷新（等于阈值不刷新）。
+Hand-written 64×64 segmentation map: each object is a 3×3 square with hand-computed center; ``<>`` in the subgoal is filled in order with each target center ``<y, x>``.
+For targets marked ``_robomme_refresh_on_move_px``, when the subgoal has not switched, the center is refreshed only if it moves strictly more than the threshold (equal to the threshold does not refresh).
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def test_switch_fills_each_placeholder_with_its_target_centre():
     assert out["current_subgoal_segment_filled"] == "move <10, 20> to <40, 50>"
     assert out["segmentation_points"] == [[10, 20], [40, 50]]
     assert out["vis_obj_id_list"] == [1, 2]
-    # 过滤：只保留目标 id，其余像素清零
+    # filtering: keep only target ids, zero all other pixels
     assert set(np.unique(out["segmentation_result"])) == {0, 1, 2}
     assert out["updated_previous_subgoal_segment"] == "move <> to <>"
 
@@ -82,6 +82,6 @@ def test_tagged_target_refreshes_when_moved_beyond_threshold():
 
 
 def test_refresh_threshold_is_strict():
-    # 切比雪夫距离恰为 8：不刷新；9：刷新
+    # Chebyshev distance exactly 8: no refresh; 9: refresh
     assert _same_subgoal(8, (18, 10))["segmentation_points"] == [[10, 10]]
     assert _same_subgoal(8, (19, 10))["segmentation_points"] == [[19, 10]]

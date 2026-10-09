@@ -1,4 +1,4 @@
-"""VideoUnmask 新值档（xhard1～xhard4）：容器数、藏物、干扰容器与干扰方块、抓取次数，包内规格回放与自导出。"""
+"""VideoUnmask new-value tiers (xhard1-xhard4): container count, hidden objects, distractor containers and distractor cubes, pick count, packaged spec replay and self-export."""
 from __future__ import annotations
 
 import pytest

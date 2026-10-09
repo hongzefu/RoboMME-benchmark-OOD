@@ -1,7 +1,7 @@
-"""VideoUnmask 新值档真值表（xhard1～xhard4）：演示后静止 → 依次抓起「藏着第 k 种颜色方块的容器」、放下、再抓下一个。
+"""VideoUnmask new-value tier truth table (xhard1-xhard4): stay still after the demonstration → pick up "the container hiding the cube of the k-th color" in order, put it down, then pick the next.
 
-错误与边界：抓错容器（另一个区域内容器）即失败；两次抓取之间不放下而直接抬下一个即失败；
-抬起任一干扰容器即失败；静止不满 64 步不推进。抓取次数（单／双／三选）取自本档（包内规格回放）。
+Errors and boundaries: picking the wrong container (another in-region container) fails; lifting the next one directly without putting down between two picks fails;
+lifting any distractor container fails; staying still for fewer than 64 steps does not advance. Pick count (single/double/triple) comes from this tier (packaged spec replay).
 """
 from __future__ import annotations
 
@@ -23,13 +23,13 @@ def world():
 
 
 def _settle(w):
-    """第一项静止检查：机械臂静止若干步后推进（步数由生产 static_check 判，测试只推进到阶段变化）。"""
+    """First item, stillness check: advances after the arm stays still for some steps (the step count is judged by production static_check; the test only advances until the stage changes)."""
     w.still()
     for _ in range(200):
         out = w.tick()
         if w.stage >= 1:
             return out
-    raise AssertionError("静止 200 步仍未推进")
+    raise AssertionError("still not advanced after staying still 200 steps")
 
 
 def _bins_in_order(w):
@@ -79,7 +79,7 @@ def test_second_pick_without_putting_down_fails(world, tier):
     first, second = _bins_in_order(w)[:2]
     D.lift(w, first)
     assert w.tick() == OK
-    D.lift(w, second)  # 第一个还抬着
+    D.lift(w, second)  # the first one is still lifted
     assert w.tick() == {"success": False, "fail": True}
 
 

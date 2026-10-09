@@ -1,8 +1,8 @@
-"""碰撞与障碍几何（``utils/bin_collision.py``、``object_generation._obb2d_intersect``、``xhard.cube_obb2d_exact``、
-``InsertPeg`` 之外的二维 OBB 工具）：独立手算算例。
+"""Collision and obstacle geometry (``utils/bin_collision.py``, ``object_generation._obb2d_intersect``, ``xhard.cube_obb2d_exact``,
+2D OBB tools outside ``InsertPeg``): independent hand-computed examples.
 
-盒体尺寸取 2 的幂（0.25、0.5 m），中心距用精确可表示的值，使判定值的等号边界可逐位核对：
-相切（g == 0）归数值边界带而不是放行；穿入记 contact；最小判定值与形状遍历顺序无关。
+Box sizes are powers of 2 (0.25, 0.5 m) and center distances use exactly representable values, so equality boundaries of the verdict value can be checked bit for bit:
+touching (g == 0) falls in the numeric boundary band rather than passing; penetration is recorded as contact; the minimum verdict value is independent of shape traversal order.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def _cube(name, x, y=0.0, half=0.25, yaw=0.0):
     return BC.ObjectState(name=name, p=p, q=q, shapes=BC.cube_shape_specs(half))
 
 
-# ── sat_gap：三维分离轴判定值 ────────────────────────────────────────────────
+# ── sat_gap: 3D separating axis verdict value ────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("dx,expected", [(3.0, 1.0), (2.0, 0.0), (1.5, -0.5)])
@@ -33,7 +33,7 @@ def test_sat_gap_axis_aligned(dx, expected):
 
 
 def test_sat_gap_rotated_box():
-    # 绕 z 转 45° 的单位半边盒在 x 轴上的投影半径为 √2
+    # a unit half-size box rotated 45° about z has a projection radius of √2 on the x axis
     c, s = math.cos(math.pi / 4), math.sin(math.pi / 4)
     rot = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1.0]])
     g = BC.sat_gap(np.zeros(3), I3, np.ones(3), np.array([4.0, 0.0, 0.0]), rot, np.ones(3))
@@ -44,7 +44,7 @@ def test_sat_gap_nonfinite_is_nan():
     assert math.isnan(BC.sat_gap(np.zeros(3), I3, np.ones(3), np.array([np.inf, 0, 0]), I3, np.ones(3)))
 
 
-# ── check_pair_static：分类与等号边界 ─────────────────────────────────────────
+# ── check_pair_static: classification and equality boundary ─────────────────────────────────────────
 
 
 def test_tangent_is_numerical_boundary_not_clear():
@@ -65,7 +65,7 @@ def test_penetration_is_contact():
 
 
 def test_worst_pair_independent_of_shape_order():
-    """两个容器中心距 0.04：前后壁真穿入（g = −0.01），中央方块与前壁那一对恰好相切——必须报 contact。"""
+    """Two containers with center distance 0.04: the front/back walls truly penetrate (g = −0.01), and the central cube is exactly touching the front wall; must report contact."""
     h = 0.02
     shapes = BC.bin_shape_specs(h)
     a = BC.ObjectState("a", *BC.bin_actor_pose((0.0, 0.0), 0.0, h), shapes=shapes)
@@ -83,7 +83,7 @@ def test_missing_shapes_uncertified():
     assert rej.reason == "uncertified"
 
 
-# ── check_bin_layout：全场与粗筛 ──────────────────────────────────────────────
+# ── check_bin_layout: whole scene and coarse filter ──────────────────────────────────────────────
 
 
 def test_layout_reports_the_offending_pair_and_can_raise():
@@ -102,7 +102,7 @@ def test_layout_coarse_and_exhaustive_agree_on_verdict():
     assert g_full == pytest.approx(0.25, abs=1e-12) and g_fast >= 0.0
 
 
-# ── check_swap_sweep：连续交换路径 ────────────────────────────────────────────
+# ── check_swap_sweep: continuous swap paths ────────────────────────────────────────────
 
 
 def test_swap_clear_without_bystanders_on_lane():
@@ -114,20 +114,20 @@ def test_swap_clear_without_bystanders_on_lane():
 
 def test_swap_blocked_by_bystander_on_a_lane():
     a, b = _cube("a", 0.0, half=0.02), _cube("b", 0.3, half=0.02)
-    # 弯道中点在连线中点沿 ±法向偏 LANE_OFFSET（A 走 +、B 走 −）；两侧各放一块必然挡住其中一条
+    # the curve midpoint is offset by LANE_OFFSET along ±normal from the chord midpoint (A takes +, B takes −); one block on each side necessarily blocks one of them
     lanes = [_cube(f"s{k}", 0.15, y=k * BC.LANE_OFFSET, half=0.02) for k in (1, -1)]
     _, rej = BC.check_swap_sweep(a, b, lanes)
     assert rej is not None and rej.stage == "sweep"
 
 
-# ── 二维 OBB 与静止障碍构造 ────────────────────────────────────────────────────
+# ── 2D OBB and static obstacle construction ────────────────────────────────────────────────────
 
 
 def test_obb2d_intersect_includes_contact():
     a = og._build_new_cube_obb2d(0.0, 0.0, 0.25, 0.0)
-    assert og._obb2d_intersect(*a, *og._build_new_cube_obb2d(0.5, 0.0, 0.25, 0.0)) is True  # 相接算相交
+    assert og._obb2d_intersect(*a, *og._build_new_cube_obb2d(0.5, 0.0, 0.25, 0.0)) is True  # touching counts as intersecting
     assert og._obb2d_intersect(*a, *og._build_new_cube_obb2d(0.5 + 1e-9, 0.0, 0.25, 0.0)) is False
-    # 转 45° 后对角伸出：中心距 0.25 + 0.25√2 − 0.01 时相交
+    # after a 45° rotation the diagonal sticks out: intersects at center distance 0.25 + 0.25√2 − 0.01
     rot = og._build_new_cube_obb2d(0.25 + 0.25 * math.sqrt(2) - 0.01, 0.0, 0.25, math.pi / 4)
     assert og._obb2d_intersect(*a, *rot) is True
 
@@ -137,7 +137,7 @@ def test_cube_obb2d_exact_forms_and_guards():
     assert np.allclose(c, [0.1, -0.2]) and np.allclose(h, [0.03, 0.03])
     assert np.allclose(A.T @ A, np.eye(2)) and math.isclose(math.atan2(A[1, 0], A[0, 0]), math.pi / 6)
     same = og._build_new_cube_obb2d(0.1, -0.2, 0.02, math.pi / 6, 0.01)
-    assert all(np.array_equal(u, v) for u, v in zip((c, A, h), same)), "与放置逻辑逐位同构"
+    assert all(np.array_equal(u, v) for u, v in zip((c, A, h), same)), "bit-for-bit isomorphic with the placement logic"
     for bad in [((0, 0), 0.02, 0.0), ((0, 0, 0), 0.0, 0.0), ((0, 0, 0), 0.02, -1.0)]:
         with pytest.raises(ValueError):
             cube_obb2d_exact(*bad)

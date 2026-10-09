@@ -1,7 +1,7 @@
-"""按路径加载上游入口 scripts/dataset_replay.py（只读加载，不改文件）。
+"""Load the upstream entry script scripts/dataset_replay.py by path (read-only load, file not modified).
 
-该脚本在导入时把 ``CUDA_VISIBLE_DEVICES`` 改成 "1"；资源守卫要求测试进程里 GPU 不可见，
-所以加载后立即恢复原值。torch.cuda 的初始化另由资源守卫拦截。
+The script sets ``CUDA_VISIBLE_DEVICES`` to "1" on import; the resource guard requires the GPU to be invisible in the test process,
+so the original value is restored right after loading. torch.cuda initialization is separately blocked by the resource guard.
 """
 from __future__ import annotations
 

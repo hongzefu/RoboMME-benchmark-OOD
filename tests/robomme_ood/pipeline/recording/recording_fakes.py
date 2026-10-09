@@ -1,13 +1,13 @@
-"""录制与读回链路（C10／C11）的 CPU 替身与独立事件表。
+"""CPU stand-ins and independent event tables for the recording and read-back chain (C10/C11).
 
-替身只提供 ``RobommeRecordWrapper.step／reset／close`` 实际读取的属性与观测键，
-不构建任何 SAPIEN 场景、不触碰 GPU。期望值一律由事件表与手算得出，不复刻被测逻辑：
+The stand-ins only provide the attributes and observation keys actually read by ``RobommeRecordWrapper.step/reset/close``,
+build no SAPIEN scene and never touch the GPU. Expected values always come from event tables and hand computation, never by replicating the logic under test:
 
-- ``action_t`` 经替身环境「执行」后，关节读数 ``qpos`` 直接取 ``action_t`` 的前 7 维，
-  夹爪两指位置由 ``action_t[7]`` 的符号决定（>0 张开 0.04，否则闭合 0.0）；
-- 观测图像的像素值由「环境第几次 step」编码（reset 计 0，第 t 次 step 计 t），
-  因此录制里第 k 条记录的图像能直接反推它来自哪一次 step；
-- 分割图在固定方块区域写入物体 id，中心坐标手算。
+- after ``action_t`` is "executed" by the stand-in env, the joint reading ``qpos`` is just the first 7 dims of ``action_t``,
+  and the two finger positions are decided by the sign of ``action_t[7]`` (>0 open 0.04, otherwise closed 0.0);
+- observation image pixel values encode "which env step this is" (reset counts as 0, the t-th step as t),
+  so the image of the k-th recorded entry directly tells which step it came from;
+- the segmentation map writes the object id in a fixed square region, center computed by hand.
 """
 from __future__ import annotations
 
@@ -20,9 +20,9 @@ import numpy as np
 import sapien
 import torch
 
-# 合成图像边长（任务要求 ≥64×64）。
+# Synthetic image side length (task requires ≥64×64).
 IMG = 64
-# 分割图里目标物体的 id 与方块区域（行 10..19、列 20..29），中心手算为 (14, 24)。
+# Id of the target object and its square region in the segmentation map (rows 10..19, cols 20..29); center by hand is (14, 24).
 SEG_ID = 5
 SEG_ROWS = (10, 20)
 SEG_COLS = (20, 30)
@@ -30,7 +30,7 @@ SEG_CENTER_TEXT = "<14, 24>"
 
 
 def front_rgb(counter: int) -> np.ndarray:
-    """第 counter 次 step 之后的前视 RGB（reset 为 0）；列方向带梯度，避免整幅常数。"""
+    """Front RGB after the counter-th step (0 for reset); gradient along columns to avoid a constant image."""
     img = np.zeros((IMG, IMG, 3), dtype=np.uint8)
     img[..., 0] = (counter * 7) % 256
     img[..., 1] = np.arange(IMG, dtype=np.uint8)[None, :]
@@ -61,17 +61,17 @@ def segmentation(with_object: bool) -> np.ndarray:
     return seg
 
 
-# 相机参数：外参取 [I|0]（世界即相机系），内参 fx=fy=10、cx=cy=32。
+# Camera parameters: extrinsics [I|0] (world is the camera frame), intrinsics fx=fy=10, cx=cy=32.
 EXTRINSIC = np.hstack([np.eye(3), np.zeros((3, 1))]).astype(np.float32)
 INTRINSIC = np.array([[10.0, 0.0, 32.0], [0.0, 10.0, 32.0], [0.0, 0.0, 1.0]], dtype=np.float32)
 WRIST_EXTRINSIC = (EXTRINSIC * 2.0).astype(np.float32)
 WRIST_INTRINSIC = (INTRINSIC * 3.0).astype(np.float32)
-# 选择目标的世界坐标 (0.1, 0.2, 1.0) → 像素 x=10*0.1+32=33，y=10*0.2+32=34 → 存 [y, x]。
+# World coordinate of the selected target (0.1, 0.2, 1.0) → pixel x=10*0.1+32=33, y=10*0.2+32=34 → stored as [y, x].
 CHOICE_TARGET_XYZ = (0.1, 0.2, 1.0)
 CHOICE_POINT_YX = [34, 33]
 
 
-# 替身环境的两指读数只有两档（替身输入，不是被测常量）：张开与闭合。
+# The stand-in env's two-finger reading has only two levels (stand-in input, not a constant under test): open and closed.
 FINGER_OPEN = 0.04
 FINGER_CLOSED = 0.0
 
@@ -82,23 +82,23 @@ def finger_of(gripper_cmd: float) -> float:
 
 @dataclass
 class Event:
-    """事件表一行：第 t 次 step 时环境所处的子目标状态与环境返回值。"""
+    """One row of the event table: the env's subgoal state and return values at the t-th step."""
 
-    name: str = "pick the cube"  # current_task_name；"NO RECORD" 时录像器跳过
+    name: str = "pick the cube"  # current_task_name; the recorder skips "NO RECORD"
     demo: bool = False  # current_task_demonstration
     task_index: int = 0
     task_count: int = 3  # len(task_list)
     online_name: str = "online pick"
     subgoal: Optional[str] = "pick the cube at <obj>"
     seg_visible: bool = True
-    choice_text: str = ""  # current_choice_label（选项原文）
+    choice_text: str = ""  # current_choice_label (original option text)
     terminated: bool = False
     truncated: bool = False
     success: bool = False
-    # 本步执行前挂起的 waypoint：dict(p, q, type, phase_is_demo) 或 None
+    # waypoint pending before this step: dict(p, q, type, phase_is_demo) or None
     waypoint: Optional[dict] = None
-    elapsed: Optional[int] = None  # 覆盖 elapsed_steps（默认等于 step 计数）
-    # 本步执行前由外层（如演示包装器）改写的演示标志；None 表示不改
+    elapsed: Optional[int] = None  # overrides elapsed_steps (defaults to the step count)
+    # demonstration flag rewritten by an outer layer (e.g. a demonstration wrapper) before this step; None means unchanged
     pre_demo: Optional[bool] = None
 
 
@@ -109,7 +109,7 @@ class _Pose:
 
 
 class _Obj:
-    """可被 extract_actor_position_xyz 读取位姿的替身物体。"""
+    """Stand-in object whose pose can be read by extract_actor_position_xyz."""
 
     def __init__(self, name: str, xyz):
         self.name = name
@@ -130,7 +130,7 @@ class _Link:
 class _Agent:
     def __init__(self):
         self.robot = _Robot()
-        # tcp 位姿：位置随 step 变化，四元数取单位元（rpy 手算为 0）
+        # tcp pose: position varies with step, quaternion is identity (rpy by hand is 0)
         self.tcp = _Link(_Pose(torch.zeros((1, 3), dtype=torch.float64), torch.tensor([[1.0, 0.0, 0.0, 0.0]], dtype=torch.float64)))
 
 
@@ -139,7 +139,7 @@ def tcp_xyz(counter: int) -> list[float]:
 
 
 class FakeTaskEnv(gym.Env):
-    """CPU 替身环境：按事件表推进子目标状态，``step`` 不做任何物理。"""
+    """CPU stand-in env: advances the subgoal state per the event table; ``step`` does no physics."""
 
     metadata: dict = {}
 
@@ -161,7 +161,7 @@ class FakeTaskEnv(gym.Env):
         self.use_fail_planner = False
         self._apply_state(Event(name="NO RECORD", task_index=0))
 
-    # RecordWrapper 通过 self.unwrapped.X 与 wrapper.__getattr__ 两条路径读这些属性
+    # RecordWrapper reads these attributes via both self.unwrapped.X and wrapper.__getattr__
     def _apply_state(self, ev: Event) -> None:
         self.current_task_name = ev.name
         self.current_task_demonstration = ev.demo
@@ -195,7 +195,7 @@ class FakeTaskEnv(gym.Env):
         self.counter = 0
         self.reset_calls += 1
         self.elapsed_steps = 0
-        self._pending_waypoint = None  # 新一局的环境不带上一局挂起的 waypoint
+        self._pending_waypoint = None  # the env of a new episode does not carry the previous episode's pending waypoint
         self.agent.robot.qpos = torch.zeros((1, 9), dtype=torch.float32)
         self.agent.tcp.pose.p = torch.zeros((1, 3), dtype=torch.float64)
         self._apply_state(Event(name="NO RECORD", task_index=0, demo=bool(self.events and self.events[0].demo)))
@@ -225,13 +225,13 @@ class FakeTaskEnv(gym.Env):
 
 
 def action_of(t: int) -> np.ndarray:
-    """第 t 次 step（从 1 计）发出的 8 维关节动作；夹爪符号交替。"""
+    """8-dim joint action sent at the t-th step (counted from 1); gripper sign alternates."""
     base = np.array([0.1 * t + 0.01 * j for j in range(7)], dtype=np.float64)
     return np.concatenate([base, [1.0 if t % 2 else -1.0]])
 
 
 def drive(w, env, events: list[Event], *, actions=None, first_t: int = 1) -> list:
-    """把事件表逐步喂给真实 RecordWrapper.step；返回每步返回值。"""
+    """Feed the event table step by step into the real RecordWrapper.step; return each step's return value."""
     env.events = list(events)
     env.counter = 0
     returns = []
@@ -255,7 +255,7 @@ def make_wrapper(record_cls, tmp_path: Path, events: list[Event], *, episode: in
 
 def run_episode(record_cls, tmp_path: Path, events: list[Event], *, episode: int = 3, seed: int = 77,
                 save_video: bool = True, env_id: str = "FakeTask", actions=None, close: bool = True):
-    """真实 RecordWrapper：reset → step × N →（可选）close。返回 (wrapper, env, h5 路径, 每步返回值)。"""
+    """Real RecordWrapper: reset → step × N → (optional) close. Returns (wrapper, env, h5 path, per-step return values)."""
     w, env = make_wrapper(record_cls, tmp_path, events, episode=episode, seed=seed, save_video=save_video, env_id=env_id)
     w.reset()
     returns = drive(w, env, events, actions=actions)
@@ -264,9 +264,9 @@ def run_episode(record_cls, tmp_path: Path, events: list[Event], *, episode: int
     return w, env, w.dataset_path, returns
 
 
-# ---------------------------------------------------------------- h5 模式
+# ---------------------------------------------------------------- h5 schema
 
-# 录像器写出的 h5 结构（官方 h5_data_format 现状）；新增或丢字段都应被测试抓到。
+# h5 structure written by the recorder (current official h5_data_format); added or dropped fields must be caught by the tests.
 TIMESTEP_GROUPS = {"obs", "action", "info"}
 OBS_KEYS = {
     "front_rgb", "wrist_rgb", "front_depth", "wrist_depth", "joint_state", "gripper_state",
@@ -280,11 +280,11 @@ INFO_KEYS = {
 SETUP_KEYS_BASE = {"seed", "available_multi_choices", "difficulty", "front_camera_intrinsic", "wrist_camera_intrinsic"}
 
 
-# ---------------------------------------------------------------- 工具
+# ---------------------------------------------------------------- helpers
 
 
 def read_tree(path: Path) -> dict:
-    """把 h5 读成 {路径: (dtype, shape, 原始值)}，另含 {路径@attrs: dict}；用于「两份相同」判定。"""
+    """Read an h5 into {path: (dtype, shape, raw value)}, plus {path@attrs: dict}; used for "two copies identical" checks."""
     import h5py
 
     out: dict = {}
@@ -301,29 +301,29 @@ def read_tree(path: Path) -> dict:
 
 
 def trees_diff(a: dict, b: dict) -> list[str]:
-    """返回两棵 h5 树的差异列表（空表示逐键、逐 dtype、逐值相同；NaN 视为相等）。"""
+    """Return the list of differences between two h5 trees (empty means identical key by key, dtype by dtype, value by value; NaN treated as equal)."""
     diffs = []
     for k in sorted(set(a) | set(b)):
         if k not in a or k not in b:
-            diffs.append(f"缺键 {k}")
+            diffs.append(f"missing key {k}")
             continue
         va, vb = a[k], b[k]
         if k.endswith("@attrs"):
             if va != vb:
-                diffs.append(f"属性不同 {k}")
+                diffs.append(f"attrs differ {k}")
             continue
         if va[0] != vb[0] or va[1] != vb[1]:
-            diffs.append(f"dtype/shape 不同 {k}: {va[:2]} vs {vb[:2]}")
+            diffs.append(f"dtype/shape differs {k}: {va[:2]} vs {vb[:2]}")
             continue
         xa, xb = np.asarray(va[2]), np.asarray(vb[2])
         same = np.array_equal(xa, xb, equal_nan=True) if xa.dtype.kind == "f" else np.array_equal(xa, xb)
         if not same:
-            diffs.append(f"值不同 {k}")
+            diffs.append(f"value differs {k}")
     return diffs
 
 
 def record_module(kind: str):
-    """kind = official／hard：返回对应包的 RecordWrapper 模块对象。"""
+    """kind = official/hard: return the RecordWrapper module object of the corresponding package."""
     import importlib
 
     name = {"official": "robomme", "hard": "robomme_ood"}[kind]

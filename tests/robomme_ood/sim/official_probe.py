@@ -1,9 +1,9 @@
-"""官方 ``robomme`` 包的 1 次 make + reset + 1 步不可达 ee 动作；由 ``test_official_one_reset.py`` 在独立子进程里调用。
+"""One make + reset + one unreachable ee action step on the official ``robomme`` package; called by ``test_official_one_reset.py`` in a separate subprocess.
 
-必须单独起进程：``robomme_ood`` 导入时以 ``override=True`` 接管 16 个环境 id，与它同进程的 ``gym.make``
-只会拿到 hard 包的类（见 ``robomme_ood/__init__.py``）；``tests/robomme_ood/sim`` 的另一个文件在收集期就导入了 ``robomme_ood``。
+Must run in its own process: importing ``robomme_ood`` takes over the 16 environment ids with ``override=True``, so ``gym.make`` in the same process
+only gets the hard package's classes (see ``robomme_ood/__init__.py``); the other file in ``tests/robomme_ood/sim`` already imports ``robomme_ood`` at collection time.
 
-只输出一行 JSON（以 ``PROBE_JSON=`` 开头）描述观测，断言放在父进程测试里。文件名不以 ``test_`` 开头，不被收集。
+Prints exactly one JSON line (prefixed ``PROBE_JSON=``) describing the observations; assertions live in the parent-process test. The file name does not start with ``test_`` so it is not collected.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import numpy as np
 
 TASK = "PickXtimes"
 EPISODE = 0
-#: 远离工作空间的末端位姿（米）：IK 必然无解，EndeffectorDemonstrationWrapper 直接返回 status="error"，不推进仿真
+#: End-effector pose far outside the workspace (meters): IK is guaranteed to fail, EndeffectorDemonstrationWrapper returns status="error" directly without stepping the simulation
 UNREACHABLE_ACTION = [10.0, 10.0, 10.0, 0.0, 0.0, 0.0, 1.0]
 
 

@@ -1,8 +1,8 @@
-"""C08／C09 中与录制读回相邻的两处：``DemonstrationWrapper._augment_obs_and_info`` 的 8 个
-``include_*`` 开关，与 reset 返回前的 ``_filter_no_record_from_step_batch``。
+"""Two places in C08/C09 adjacent to recording read-back: the 8 ``include_*`` switches of ``DemonstrationWrapper._augment_obs_and_info``,
+and ``_filter_no_record_from_step_batch`` before reset returns.
 
-官方包与 hard 包（逐字节复制件）两个 DemonstrationWrapper 参数化；CPU 替身环境，不起仿真。
-日常门禁跑 18 组开关（全关、全开、8 项单开、8 项单关），256 全组合标 slow。
+Parametrized over the two DemonstrationWrappers of the official package and the hard package (byte-for-byte copy); CPU stand-in env, no simulation.
+The daily gate runs 18 switch combinations (all off, all on, 8 single-on, 8 single-off); all 256 combinations are marked slow.
 """
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ SWITCHES = (
     "include_front_camera_intrinsic",
     "include_wrist_camera_intrinsic",
 )
-# 每个开关打开后新增的键：(落在 obs 还是 info, 键名)
+# keys added when each switch is on: (lands in obs or info, key name)
 ADDS = {
     "include_maniskill_obs": ("obs", "maniskill_obs"),
     "include_front_depth": ("obs", "front_depth_list"),
@@ -98,14 +98,14 @@ def _check(demo_mod, flags, monkeypatch):
     on = {s for s, f in zip(SWITCHES, flags) if f}
     assert set(new_obs) == BASE_OBS | {ADDS[s][1] for s in on if ADDS[s][0] == "obs"}
     assert set(new_info) == set(info) | BASE_INFO_ADDED | {ADDS[s][1] for s in on if ADDS[s][0] == "info"}
-    # 输入不被原地改写
+    # input is not modified in place
     assert {k: set(v) for k, v in obs.items()} == obs_keys_before and info == info_before
     a = action_of(3)
     expect = {
         "front_rgb_list": (front_rgb(1), np.uint8),
         "wrist_rgb_list": (wrist_rgb(1), np.uint8),
         "joint_state_list": (a[:7].astype(np.float32), np.float32),
-        "gripper_state_list": (np.array([FINGER_OPEN, FINGER_OPEN], dtype=np.float32), np.float32),  # action_of(3) 夹爪 +1 → 替身张开档
+        "gripper_state_list": (np.array([FINGER_OPEN, FINGER_OPEN], dtype=np.float32), np.float32),  # action_of(3) gripper +1 → stand-in open level
         "front_depth_list": (front_depth(1), np.int16),
         "wrist_depth_list": (wrist_depth(1), np.int16),
         "front_camera_extrinsic_list": (EXTRINSIC, np.float32),
@@ -115,7 +115,7 @@ def _check(demo_mod, flags, monkeypatch):
         if k == "maniskill_obs":
             assert v is obs
             continue
-        assert isinstance(v, np.ndarray), k  # CPU Tensor 全部转成 NumPy
+        assert isinstance(v, np.ndarray), k  # all CPU Tensors converted to NumPy
         if k == "eef_state_list":
             assert v.dtype == np.float64 and v.shape == (6,)
             np.testing.assert_allclose(v, tcp_xyz(1) + [0, 0, 0], atol=1e-6)
@@ -135,7 +135,7 @@ def _check(demo_mod, flags, monkeypatch):
             {"label": "b", "action": "press", "need_parameter": False},
         ]
     assert new_info["simple_subgoal_online"] == "pick"
-    assert new_info["task_goal"] == []  # FakeTask 无语言目标
+    assert new_info["task_goal"] == []  # FakeTask has no language goal
 
 
 @pytest.mark.parametrize("flags", _combos_daily(), ids=lambda f: "".join("1" if x else "0" for x in f))
@@ -151,7 +151,7 @@ def test_include_switches_all(demo_mod, flags, monkeypatch):
 
 @pytest.mark.parametrize("env_id", ["PatternLock", "RouteStick"])
 def test_stick_env_gripper_zero(demo_mod, env_id):
-    """stick 任务按任务 id 判定：夹爪状态恒为 0，不读关节第 8、9 维。"""
+    """stick tasks are judged by task id: gripper state is always 0, joint dims 8 and 9 are not read."""
     w, env, obs, info = _make(demo_mod, (False,) * len(SWITCHES), env_id=env_id)
     new_obs, _ = w._augment_obs_and_info(obs, info, None)
     assert new_obs["gripper_state_list"].tolist() == [0.0, 0.0]
@@ -159,13 +159,13 @@ def test_stick_env_gripper_zero(demo_mod, env_id):
 
 
 def test_switch_fixture_self_check():
-    """夹具自检（不是生产判定器的负例）：日常 18 组互不重复、覆盖每个开关的单开与单关；全组合恰 2^8 组。"""
+    """Fixture self-check (not a negative case of the production checker): the daily 18 combinations are distinct and cover single-on and single-off for each switch; all combinations are exactly 2^8."""
     combos = _combos_daily()
     assert len(set(combos)) == len(combos) == 2 + 2 * len(SWITCHES)
     assert len(set(_combos_all())) == 2 ** len(SWITCHES)
 
 
-# ---------------------------------------------------------------- NO RECORD 过滤
+# ---------------------------------------------------------------- NO RECORD filtering
 
 
 def _batch(names, n=None):
@@ -188,15 +188,15 @@ def test_no_record_filter_keeps_order(demo_wrapper):
     assert [int(x[0, 0, 0]) for x in obs["front_rgb_list"]] == [1, 3]
     assert rew.tolist() == [1.0, 3.0] and ter.numel() == 2 and trn.numel() == 2
     assert info["simple_subgoal_online"] == ["a", "b"] and info["status"] == ["ongoing", "ongoing"]
-    assert obs["scalar"] == 7  # 非等长字段原样保留
+    assert obs["scalar"] == 7  # fields of unequal length kept as is
 
 
 @pytest.mark.parametrize(
     "batch",
     [
-        _batch(["a", "b"]),  # 无 NO RECORD
-        _batch(["NO RECORD", "NO RECORD"]),  # 全过滤会变空 → 防御性原样返回
-        _batch([]),  # 空 batch
+        _batch(["a", "b"]),  # no NO RECORD
+        _batch(["NO RECORD", "NO RECORD"]),  # filtering everything would leave it empty → defensively returned as is
+        _batch([]),  # empty batch
     ],
 )
 def test_no_record_filter_returns_input_unchanged(demo_wrapper, batch):

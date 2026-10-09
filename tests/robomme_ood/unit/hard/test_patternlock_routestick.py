@@ -1,7 +1,7 @@
-"""PatternLock／RouteStick 新值档：离线真实 ``_load_scene`` 的路径长度与合法性、包内规格回放与自导出。
+"""PatternLock/RouteStick new-value tiers: path length and validity of the real offline ``_load_scene``, packaged spec replay and self-export.
 
-期望：路径长度区间取自包内 header 的 decision；路径合法性用手写判据（5×5 网格的 8 邻接、不重访；
-RouteStick 相邻落点同排且隔一根杆）独立核对，不调用生产的路径搜索。
+Expectations: the path length range comes from the decision in the packaged header; path validity is checked independently with hand-written criteria (8-neighborhood on a 5×5 grid, no revisits;
+for RouteStick, adjacent stops are in the same row with exactly one peg between them), without calling production's path search.
 """
 from __future__ import annotations
 
@@ -43,12 +43,12 @@ def test_patternlock_path_is_king_walk_of_declared_length(tier, k):
     nodes = row["spec"]["actions"]["path_nodes"]
     lo, hi = dec["path_length_range"][tier]
     assert lo <= len(nodes) <= hi
-    assert len(set(nodes)) == len(nodes), "路径重访节点"
+    assert len(set(nodes)) == len(nodes), "path revisits a node"
     assert all(0 <= v < n * n for v in nodes)
     for a, b in zip(nodes, nodes[1:]):
-        # 手写 8 邻接：行列差都 ≤ 1 且不同点
+        # hand-written 8-neighborhood: row and column differences both ≤ 1 and distinct points
         assert max(abs(a // n - b // n), abs(a % n - b % n)) == 1, (a, b)
-    # 环境真正要走的按钮序列就是这条路径
+    # the button sequence the env actually walks is exactly this path
     assert [t.name for t in env.selected_buttons] == [f"target_{v}" for v in nodes]
 
 
@@ -62,7 +62,7 @@ def test_routestick_walk_alternates_around_sticks(tier, k):
     assert lo <= seg <= hi
     nodes = row["spec"]["actions"]["nodes"]
     assert len(nodes) == seg + 1
-    # 9 个落点排成一排，奇数位是杆（4 根），偶数位是可停的落点；每段恰好绕过一根杆到相邻落点
+    # 9 stops in a row: odd positions are pegs (4), even positions are stoppable stops; each segment goes around exactly one peg to the adjacent stop
     assert len(env.buttons_grid) == 9 and sorted(env.target_cubes) == [1, 3, 5, 7]
     assert all(v % 2 == 0 for v in nodes)
     assert all(abs(a - b) == 2 for a, b in zip(nodes, nodes[1:]))

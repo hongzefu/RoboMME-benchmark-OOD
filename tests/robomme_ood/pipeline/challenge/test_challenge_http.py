@@ -1,9 +1,9 @@
-"""C14 HTTP 传输。
+"""C14 HTTP transport.
 
-两组：
-- 真实 ``PolicyHTTPClient`` 对一个按脚本行事的 stdlib 假服务（回环）：请求路由、请求体、头、
-  超时、HTTP 错误、非法回复体；
-- 真实 ``PolicyHTTPServer``（Flask）走回环 + 真实客户端端到端；缺 flask 时整组记「未验证」。
+Two groups:
+- the real ``PolicyHTTPClient`` against a scripted stdlib fake server (loopback): request routing, request body, headers,
+  timeouts, HTTP errors, invalid reply bodies;
+- the real ``PolicyHTTPServer`` (Flask) over loopback + real client end to end; without flask the whole group is recorded as "Unverified".
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ ACTIONS = np.arange(14, dtype=np.float32).reshape(2, 7)
 
 @pytest.fixture(autouse=True)
 def _no_proxy(monkeypatch):
-    """回环请求不得经代理（本机或集群节点可能设了 http_proxy）。"""
+    """Loopback requests must not go through a proxy (the local machine or cluster nodes may set http_proxy)."""
     for k in ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
@@ -34,14 +34,14 @@ def _no_proxy(monkeypatch):
 
 @pytest.fixture
 def stub_http():
-    """工厂夹具：``stub_http(routes)``，routes 为 {(方法, 路径): 回调(请求体, 头) -> (状态码, 回复体字节)}。"""
+    """Factory fixture: ``stub_http(routes)``, routes is {(method, path): callback(body, headers) -> (status code, reply body bytes)}."""
     started = []
 
     def _make(routes):
         seen = []
 
         class H(BaseHTTPRequestHandler):
-            def log_message(self, *a):  # 静音
+            def log_message(self, *a):  # silence
                 pass
 
             def _handle(self, method):
@@ -59,7 +59,7 @@ def stub_http():
                     self.end_headers()
                     self.wfile.write(payload)
                 except (BrokenPipeError, ConnectionResetError):
-                    pass  # 超时用例里客户端已先断开，属预期
+                    pass  # in the timeout test the client has already disconnected; expected
 
             def do_GET(self):
                 self._handle("GET")
@@ -149,7 +149,7 @@ def test_slow_server_hits_client_timeout(stub_http):
     t0 = time.monotonic()
     with pytest.raises(requests.Timeout):
         c.infer({"x": 1})
-    # 有限时间内结束（上限 2 s，给高负载留余量），而不是等到服务端 3 s 后回复。
+    # finishes within bounded time (upper bound 2 s, with margin for high load), rather than waiting for the server to reply after 3 s.
     assert time.monotonic() - t0 < 2.0
 
 
@@ -162,7 +162,7 @@ def test_garbage_200_body_raises(stub_http):
         c.infer({"x": 1})
 
 
-# ---------------------------------------------------------------- 真实 Flask 服务端
+# ---------------------------------------------------------------- real Flask server
 
 
 def _flask_server_or_skip():
@@ -170,7 +170,7 @@ def _flask_server_or_skip():
         import flask  # noqa: F401
         from werkzeug.serving import make_server  # noqa: F401
     except ImportError:
-        pytest.skip("未验证：缺 flask（server 依赖组未装进当前 venv）")
+        pytest.skip("Unverified: flask missing (server dependency group not installed in the current venv)")
     from challenge_interface.server_http import PolicyHTTPServer
 
     return PolicyHTTPServer
@@ -214,7 +214,7 @@ def test_flask_server_end_to_end(flask_server):
 def test_flask_server_policy_exception_is_500_with_traceback(flask_server):
     port = flask_server(RecordingPolicy(raise_on_infer=1))
     r = requests.post(f"http://{LOOPBACK}:{port}/infer", data=mn.packb({"a": 1}), timeout=5)
-    assert r.status_code == 500 and "策略故意抛错-标记串-7f3a" in r.text
+    assert r.status_code == 500 and "policy-deliberate-error-marker-7f3a" in r.text
 
 
 def test_flask_server_empty_body_is_400(flask_server):

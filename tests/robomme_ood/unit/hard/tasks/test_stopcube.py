@@ -1,8 +1,8 @@
-"""StopCube 新值档真值表（xhard1～xhard5）：方块沿直线往返，第 N 次经过目标时按按钮停住为成功。
+"""StopCube new-value tier truth table (xhard1-xhard5): the cube moves back and forth along a line; pressing the button to stop it on the N-th pass over the target is success.
 
-经任务类真实 ``step``（方块运动 ``move_straight_line`` 与「按下即停」都在 step 里）推进时钟：
-在第 N 次经过的窗口中点按下 → 成功；在第 N−1 次经过时按下 → 失败；一直不按、超过第 N 段 → 失败；
-成功后继续推进终态不变。N、节拍取自本局（包内规格回放）。
+The clock advances through the task class's real ``step`` (cube motion ``move_straight_line`` and "stop on press" are both in step):
+pressing at the midpoint of the N-th pass window → success; pressing on the (N−1)-th pass → failure; never pressing, past segment N → failure;
+terminal state unchanged when advancing after success. N and cadence come from this episode (packaged spec replay).
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ def world():
 
 
 def _hover(w):
-    """第一项「移到按钮上方」：TCP 停在按钮正上方低处。"""
+    """First item "move above the button": TCP stops low directly above the button."""
     x, y = w.xyz(w.env.button)[:2]
     w.tcp_to((x, y, 0.1))
 
@@ -49,22 +49,22 @@ def _press_at(w, step_index):
 def test_press_on_nth_pass_succeeds(world, tier):
     w = world(tier)
     t, n = w.env.move_interval, w.env.stop_time
-    out = _press_at(w, (n - 1) * t + t // 2)  # 第 n 段中点：方块正经过目标
+    out = _press_at(w, (n - 1) * t + t // 2)  # midpoint of segment n: the cube is passing the target
     assert out == {"success": True, "fail": False}
     lo, hi = w.env.stop_time_range
     assert lo <= w.env.stop_timestep <= hi
     for _ in range(3):
-        assert w.step()["success"] is True, "成功后继续推进终态不变"
+        assert w.step()["success"] is True, "terminal state unchanged when advancing after success"
 
 
 @pytest.mark.parametrize("tier", TIERS)
 def test_press_on_previous_pass_fails(world, tier):
     w = world(tier)
     t, n = w.env.move_interval, w.env.stop_time
-    out = _press_at(w, (n - 2) * t + t // 2)  # 第 n−1 次经过
+    out = _press_at(w, (n - 2) * t + t // 2)  # (n−1)-th pass
     w.unpress(w.env.button)
     out = w.step() if not out["fail"] else out
-    # 停在了目标上但不是第 n 次：要么当场判错（按下时不在目标上），要么走完任务表后计时不符
+    # stopped on the target but not on the n-th pass: either judged wrong immediately (not on target when pressed), or the timing mismatches after the task table completes
     for _ in range(t * 2):
         if out["fail"]:
             break
@@ -83,7 +83,7 @@ def test_never_pressing_fails_after_window(world, tier):
 
 @pytest.mark.parametrize("tier", TIERS[:1])
 def test_press_off_target_fails_immediately(world, tier):
-    """方块不在目标上时按下（段起点，方块在路线端点）→ 当场失败。"""
+    """Pressing when the cube is not on the target (segment start, cube at the route endpoint) → immediate failure."""
     w = world(tier)
     t, n = w.env.move_interval, w.env.stop_time
     out = _press_at(w, (n - 1) * t + 1)

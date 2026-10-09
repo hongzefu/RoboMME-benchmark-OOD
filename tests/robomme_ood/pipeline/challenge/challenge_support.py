@@ -1,7 +1,7 @@
-"""挑战接口（C14）测试的公共件：回环 WebSocket 服务、原始假服务、记录型策略。
+"""Shared pieces for the challenge interface (C14) tests: loopback WebSocket server, raw fake server, recording policy.
 
-所有服务只绑 127.0.0.1，端口由内核分配（端口 0）或现取空闲端口；每个夹具在用例结束时
-停服并确认线程退出，用例之间不共享任何服务实例。
+All servers bind only to 127.0.0.1, ports are kernel-assigned (port 0) or a freshly picked free port; each fixture stops its server at test end
+and confirms the thread exits; no server instance is shared across tests.
 """
 from __future__ import annotations
 
@@ -22,14 +22,14 @@ LOOPBACK = "127.0.0.1"
 
 
 def free_port() -> int:
-    """向内核要一个回环空闲端口（PolicyServer.run 不暴露实际端口，只能先取再传）。"""
+    """Ask the kernel for a free loopback port (PolicyServer.run does not expose the actual port, so pick one first and pass it in)."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((LOOPBACK, 0))
         return s.getsockname()[1]
 
 
 class RecordingPolicy(Policy):
-    """记录型策略：保存每次 infer 收到的输入（深拷贝），返回预设输出；可配置在第 k 次 infer 抛错。"""
+    """Recording policy: stores the input of every infer call (deep copy) and returns a preset output; can be configured to raise on the k-th infer."""
 
     def __init__(self, outputs=None, raise_on_infer: int | None = None):
         self.inputs: list[dict] = []
@@ -40,7 +40,7 @@ class RecordingPolicy(Policy):
     def infer(self, inputs: dict) -> dict:
         self.inputs.append(copy.deepcopy(inputs))
         if self._raise_on is not None and len(self.inputs) == self._raise_on:
-            raise ValueError("策略故意抛错-标记串-7f3a")
+            raise ValueError("policy-deliberate-error-marker-7f3a")
         return self._outputs
 
     def reset(self) -> None:
@@ -48,7 +48,7 @@ class RecordingPolicy(Policy):
 
 
 class WsServerHandle:
-    """在后台线程的独立事件循环里运行真实 ``PolicyServer.run()``。"""
+    """Run the real ``PolicyServer.run()`` in a separate event loop on a background thread."""
 
     def __init__(self, policy: Policy, metadata: dict | None = None, port: int | None = None):
         self.port = port if port is not None else free_port()
@@ -65,7 +65,7 @@ class WsServerHandle:
             self.loop.run_until_complete(self.task)
         except asyncio.CancelledError:
             pass
-        except BaseException as e:  # noqa: BLE001 —— 记下来交给用例判
+        except BaseException as e:  # noqa: BLE001 -- record it for the test to judge
             self.error = e
         finally:
             self.loop.close()
@@ -87,18 +87,18 @@ class WsServerHandle:
                     return self
             except OSError:
                 time.sleep(0.01)
-        raise TimeoutError(f"回环 WebSocket 服务 {self.port} 在 {timeout}s 内未就绪")
+        raise TimeoutError(f"loopback WebSocket server {self.port} not ready within {timeout}s")
 
     def stop(self, timeout: float = 5.0) -> None:
         if self.task is not None and not self.loop.is_closed():
             self.loop.call_soon_threadsafe(self.task.cancel)
         self.thread.join(timeout)
-        assert not self.thread.is_alive(), "服务线程未在限期内退出"
+        assert not self.thread.is_alive(), "server thread did not exit in time"
 
 
 @pytest.fixture
 def ws_server():
-    """工厂夹具：``ws_server(policy, metadata=None)`` 起真实 PolicyServer，用例结束统一停服。"""
+    """Factory fixture: ``ws_server(policy, metadata=None)`` starts a real PolicyServer; all are stopped at test end."""
     handles: list[WsServerHandle] = []
 
     def _make(policy: Policy, metadata: dict | None = None, port: int | None = None) -> WsServerHandle:
@@ -113,9 +113,9 @@ def ws_server():
 
 @pytest.fixture
 def raw_ws_server():
-    """工厂夹具：``raw_ws_server(handler)`` 起一个按脚本行事的假 WebSocket 服务（websockets 同步 API）。
+    """Factory fixture: ``raw_ws_server(handler)`` starts a scripted fake WebSocket server (websockets sync API).
 
-    用来造真实 PolicyServer 不会给出的回复（文本帧、坏字节、直接断连），检验客户端的处理。
+    Used to produce replies the real PolicyServer never gives (text frames, bad bytes, abrupt disconnects) to check client handling.
     """
     import websockets.sync.server as wss
 
@@ -132,4 +132,4 @@ def raw_ws_server():
     for srv, t in servers:
         srv.shutdown()
         t.join(5)
-        assert not t.is_alive(), "假服务线程未在限期内退出"
+        assert not t.is_alive(), "fake server thread did not exit in time"
