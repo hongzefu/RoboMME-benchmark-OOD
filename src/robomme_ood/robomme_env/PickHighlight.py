@@ -54,10 +54,10 @@ capabilities can be simulated and trained properly. Hence there is extra code fo
 """
 
 
-# ── decision／native 两块的原值（newtaskRelease-v3 步 3，映射见方案第二节 2.9）────────
-# decision：方块摆放模式与采样区域、同时高亮并需抓取的目标数、场上方块总数、逐块颜色策略。
-# native：每块的具体颜色与位姿抽法、高亮目标选择（randperm）、按钮位置、恢复、
-#        高亮窗口与抓取顺序（所有目标共用同一个窗口、同时高亮）。
+# ── Original values of the decision/native blocks (newtaskRelease-v3 step 3, mapping in plan section 2.9) ────────
+# decision: cube layout mode and sampling region, number of targets highlighted simultaneously and to be picked, total cubes on the table, per-cube color policy.
+# native: per-cube color and pose drawing, highlight target selection (randperm), button position, recovery,
+#        highlight window and pick order (all targets share one window, highlighted simultaneously).
 NATIVE_SAMPLING = {
     "parameters": {
         "color_pool": [
@@ -67,8 +67,8 @@ NATIVE_SAMPLING = {
         ],
         "color_draw": {"sampler": "torch.randint", "low": 0, "high_exclusive": "len(color_pool)"},
         "target_selection": {"sampler": "torch.randperm(len(all_cubes))[:pickup]"},
-        "spawn_failure": "生成失败 break，保存实际数量，不补抽",
-        "recovery": "沿用入口给定的 fail recover 模式与原 generator",
+        "spawn_failure": "break on spawn failure, keep the actual count, no extra draws",
+        "recovery": "keep the entry-provided fail recover mode and the original generator",
     },
     "positions": {
         "button": {"center_xy": [-0.2, 0], "scale": 1.5},
@@ -86,16 +86,16 @@ NATIVE_SAMPLING = {
 
 
 def native_blocks(cls):
-    """本环境的 ``(decision, native)`` 原值块；外部导出与内部解析共用同一份。"""
+    """Original ``(decision, native)`` blocks of this env; shared by external export and internal parsing."""
     return _native_decision(cls), copy.deepcopy(NATIVE_SAMPLING)
 
 
-# V4 xhard 专属的 decision 条目（NEWTASK_RELEASE_V4_PLAN 2.12）；放在名为 ``xhard`` 的子键下，
-# 守卫（assert_native_decision）去掉 xhard 后原三档可见部分与原值逐字相同。
-#   block_color_policy：「block 颜色任意」＝逐块独立抽色，色域按用户 2026-09-22 决定设饱和度/亮度下限
-#     （"hsv_floor"：色相任意、S≥0.5、V≥0.4，见 utils/xhard.py::HSV_FLOOR_COLOR；alpha 固定 1）。
-#   subgoal_color_suffix：任意 RGB 没有颜色名，subgoal 的 ``, which is {color}`` 后缀如何写。
-#     用户 2026-09-22 定「整段去掉」（"omit"）；目前只实现这一种，其余取值直接拒绝。
+# V4 xhard-specific decision entries (NEWTASK_RELEASE_V4_PLAN 2.12); placed under the subkey named ``xhard``,
+# after the guard (assert_native_decision) strips xhard, the part visible to the original three tiers is verbatim identical to the original.
+#   block_color_policy: "block color arbitrary" = each cube draws its color independently; per user decision 2026-09-22 the gamut has saturation/value floors
+#     ("hsv_floor": any hue, S>=0.5, V>=0.4, see utils/xhard.py::HSV_FLOOR_COLOR; alpha fixed 1).
+#   subgoal_color_suffix: arbitrary RGB has no color name; how to write the subgoal's ``, which is {color}`` suffix.
+#     User 2026-09-22 decided "drop it entirely" ("omit"); only this one is implemented, other values are rejected.
 from .utils.xhard import HSV_FLOOR_COLOR, cube_obb2d_exact, hsv_floor_rgb
 
 XHARD_DECISION = {
@@ -104,7 +104,7 @@ XHARD_DECISION = {
     "subgoal_color_suffix": "omit",
 }
 
-# V6：四档沿用 HSV 任意色、精确 OBB 与 subgoal 去色后缀；档位值只改变 pick 数与总块数。
+# V6: all four tiers keep arbitrary HSV colors, exact OBB and the color-free subgoal suffix; tier values only change pick count and total cubes.
 NEWVALUE_DECISION = {
     "xhard4": XHARD_DECISION,
     "xhard1": copy.deepcopy(XHARD_DECISION),
@@ -114,10 +114,10 @@ NEWVALUE_DECISION = {
 
 
 def _native_decision(cls):
-    """按方案第二节 2.9 切出 decision 块（原值阶段等于原值）。
+    """Slice the decision block per plan section 2.9 (equals the original in the original-value stage).
 
-    ``highlight_count`` / ``spawn_count`` 按 ``cls.configs`` 逐档展开：原三档是整数，
-    xhard 是闭区间 ``[lo, hi]``（V4 新值，走守卫的 xhard 放行）。
+    ``highlight_count`` / ``spawn_count`` are expanded per tier from ``cls.configs``: integers for the original three tiers,
+    closed interval ``[lo, hi]`` for xhard (V4 new value, admitted by the guard's xhard pass-through).
     """
     return {
         "layout_mode": "native_region",
@@ -125,28 +125,28 @@ def _native_decision(cls):
         "highlight_count": {difficulty: copy.deepcopy(cfg["pickup"]) for difficulty, cfg in cls.configs.items()},
         "spawn_count": {difficulty: copy.deepcopy(cfg["spawn"]) for difficulty, cfg in cls.configs.items()},
         "block_color_policy": "native_per_cube_uniform",
-        # V6：xhard 子树原值不变，再按档追加 xhard1/2/3 三棵同结构子树
+        # V6: xhard subtree original values unchanged, then append three same-structure subtrees xhard1/2/3 per tier
         **{tier: copy.deepcopy(entry) for tier, entry in NEWVALUE_DECISION.items()},
     }
 
 
 def _closed_range(value, key):
-    """把 xhard 的闭区间 ``[lo, hi]`` 校验成两个整数；外部配置写坏时直接拒绝。"""
+    """Validate xhard's closed interval ``[lo, hi]`` into two integers; reject directly if the external config is malformed."""
     if (not isinstance(value, (list, tuple)) or len(value) != 2
             or not all(isinstance(v, int) and not isinstance(v, bool) for v in value)
             or value[0] < 1 or value[0] > value[1]):
         raise SamplingConfigError(
-            f"PickHighlight: decision.{key} 必须是闭区间 [lo, hi]（1≤lo≤hi 的整数），收到 {value!r}"
+            f"PickHighlight: decision.{key} must be a closed interval [lo, hi] (integers with 1<=lo<=hi), got {value!r}"
         )
     return int(value[0]), int(value[1])
 
 
 def _resolve_sampling_config(cls, override):
-    """拆出本实例专属的 decision／native 副本；不抽随机数，必须在 Generator 之前调用。"""
+    """Split out this instance's private decision/native copies; draws no random numbers, must be called before the Generator."""
     decision_default, native_default = native_blocks(cls)
     decision, native = split_sampling_config(override, native_default, decision_default)
     assert_native_decision(decision, decision_default, cls.__name__)
-    # V6：旧快照（V5 没有 xhard1/2/3 子树）从源码申报补齐缺的新值档，已有的不动
+    # V6: old snapshots (V5 has no xhard1/2/3 subtrees) get missing new-value tiers filled from source declarations; existing ones untouched
     fill_missing_newvalue(decision, decision_default)
     native["decision"] = decision
     return native
@@ -183,13 +183,13 @@ class PickHighlight(BaseEnv):
         "pickup": 2
     }
 
-    # xhard4：定稿 pick 7、总块 10；区间退化为单值。
+    # xhard4: finalized pick 7, total cubes 10; intervals degenerate to single values.
     config_xhard4 = {
         'spawn': [10, 10],
         "pickup": [7, 7]
     }
 
-    # V6 新档按定稿取值，并保持 spawn 下界 ≥ pick 上界。
+    # V6 new tiers take finalized values, keeping the spawn lower bound >= pick upper bound.
     config_xhard1 = {
         'spawn': [7, 7],
         "pickup": [4, 4]
@@ -221,12 +221,12 @@ class PickHighlight(BaseEnv):
                      sampling_config=None,
                      native_episode_spec=None,
                      **kwargs):
-        # 必须落在任何随机数调用与 super().__init__() 之前
+        # Must happen before any RNG call and before super().__init__()
         self._sampling = _resolve_sampling_config(type(self), sampling_config)
         self._spec = SpecRecorder(native_episode_spec, "PickHighlight", {"seed": seed},
                                   difficulty=kwargs.get("difficulty"))
-        # 初始化序号从 -1 起，_initialize_episode 每次进来先加一；
-        # _load_scene 里的取值点用不带序号的路径，所以这里只作兜底。
+        # Initialization index starts at -1; _initialize_episode increments it on each entry;
+        # value points in _load_scene use index-free paths, so this is only a fallback.
         self._native_init_index = -1
         self.robot_init_qpos_noise = robot_init_qpos_noise
         self.use_demonstrationwrapper=False
@@ -326,39 +326,39 @@ class PickHighlight(BaseEnv):
         self.all_cube_colors = []
 
         # List of available colors
-        # 颜色池取自快照（顺序与原字面量一致：红、蓝、绿）
+        # Color pool from the snapshot (same order as the original literal: red, blue, green)
         available_colors = [
             {"color": tuple(entry["rgba"]), "name": entry["name"]}
             for entry in self._sampling["parameters"]["color_pool"]
         ]
 
-        # V4 xhard 分支（H2/N12：原三档一行不走这里）。
-        # V6：新值族四档共用本分支，按本局档位取子树与区间
+        # V4 xhard branch (H2/N12: the original three tiers never go through here).
+        # V6: the four new-value tiers share this branch, fetching subtree and intervals by this episode's tier
         xhard = is_newvalue_difficulty(self.difficulty)
         tier = self.difficulty
         if xhard:
             xhard_cfg = decision_cfg[tier]
             if xhard_cfg["block_color_policy"] != "hsv_floor":
                 raise SamplingConfigError(
-                    f"PickHighlight: decision.{tier}.block_color_policy 只支持 'hsv_floor'，"
-                    f"收到 {xhard_cfg['block_color_policy']!r}"
+                    f"PickHighlight: decision.{tier}.block_color_policy only supports 'hsv_floor', "
+                    f"got {xhard_cfg['block_color_policy']!r}"
                 )
             if xhard_cfg["subgoal_color_suffix"] != "omit":
                 raise SamplingConfigError(
-                    f"PickHighlight: decision.{tier}.subgoal_color_suffix 目前只实现 'omit'，"
-                    f"收到 {xhard_cfg['subgoal_color_suffix']!r}"
+                    f"PickHighlight: decision.{tier}.subgoal_color_suffix currently only implements 'omit', "
+                    f"got {xhard_cfg['subgoal_color_suffix']!r}"
                 )
             spawn_lo, spawn_hi = _closed_range(decision_cfg["spawn_count"][tier], f"spawn_count.{tier}")
             highlight_lo, highlight_hi = _closed_range(
                 decision_cfg["highlight_count"][tier], f"highlight_count.{tier}"
             )
-            # spawn≥highlight 硬断言（计划 2.12）：按生效区间的最坏情形判，外部收窄写坏时当场拒绝
+            # Hard assertion spawn>=highlight (plan 2.12): checked against the worst case of the effective intervals; malformed external narrowing is rejected on the spot
             if spawn_lo < highlight_hi:
                 raise SamplingConfigError(
-                    f"PickHighlight: {tier} 须 spawn 下界 ≥ highlight 上界，收到 spawn=[{spawn_lo},{spawn_hi}] "
+                    f"PickHighlight: {tier} requires spawn lower bound >= highlight upper bound, got spawn=[{spawn_lo},{spawn_hi}] "
                     f"highlight=[{highlight_lo},{highlight_hi}]"
                 )
-            # 新增取值点：本局方块数（只在 xhard 抽；它决定下面循环的长度，只能排在方块循环之前）
+            # New value point: this episode's cube count (drawn only in xhard; it decides the length of the loop below, so it must precede the cube loop)
             num_cubes_to_spawn = int(self._spec.value(
                 "objects.n_cubes",
                 int(torch.randint(spawn_lo, spawn_hi + 1, (1,), generator=self.generator).item()),
@@ -371,8 +371,8 @@ class PickHighlight(BaseEnv):
         # Spawn specified number of cubes, each with random color
         for cube_idx in range(num_cubes_to_spawn):
             if xhard:
-                # 颜色任意：逐块独立抽色（HSV 限定色域；替换原三色 randint，只在 xhard 生效）。
-                # 没有颜色名 ⇒ label 置 None、actor 名用 "rgb"；subgoal 后缀按 subgoal_color_suffix 处理。
+                # Arbitrary colors: each cube draws its color independently (restricted HSV gamut; replaces the original three-color randint, only in xhard).
+                # No color name => label set to None, actor name uses "rgb"; the subgoal suffix follows subgoal_color_suffix.
                 rgba = self._spec.value(
                     f"objects.color_rgba.{cube_idx}",
                     hsv_floor_rgb(torch.rand(3, generator=self.generator).tolist(),
@@ -417,19 +417,19 @@ class PickHighlight(BaseEnv):
                 self.all_cube_colors.append(chosen_color.get("label", chosen_color["name"]))
                 setattr(self, cube_name, cube)
                 if xhard:
-                    # V5（L2 b，计划 2.16）：已放方块以精确 2D 障碍进 avoid。actor 路径经
-                    # _trimesh_box_to_obb2d 约 2/3 退化成线段，min_gap 在其法向失效；取建方块时的
-                    # initial_pose（不依赖仿真已初始化），不抽随机数。原三档仍放 actor，逐字不变。
+                    # V5 (L2 b, plan 2.16): placed cubes enter avoid as exact 2D obstacles. The actor path via
+                    # _trimesh_box_to_obb2d degenerates into a segment ~2/3 of the time, voiding min_gap along its normal; take the
+                    # initial_pose used to build the cube (does not depend on simulation being initialized), no random draws. Original three tiers still pass the actor, verbatim unchanged.
                     avoid.append(cube_obb2d_exact(cube.initial_pose, self.cube_half_size))
                 else:
                     avoid.append(cube)
 
             except RuntimeError as e:
                 if xhard:
-                    # 2.2④：xhard 不许静默截断，放不满即判本局生成失败
+                    # 2.2-4: xhard must not truncate silently; failing to place all cubes fails this episode's generation
                     raise SceneGenerationError(
-                        f"PickHighlight xhard: 方块放不满，请求 {num_cubes_to_spawn} 实际 {len(self.all_cubes)}"
-                        f"（第 {cube_idx} 块失败：{e}）"
+                        f"PickHighlight xhard: cubes do not all fit, requested {num_cubes_to_spawn} actual {len(self.all_cubes)}"
+                        f" (cube {cube_idx} failed: {e})"
                     ) from e
                 logger.debug(f"Failed to spawn cube {cube_idx} ({chosen_color['name']}): {e}")
                 break
@@ -437,19 +437,19 @@ class PickHighlight(BaseEnv):
         logger.debug(f"Generated {len(self.all_cubes)} cubes total")
 
         if xhard:
-            # 请求数 vs 实际数（2.2④）；走到这里二者必相等
+            # Requested vs actual (2.2-4); reaching here they must be equal
             self._spec.record("objects.n_cubes_spawned", len(self.all_cubes))
-            # 原抽法 randperm(len(all_cubes)) 原位不动；高亮数是新增取值点，追加在 randperm 之后
+            # The original draw randperm(len(all_cubes)) stays in place; the highlight count is a new value point appended after randperm
             permutation = torch.randperm(len(self.all_cubes), generator=self.generator).tolist()
             highlight_count = int(self._spec.value(
                 "objects.highlight_count",
                 int(torch.randint(highlight_lo, highlight_hi + 1, (1,), generator=self.generator).item()),
                 decision_key=f"highlight_count.{tier}",
             ))
-            # randperm(len)[:k] 在 k>len 时会静默截断，这里显式挡住
+            # randperm(len)[:k] silently truncates when k>len; explicitly blocked here
             if highlight_count > len(permutation):
                 raise SceneGenerationError(
-                    f"PickHighlight xhard: 高亮数 {highlight_count} 超过实际方块数 {len(permutation)}"
+                    f"PickHighlight xhard: highlight count {highlight_count} exceeds actual cube count {len(permutation)}"
                 )
             target_cube_indices = self._spec.value(
                 "objects.highlight_ids", permutation[:highlight_count],
@@ -480,8 +480,8 @@ class PickHighlight(BaseEnv):
         self.target_label = target_label
 
         if xhard:
-            # D4 只在 xhard 修（H2）：原三档这里传的是构造时刻的求值结果（不是可调用），
-            # 判据从未生效；xhard 包成 lambda，按下按钮之前抓起任何方块即失败。
+            # D4 fixed only in xhard (H2): the original three tiers pass the value evaluated at construction time here (not a callable),
+            # so the criterion never took effect; xhard wraps it in a lambda: picking any cube before pressing the button is a failure.
             button_failure_func = lambda: is_any_obj_pickup(self, [cube for cube in self.all_cubes])
         else:
             button_failure_func = is_any_obj_pickup(self,[cube for cube in self.all_cubes])
@@ -500,7 +500,7 @@ class PickHighlight(BaseEnv):
         for cube_idx, cube in enumerate(self.target_cubes):
                 # If only one target cube, do not show index
                 if xhard:
-                    # 任意 RGB 没有颜色名：subgoal_color_suffix="omit" ⇒ 去掉 ", which is {color}" 整段后缀
+                    # Arbitrary RGB has no color name: subgoal_color_suffix="omit" => drop the whole ", which is {color}" suffix
                     if num_targets == 1:
                         task_name = "pick up the highlighted cube"
                         task_subgoal = "pick up the highlighted cube at <>"
@@ -527,7 +527,7 @@ class PickHighlight(BaseEnv):
                     "segment":cube,
                 })
                 if xhard or cube_idx!=num_targets-1:
-                    # V6 审查修复 F1（用户 K2「f1同意修」）：新四档末块抓起后也放下，再以末尾按钮收尾；原三档末块抓起即止
+                    # V6 review fix F1 (user K2 "agree to fix f1"): in the four new tiers the last cube is also put down after being picked, then finish with the final button; original three tiers stop once the last cube is picked
                     tasks.append({
                         "func": (lambda :is_obj_dropped_currentpickup(self,self.target_cubes)),
                         "name": f"place the cube onto the table",
@@ -544,8 +544,8 @@ class PickHighlight(BaseEnv):
                         "segment":None,
                     })
         if xhard:
-            # V6 审查修复 F1（K2）：新四档链尾追加「press the button」，与题面「finally press the button to stop」一致；
-            # 成功时点随之后移到末按钮（见 evaluate 的 xhard 分支）。原三档任务链不变。
+            # V6 review fix F1 (K2): the four new tiers append "press the button" at the end of the chain, consistent with the prompt "finally press the button to stop";
+            # the success moment moves to the final button accordingly (see the xhard branch of evaluate). Original three tiers' task chain unchanged.
             tasks.append({
                 "func": lambda: is_button_pressed(self, obj=self.button),
                 "name": "press the button",
@@ -574,7 +574,7 @@ class PickHighlight(BaseEnv):
             self.fail_grasp_task_index = None
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
-        # 每次初始化各自记一份规格，不复用上一次的结果
+        # Each initialization records its own spec, never reusing the previous result
         self._native_init_index = getattr(self, "_native_init_index", -1) + 1
         with torch.device(self.device):
             b = len(env_idx)
@@ -661,7 +661,7 @@ class PickHighlight(BaseEnv):
 
 
         # Success if all picked at least once (counting discrete pick events)
-        # V6 审查修复 F1（K2）：新四档还须整条任务链（含末尾按钮）走完才算成功；原三档仍在全部抓过一次时即成功
+        # V6 review fix F1 (K2): the four new tiers also require the whole task chain (including the final button) to complete for success; original three tiers still succeed once every target has been picked
         if counts_satisfied and (all_tasks_completed or not is_newvalue_difficulty(self.difficulty)):
             self.successflag = torch.tensor([True])
        
@@ -702,7 +702,7 @@ class PickHighlight(BaseEnv):
       
 
         if is_newvalue_difficulty(self.difficulty):
-            # xhard 的 highlight_count 是区间，本局实际高亮数就是已抽定的目标数
+            # xhard's highlight_count is an interval; this episode's actual highlight count is the number of targets already drawn
             highlight_count = len(target_cubes)
         else:
             highlight_count = min(self._sampling["decision"]["highlight_count"][self.difficulty], len(target_cubes))

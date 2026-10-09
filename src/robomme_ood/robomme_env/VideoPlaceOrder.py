@@ -28,9 +28,9 @@ from mani_skill.utils.geometry.rotation_conversions import (
 
 from .utils.SceneGenerationError import SceneGenerationError
 from .utils import *
-# V4（用户 2026-09-23「修xhard」）：上一行的 `from .utils import *` 会把同名子模块
-# `utils.SceneGenerationError` 盖到名字 `SceneGenerationError` 上，原三档的布局失败因此变成 TypeError
-# （按 H2 原三档保持现状）。xhard 分支改用下面这个别名拿到真正的异常类。
+# V4 (user 2026-09-23 "fix xhard"): the `from .utils import *` line above lets the same-named submodule
+# `utils.SceneGenerationError` shadow the name `SceneGenerationError`, so layout failures of the original three tiers become TypeError
+# (original three tiers kept as is per H2). The xhard branch uses the alias below to get the real exception class.
 from .utils.SceneGenerationError import SceneGenerationError as _RealSceneGenerationError
 from .utils.subgoal_evaluate_func import static_check
 from .utils.object_generation import spawn_fixed_cube, build_board_with_hole
@@ -68,7 +68,7 @@ capabilities can be simulated and trained properly. Hence there is extra code fo
 """
 
 
-# ── decision／native 两块的原值（newtaskRelease-v3 步 3，映射见方案第二节 2.12）────────
+# ── Original values of the decision/native blocks (newtaskRelease-v3 step 3, mapping in plan section 2.12) ────────
 NATIVE_SAMPLING = {
     "parameters": {
         "color_pool": [
@@ -89,7 +89,7 @@ NATIVE_SAMPLING = {
         "swap_selection": {"sampler": "torch.randperm(len(targets))[:2]"},
         "swap_duration_steps": 50,
         "goal_site_z_override": -0.05,
-        "recovery": "沿用入口给定的 fail recover 模式与原 generator",
+        "recovery": "keep the entry-provided fail recover mode and the original generator",
         "target_slots": 4,
     },
     "positions": {
@@ -104,19 +104,19 @@ NATIVE_SAMPLING = {
 
 
 def native_blocks(cls, *, release="newtask-v6"):
-    """本环境的 ``(decision, native)`` 原值块；外部导出与内部解析共用同一份。"""
-    # newtask-v7：与 v6 同一解析路径，取当前类常量（即 V7 定值；0928 方案 R3）
+    """Original ``(decision, native)`` blocks of this env; shared by external export and internal parsing."""
+    # newtask-v7: same parsing path as v6, using current class constants (i.e. V7 fixed values; 0928 plan R3)
     if release not in {"newtask-v4", "newtask-v5", "newtask-v6", "newtask-v7"}:
-        raise ValueError(f"未知 sampling_config 发布版本：{release}")
+        raise ValueError(f"unknown sampling_config release: {release}")
     native = copy.deepcopy(NATIVE_SAMPLING)
-    # 方案第二节把 color 列在 native（「规则不改，只外部生成本局值」），不是 decision：
-    # 本轮没有要求改颜色数，它只是随难度取原值。
+    # Plan section 2 lists color under native ("rule unchanged, only the per-episode value is generated externally"), not decision:
+    # this round does not require changing the color count; it just takes the original value per difficulty.
     native["parameters"]["color"] = _tier_config_values(cls, "color", release)
     return _native_decision(cls, release=release), native
 
 
-# V4 xhard 的演示决策（计划 2.15）：原值 demo_object_count=1 / native_random_goal_site 两键保持不动，
-# xhard 值放在名为 xhard 的子键下（守卫去掉 xhard 后原三档可见部分与原值逐字相同）。
+# V4 xhard demonstration decision (plan 2.15): the two original keys demo_object_count=1 / native_random_goal_site stay unchanged,
+# xhard values live under the subkey named xhard (after the guard strips xhard, the part visible to the original three tiers is verbatim identical to the original).
 XHARD_DEMO_DECISION = {"demo_object_count": 2, "demo_return_policy": "return_to_origin"}
 V6_DEMO_DECISIONS = {
     "xhard1": {"demo_object_count": 2, "demo_return_policy": "return_to_origin", "visit_counts": [2, 3]},
@@ -128,7 +128,7 @@ _NATIVE_TIERS = ("easy", "medium", "hard")
 
 
 def _is_newvalue_difficulty(value):
-    """优先调用统一难度族判定；VP 副本合并前用本地兼容集合支持定向测试。"""
+    """Prefer the unified difficulty family check; before the VP copy is merged, use a local compatible set to support targeted tests."""
     predicate = getattr(difficulty_utils, "is_newvalue_difficulty", None)
     if predicate is not None:
         return bool(predicate(value))
@@ -155,16 +155,16 @@ def _tier_config_values(cls, field, release):
 
 
 def vpo_target_placement_count(tier_cfg):
-    """VPO 梯度只数放到 target 的次数；return_to_origin 是共用收尾段，不计入。"""
+    """The VPO gradient counts only placements onto a target; return_to_origin is a shared ending segment and does not count."""
     return sum(int(value) for value in tier_cfg["visit_counts"])
 
 
 def _native_decision(cls, *, release="newtask-v6"):
-    """按方案第二节 2.12 切出 decision 块（原值阶段等于原值）。"""
+    """Slice the decision block per plan section 2.12 (equals the original in the original-value stage)."""
     decision = {
-        # 视频中演示操作多少个方块：原值 1；第二节的 2 个本轮不启用。
+        # How many cubes are manipulated in the demonstration video: original value 1; section 2's 2 is not enabled this round.
         "demo_object_count": 1,
-        # 每个方块演示完成后返回哪里：原值＝演示结束放随机 goal_site。
+        # Where each cube goes after its demonstration: original value = placed on a random goal_site at the end of the demonstration.
         "demo_return_policy": "native_random_goal_site",
         "targets": _tier_config_values(cls, "targets", release),
         "swap": _tier_config_values(cls, "swap", release),
@@ -177,7 +177,7 @@ def _native_decision(cls, *, release="newtask-v6"):
 
 
 def _resolve_sampling_config(cls, override):
-    """拆出本实例专属的 decision／native 副本；不抽随机数，必须在 Generator 之前调用。"""
+    """Split out this instance's private decision/native copies; draws no random numbers, must be called before the Generator."""
     incoming_decision = override.get("decision", {}) if isinstance(override, dict) else {}
     legacy_v5 = isinstance(incoming_decision, dict) and "xhard" in incoming_decision and not any(
         tier in incoming_decision for tier in V6_DEMO_DECISIONS
@@ -229,8 +229,8 @@ class VideoPlaceOrder(BaseEnv):
     }
 
 
-    # V4 xhard（派生自 hard，计划 2.15）：color 3、targets 4、swap True 全部不变；
-    # 变的是「演示几个方块、演示完放哪」，见 decision 的 xhard 子键（XHARD_DEMO_DECISION）。
+    # V4 xhard (derived from hard, plan 2.15): color 3, targets 4, swap True all unchanged;
+    # what changes is "how many cubes are demonstrated and where they go afterward", see decision's xhard subkey (XHARD_DEMO_DECISION).
     config_xhard = {
         'color': 3,
         "swap":True,
@@ -257,12 +257,12 @@ class VideoPlaceOrder(BaseEnv):
                      sampling_config=None,
                      native_episode_spec=None,
                      **kwargs):
-        # 必须落在任何随机数调用与 super().__init__() 之前
+        # Must happen before any RNG call and before super().__init__()
         self._sampling = _resolve_sampling_config(type(self), sampling_config)
         self._spec = SpecRecorder(native_episode_spec, "VideoPlaceOrder", {"seed": seed},
                                   difficulty=kwargs.get("difficulty"))
-        # 初始化序号从 -1 起，_initialize_episode 每次进来先加一；
-        # _load_scene 里的取值点用不带序号的路径，所以这里只作兜底。
+        # Initialization index starts at -1; _initialize_episode increments it on each entry;
+        # value points in _load_scene use index-free paths, so this is only a fallback.
         self._native_init_index = -1
         self.use_demonstrationwrapper=False
         self.demonstration_record_traj=False
@@ -340,7 +340,7 @@ class VideoPlaceOrder(BaseEnv):
 
 
     def _load_scene(self, options: dict):
-        # V4 H2：xhard 用真正的异常类（失败归为可重试的任务性失败）；原三档仍是被遮蔽的原名字，行为逐字不变
+        # V4 H2: xhard uses the real exception class (failures count as retryable task failures); original three tiers still use the shadowed name, behavior verbatim unchanged
         is_newvalue = _is_newvalue_difficulty(self.difficulty)
         _SceneGenError = _RealSceneGenerationError if self.difficulty == "xhard" or is_newvalue else SceneGenerationError
 
@@ -433,7 +433,7 @@ class VideoPlaceOrder(BaseEnv):
                                 random_yaw=True,
                                 name_prefix=f"cube_{group['name']}_{cube_idx}",
                                 generator=self.generator,
-                                # V4 xhard 才把方块位姿记进规格（记录器只冻结已接受的取值，不多抽随机数）
+                                # Only V4 xhard records cube poses into the spec (the recorder only freezes accepted values, no extra random draws)
                                 **self._xhard_spec_kwargs(f"layout.cubes.{group['name']}_{cube_idx}"),
                             )
                         except RuntimeError as exc:
@@ -447,10 +447,10 @@ class VideoPlaceOrder(BaseEnv):
                         group["name_list"].append(cube_name)
                         setattr(self, cube_name, cube)
                         if self.difficulty == "xhard" or is_newvalue:
-                            # V5（L2 b，计划 2.16）：已放方块以精确 2D 障碍进 avoid，后续方块与目标台
-                            # 两类 spawn 调用都据此避让。actor 路径经 _trimesh_box_to_obb2d 约 2/3 退化成
-                            # 线段，min_gap 在其法向失效；取 initial_pose（不依赖仿真已初始化），不抽随机数。
-                            # 原三档仍放 actor，spawn 调用本身逐字不变。
+                            # V5 (L2 b, plan 2.16): placed cubes enter avoid as exact 2D obstacles; later cubes and target tables
+                            # (both kinds of spawn calls) avoid accordingly. The actor path via _trimesh_box_to_obb2d degenerates into a segment ~2/3 of the time,
+                            # voiding min_gap along its normal; take initial_pose (does not depend on simulation being initialized), no random draws.
+                            # Original three tiers still pass the actor; the spawn calls themselves are verbatim unchanged.
                             avoid.append(cube_obb2d_exact(cube.initial_pose, self.cube_half_size))
                         else:
                             avoid.append(cube)
@@ -485,10 +485,10 @@ class VideoPlaceOrder(BaseEnv):
                     avoid.append(target)
 
             if self.difficulty == "xhard" or is_newvalue:
-                # V6 新档与 V5 旧规格共用演示路径；原三档下面的代码一行不改
+                # V6 new tiers and V5 old specs share the demonstration path; the code below for the original three tiers is not changed by a single line
                 self._load_scene_xhard_tail()
                 return
-            # 原三档：演示 1 个方块、放随机 goal_site（守卫已保证取原值）；这里读一次作真实消费点，不抽随机数
+            # Original three tiers: demonstrate 1 cube, place on a random goal_site (the guard already ensures original values); read once here as the real consumption point, no random draws
             validate_demo_plan(decision_cfg["demo_object_count"], decision_cfg["demo_return_policy"],
                                self.difficulty, len(self.all_cubes))
 
@@ -525,7 +525,7 @@ class VideoPlaceOrder(BaseEnv):
                         "objects.swap_pair_ids",
                         torch.randperm(len(self.targets), generator=self.generator).tolist(),
                     )
-                    # perm 现在是规格里的整数列表（原为张量），取值语义不变
+                    # perm is now an integer list from the spec (originally a tensor); value semantics unchanged
                     swap_idx_a = int(perm[0])
                     swap_idx_b = int(perm[1])
                     self.swap_target_a = self.targets[swap_idx_a]
@@ -577,30 +577,30 @@ class VideoPlaceOrder(BaseEnv):
             ) from exc
 
     # ------------------------------------------------------------------
-    # V4 xhard（计划 2.15）：演示 2 个方块、各自放回原位，其余不变
+    # V4 xhard (plan 2.15): demonstrate 2 cubes, each returned to its origin, everything else unchanged
     # ------------------------------------------------------------------
     def _xhard_spec_kwargs(self, spec_path):
-        """xhard 才给 spawn_* 传记录器；原三档返回空字典（调用形态与原来逐字等价）。"""
+        """Only xhard passes a recorder to spawn_*; original three tiers return an empty dict (call form verbatim equivalent to the original)."""
         if self.difficulty != "xhard" and not _is_newvalue_difficulty(self.difficulty):
             return {}
         return {"recorder": self._spec, "spec_path": spec_path}
 
     @staticmethod
     def xhard_button_task_index(visit_counts, button_after_visit):
-        """按钮插在演示序列里的下标（2 对象推广，取代原 ``k*2+2``）。
+        """Index at which the button is inserted into the demonstration sequence (2-object generalization, replacing the original ``k*2+2``).
 
-        xhard 演示序列 = 按对象依次展开 ``[该对象的各次访问 pick+drop …, 放回原位 pick+drop]``，
-        每个单元都是 2 条任务。按钮插在「全局第 ``button_after_visit + 1`` 次访问放置」之后，
-        即落在两个单元之间、永远不会切进 pick 与 drop 之间：
+        The xhard demonstration sequence = per object in turn ``[that object's visits pick+drop ..., return-to-origin pick+drop]``,
+        each unit being 2 tasks. The button is inserted after the "global visit placement number ``button_after_visit + 1``",
+        i.e. between two units, never between a pick and its drop:
 
-            下标 = 2 × (button_after_visit + 1 + 在这之前已完成的「放回原位」单元数)
+            index = 2 * (button_after_visit + 1 + number of completed "return to origin" units before it)
 
-        某对象的最后一次访问恰好是插点时，按钮排在它放回原位**之前**。
-        ``visit_counts=[n]`` 时退化为原公式 ``k*2+2``。
+        When an object's last visit is exactly the insertion point, the button goes **before** its return to origin.
+        With ``visit_counts=[n]`` this degenerates to the original formula ``k*2+2``.
         """
         placed = int(button_after_visit) + 1
         if not 1 <= placed <= sum(visit_counts):
-            raise ValueError(f"button_after_visit={button_after_visit} 超出总访问数 {sum(visit_counts)}")
+            raise ValueError(f"button_after_visit={button_after_visit} exceeds total visits {sum(visit_counts)}")
         homes_before = 0
         cumulative = 0
         for count in visit_counts:
@@ -610,16 +610,16 @@ class VideoPlaceOrder(BaseEnv):
         return 2 * (placed + homes_before)
 
     def _load_scene_xhard_tail(self):
-        """xhard 专属：从「选目标方块」起接管 _load_scene 的后半段（只在 xhard 调用）。
+        """xhard only: takes over the second half of _load_scene from "select target cube" onward (called only for xhard).
 
-        每个演示方块各自走一遍原规则的「访问若干目标台」，走完立即放回原位，再轮到下一个方块
-        （顺序执行保证台面不被上一个方块占着）。答案（task_mapping 的 2 对象推广，⚠ 计划未定、
-        可被用户推翻）：新抽「问哪一个演示方块」，which_in_subset 在该方块自己的访问序列里按原规则抽，
-        指令文本仍是「把 {该方块颜色} 方块放到它第 n 次放上的台」。
+        Each demonstration cube goes through the original rule of "visit several target tables" and is returned to origin right after, before the next cube
+        (sequential execution ensures tables are not occupied by the previous cube). Answer (2-object generalization of task_mapping; WARNING: not settled by the plan,
+        may be overturned by the user): newly draw "which demonstration cube is asked"; which_in_subset is drawn by the original rule within that cube's own visit sequence,
+        and the instruction text is still "put the {that cube's color} cube on the table it was placed on the n-th time".
 
-        随机流（N5，只平移 xhard 自己）：randperm[:count] 取代原 randint 选目标 → swap randperm（原样）
-        → 逐对象 [访问数 randint, 访问序 randperm] → answer_demo_index → which_in_subset → 按钮插点；
-        落点 actor 不抽随机数，放在所有 spawn 之后。
+        Random stream (N5, only shifts xhard itself): randperm[:count] replaces the original randint target selection -> swap randperm (as is)
+        -> per object [visit count randint, visit order randperm] -> answer_demo_index -> which_in_subset -> button insertion point;
+        landing-site actors draw no random numbers and come after all spawns.
         """
         decision_cfg = self._sampling["decision"]
         tier_key = "xhard" if self.difficulty == "xhard" else self.difficulty
@@ -635,8 +635,8 @@ class VideoPlaceOrder(BaseEnv):
             if (len(configured_counts) != demo_count or any(value < 2 or value > len(self.targets)
                     for value in configured_counts) or sum(configured_counts) != expected_sums[self.difficulty]):
                 raise _RealSceneGenerationError(
-                    f"VideoPlaceOrder {self.difficulty} visit_counts={configured_counts} 非法；"
-                    f"要求 {demo_count} 个计数且总和为 {expected_sums[self.difficulty]}"
+                    f"VideoPlaceOrder {self.difficulty} visit_counts={configured_counts} is invalid; "
+                    f"requires {demo_count} counts summing to {expected_sums[self.difficulty]}"
                 )
             count_order = (torch.randperm(demo_count, generator=self.generator).tolist()
                            if len(set(configured_counts)) > 1 else list(range(demo_count)))
@@ -647,18 +647,18 @@ class VideoPlaceOrder(BaseEnv):
             )]
             if sorted(visit_counts) != sorted(configured_counts):
                 raise _RealSceneGenerationError(
-                    f"VideoPlaceOrder 回注 visit_counts={visit_counts} 与配置多重集 {configured_counts} 不符"
+                    f"VideoPlaceOrder re-injected visit_counts={visit_counts} and the configured multiset {configured_counts} do not match"
                 )
         else:
-            # V5 快照没有 visit_count_range 字段；缺省范围逐位保持原 randint(2, len(targets)+1)。
+            # V5 snapshots have no visit_count_range field; the default range keeps the original randint(2, len(targets)+1) bit for bit.
             visit_lo, visit_hi = (int(v) for v in xhard_cfg.get("visit_count_range", [2, len(self.targets)]))
             if visit_lo != 2 or not visit_lo <= visit_hi <= len(self.targets):
                 raise _RealSceneGenerationError(
-                    f"VideoPlaceOrder xhard visit_count_range={[visit_lo, visit_hi]} 非法（下界须为 2、上界 ≤ {len(self.targets)}）"
+                    f"VideoPlaceOrder xhard visit_count_range={[visit_lo, visit_hi]} is invalid (lower bound must be 2, upper bound <= {len(self.targets)})"
                 )
             visit_counts = []
         if len(self.targets) < 2:
-            raise _RealSceneGenerationError(f"VideoPlaceOrder xhard 至少需要 2 个目标台，实际 {len(self.targets)}")
+            raise _RealSceneGenerationError(f"VideoPlaceOrder xhard requires at least 2 target tables, actual {len(self.targets)}")
 
         demo_ids = self._spec.value(
             "objects.demo_ids",
@@ -667,7 +667,7 @@ class VideoPlaceOrder(BaseEnv):
         )
         demo_ids = [int(i) for i in demo_ids]
         if len(demo_ids) != demo_count:
-            raise _RealSceneGenerationError(f"演示方块请求 {demo_count} 个，实际 {len(demo_ids)} 个")
+            raise _RealSceneGenerationError(f"demonstration cubes requested {demo_count}, actual {len(demo_ids)} cubes")
         self.demo_cubes = [self.all_cubes[i] for i in demo_ids]
 
         self.swap_target_a = None
@@ -686,7 +686,7 @@ class VideoPlaceOrder(BaseEnv):
                 target for idx, target in enumerate(self.targets) if idx not in (swap_idx_a, swap_idx_b)
             ]
 
-        # 每个演示方块各自按原规则抽访问数与访问顺序
+        # Each demonstration cube draws its own visit count and visit order by the original rule
         self.demo_visit_targets = []
         for k in range(demo_count):
             if is_v6_tier:
@@ -716,7 +716,7 @@ class VideoPlaceOrder(BaseEnv):
             if self.target_cube in group:
                 self.target_color_name = color_name
         self.non_target_cubes = [cube for cube in self.all_cubes if cube != self.target_cube]
-        # 与原三档同名的属性指向答案方块的访问序列，下游（task_goal 等）照旧可读
+        # Attributes with the same names as in the original three tiers point at the answer cube's visit sequence, so downstream (task_goal etc.) can read them as before
         self.which_targets_to_pick = self.demo_visit_targets[answer_index]
         self.which_in_subset = int(self._spec.value(
             "objects.which_in_subset",
@@ -738,14 +738,14 @@ class VideoPlaceOrder(BaseEnv):
             self.target_placement_count = sum(visit_counts)
             self._spec.record("actions.target_placement_count", sum(visit_counts))
 
-        # 放回原位的落点：所有 spawn 之后、按方块初始位姿直接调 target builder（不用 spawn_random_target）
+        # Landing sites for returning to origin: after all spawns, call the target builder directly with each cube's initial pose (not spawn_random_target)
         self._build_xhard_final_sites(return_policy)
 
     def _build_xhard_final_sites(self, return_policy):
-        """演示方块的终点落点（V6 计划 2.10）：放回原位的建 home 落点，不放回的建 goal_site 区域落点。
+        """Final landing sites of demonstration cubes (V6 plan 2.10): build home sites for return-to-origin, goal_site region sites otherwise.
 
-        ``return_to_origin`` 与 V5 xhard 逐位同路；其余策略只在新值配置下走到，两类落点都不抽随机数。
-        不放回的方块必须离开目标台：VPO 逐对象顺序演示，下一个方块可能访问上一个方块停着的台。
+        ``return_to_origin`` follows the same path as V5 xhard bit for bit; other policies are reached only with new-value configs; neither kind of site draws random numbers.
+        Cubes not returned must leave the target tables: VPO demonstrates objects sequentially, and the next cube may visit a table where the previous cube is resting.
         """
         if return_policy == RETURN_TO_ORIGIN:
             self.xhard_home_sites, self._xhard_home_checks = build_home_sites(self, self.demo_cubes, self.generator)
@@ -772,7 +772,7 @@ class VideoPlaceOrder(BaseEnv):
         ]
 
     def _build_xhard_task_list(self):
-        """xhard 的任务表（每次 _initialize_episode 重建，与原三档同一时机）。"""
+        """xhard task table (rebuilt on every _initialize_episode, at the same time as the original three tiers)."""
         pair_tasks = []
         for (cube, site, kind), visits in zip(self._xhard_final_sites, self.demo_visit_targets):
             for target in visits:
@@ -852,17 +852,17 @@ class VideoPlaceOrder(BaseEnv):
             self.fail_grasp_task_index = None
 
     def _xhard_pick_place(self, cube, target, home=False):
-        """演示段的一对 pick + drop（闭包按默认参数绑定当前方块与落点）。
+        """One pick + drop pair of the demonstration segment (closures bind the current cube and site via default arguments).
 
-        ``home``：False = 放到目标台；True / "home" = 放回原位；"goal" = 不放回、放到桌面
-        （goal_site 区域，文本沿用原三档的 "drop the cube onto table"）。
+        ``home``: False = place on the target table; True / "home" = return to origin; "goal" = do not return, place on the table surface
+        (goal_site region; text follows the original three tiers' "drop the cube onto table").
         """
         if home == "goal":
             name = "drop the cube onto table"
             segment_text = "drop the cube onto table"
         elif home is True or home == "home":
             name = "put the cube back to its original position"
-            # V6 审查修复 N5（用户「n5 不要坐标了」）：放回原位落点被隐藏、坐标永远填不出，新四档模板去掉 ``at <>``；V5 xhard 沿用旧文本
+            # V6 review fix N5 (user "n5 no more coordinates"): return-to-origin sites are hidden and coordinates can never be filled in, so the four new tiers' template drops ``at <>``; V5 xhard keeps the old text
             segment_text = (name if _is_newvalue_difficulty(self.difficulty)
                             else "put the cube back to its original position at <>")
         else:
@@ -893,7 +893,7 @@ class VideoPlaceOrder(BaseEnv):
 
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
-        # 每次初始化各自记一份规格，不复用上一次的结果
+        # Each initialization records its own spec, never reusing the previous result
         self._native_init_index = getattr(self, "_native_init_index", -1) + 1
         with torch.device(self.device):
             b = len(env_idx)
@@ -908,7 +908,7 @@ class VideoPlaceOrder(BaseEnv):
             #print(self.goal_site.pose.p)
 
             if self.difficulty == "xhard" or _is_newvalue_difficulty(self.difficulty):
-                # V6 新值档与 V5 旧规格共用演示模板；原三档下面的内联序列一行不改
+                # V6 new-value tiers and V5 old specs share the demonstration template; the inline sequence below for the original three tiers is not changed by a single line
                 self._build_xhard_task_list()
                 return
 

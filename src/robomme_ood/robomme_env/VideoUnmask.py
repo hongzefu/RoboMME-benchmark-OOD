@@ -34,7 +34,7 @@ from .utils import reset_panda
 from .utils.difficulty import normalize_robomme_difficulty, is_newvalue_difficulty
 from .utils.SceneGenerationError import SceneGenerationError
 from .utils.unmask_distractors import add_distractor_misgrasp_failure
-# V5 xhard（L13 / L14）：统一干扰采样器与独立停放点；只在 xhard 分支调用，原三档不进该模块
+# V5 xhard (L13 / L14): unified distractor sampler and independent parking points; called only in the xhard branch, original three tiers do not enter this module
 from .utils.unmask_distractor_sampler import (
     V5_DISTRACTOR_PRESETS,
     reveal_actors_parked,
@@ -60,7 +60,7 @@ capabilities can be simulated and trained properly. Hence there is extra code fo
 """
 
 
-# ── decision／native 两块的原值（newtaskRelease-v3 步 3，映射见方案第二节 2.5）────────
+# ── Original values of the decision/native blocks (newtaskRelease-v3 step 3, mapping in plan section 2.5) ────────
 NATIVE_SAMPLING = {
     "parameters": {
         "color_pool": [
@@ -69,16 +69,16 @@ NATIVE_SAMPLING = {
             {"rgba": [0, 0, 1, 1], "name": "blue"},
         ],
         "color_order": {"sampler": "torch.randperm(3)"},
-        "hidden_rule": "前 3 个容器各藏一块，其余为空",
-        "pick_rule": "先抓 bin_0，pick>1 再抓 bin_1",
-        "recovery": "沿用入口给定的 fail recover 模式与原 generator",
+        "hidden_rule": "first 3 bins each hide one cube, the rest are empty",
+        "pick_rule": "pick bin_0 first, then bin_1 if pick>1",
+        "recovery": "keep the entry-provided fail recover mode and the original generator",
         "step_bin_scan": 15,
     },
     "positions": {
         "bins": {
             "min_gap_factor": 2,
             "max_trials": 256,
-            "yaw_expression": "u * 90 度（通过拒绝检查后才抽）",
+            "yaw_expression": "u * 90 degrees (drawn only after passing the rejection check)",
         },
         "hidden_cube": {"half_size_divisor": 1.2, "yaw": 0.0, "dynamic": True},
         "reveal_window": {"start_step": 0, "end_step": 64},
@@ -86,74 +86,74 @@ NATIVE_SAMPLING = {
 }
 
 
-# ── V4 xhard 专属的 decision 条目（NEWTASK_RELEASE_V4_PLAN 2.7 / 2.8；G2、B3、B13 均为用户已定数）──
-# 原三档不读这些键；守卫对名为 xhard 的子键只校验结构、放行取值（sampling_config.assert_native_decision）。
+# ── V4 xhard-specific decision entries (NEWTASK_RELEASE_V4_PLAN 2.7 / 2.8; G2, B3, B13 are user-fixed values) ──
+# Original three tiers do not read these keys; the guard only checks structure and admits values for subkeys named xhard (sampling_config.assert_native_decision).
 XHARD_BIN_LAYOUT = {
-    # G2（2026-09-22）：区域不动，间距系数 2 → 0.75，容器数 8；放不满直接判该局失败
+    # G2 (2026-09-22): region unchanged, spacing factor 2 -> 0.75, 8 bins; if not all fit, the episode fails
     "min_gap_factor": 0.75,
 }
-# V5（NEWTASK_RELEASE_V5_PLAN 2.3；L6～L13）：贴身环带 [0.2425, 0.3289]，按内部密度定数，半数含 cube，
-# 三色平衡轮转，1024 次；统一 7 键 schema（count / ring_max_abs_xy / cube_count_range / color_pool /
-# color_rule / min_gap_factor / max_trials），取值见 unmask_distractor_sampler.V5_DISTRACTOR_PRESETS。
+# V5 (NEWTASK_RELEASE_V5_PLAN 2.3; L6-L13): tight ring band [0.2425, 0.3289], count set by inner density, half contain a cube,
+# three-color balanced rotation, 1024 trials; unified 7-key schema (count / ring_max_abs_xy / cube_count_range / color_pool /
+# color_rule / min_gap_factor / max_trials), values in unmask_distractor_sampler.V5_DISTRACTOR_PRESETS.
 XHARD_DISTRACTOR = copy.deepcopy(V5_DISTRACTOR_PRESETS["VideoUnmask"])
 
 
-# ── V6（NEWTASK_RELEASE_V6_PLAN 2.3）新值族档位表：xhard1/2/3 沿用 xhard 的全部机制（8 内环容器 + 贴身环带 +
-# 三色轮转 + 独立停放），只按档改干扰总数 count 与含 cube 个数 cube_count_range；环带宽度、间距、
-# 尝试次数等一律沿用 xhard（干扰数少时即在同一环带内更稀疏地随机放置，不重新推导带宽）。
-# 「xhard」键即原 XHARD_* 常量本身，取值逐位不变。
+# ── V6 (NEWTASK_RELEASE_V6_PLAN 2.3) new-value tier table: xhard1/2/3 keep all xhard mechanisms (8 inner-ring bins + tight ring band +
+# three-color rotation + independent parking), only changing per tier the distractor count and cube-containing count cube_count_range; ring width, spacing,
+# trial count etc. all follow xhard (with fewer distractors they are placed more sparsely in the same band; band width is not re-derived).
+# The "xhard" key is the original XHARD_* constant itself, values bit-identical.
 def _newvalue_distractor(count, cube_count_range):
-    """以 xhard 的干扰配置为底，只替换 count 与 cube_count_range。"""
+    """Based on xhard's distractor config, replace only count and cube_count_range."""
     cfg = copy.deepcopy(XHARD_DISTRACTOR)
     cfg["count"] = count
     cfg["cube_count_range"] = list(cube_count_range)
     return cfg
 
 
-# V7 定值（0928 方案 §3.2.2）：贴身环带干扰 0/4/8/12、含 cube 数恒为一半；内环 8 固定 ⇒ 桌面容器总数 8/12/16/20。
-# v8（1001 方案 §1 表 1 / §2.1）：xhard1 干扰 0 → 4、含 cube 0 → 2（pick_count 仍 2），与 xhard2 同干扰、少抓一次；
-# xhard2～4 不动 ⇒ 干扰 4/4/8/12、桌面容器总数 12/12/16/20。
-# XHARD_DISTRACTOR（V5 预设 15 个）本身不动，xhard4 改用 12 个（顶档下调）。
+# V7 fixed values (0928 plan 3.2.2): tight-band distractors 0/4/8/12, cube-containing always half; inner ring fixed at 8 => total table bins 8/12/16/20.
+# v8 (1001 plan 1 table 1 / 2.1): xhard1 distractors 0 -> 4, cube-containing 0 -> 2 (pick_count still 2), same distractors as xhard2 but one fewer pick;
+# xhard2-4 unchanged => distractors 4/4/8/12, total table bins 12/12/16/20.
+# XHARD_DISTRACTOR (V5 preset of 15) itself unchanged; xhard4 uses 12 instead (top tier lowered).
 NEWVALUE_DISTRACTOR = {
     "xhard4": _newvalue_distractor(12, [6, 6]),
     "xhard1": _newvalue_distractor(4, [2, 2]),
     "xhard2": _newvalue_distractor(4, [2, 2]),
     "xhard3": _newvalue_distractor(8, [4, 4]),
 }
-# 内环容器摆放（间距系数 0.75）四档相同
+# Inner-ring bin placement (spacing factor 0.75) identical across the four tiers
 NEWVALUE_BIN_LAYOUT = {tier: XHARD_BIN_LAYOUT for tier in NEWVALUE_DISTRACTOR}
 
 
 def native_blocks(cls):
-    """本环境的 ``(decision, native)`` 原值块；外部导出与内部解析共用同一份。"""
+    """Original ``(decision, native)`` blocks of this env; shared by external export and internal parsing."""
     return _native_decision(cls), copy.deepcopy(NATIVE_SAMPLING)
 
 
 def _native_decision(cls):
-    """按方案第二节 2.5 切出 decision 块（原值阶段等于原值）。"""
+    """Slice the decision block per plan section 2.5 (equals the original in the original-value stage)."""
     return {
-        # 需要拾取的目标数量；V4 起 xhard 为 3（经 config_xhard4 进入本字典的 xhard 键）。
+        # Number of targets to pick; since V4 xhard is 3 (enters this dict's xhard key via config_xhard4).
         "pick_count": {difficulty: cfg["pick"] for difficulty, cfg in cls.configs.items()},
-        # 容器怎样摆放、摆放区域多大；原值＝按难度给的容器数 + 同一块区域。
+        # How bins are placed and how large the placement region is; original value = bin count per difficulty + the same region.
         "bin_layout_policy": {
             "count": {difficulty: cfg["bin"] for difficulty, cfg in cls.configs.items()},
             "region_center": [0, 0],
             "region_half_size": 0.2,
-            # xhard 在前（键序与 V5 相同），V6 的 xhard1/2/3 追加其后
+            # xhard first (same key order as V5), V6's xhard1/2/3 appended after it
             **{tier: copy.deepcopy(layout) for tier, layout in NEWVALUE_BIN_LAYOUT.items()},
         },
-        # 原三档可见部分保持 None；V4 的干扰容器放在 xhard 子键下
+        # Part visible to the original three tiers stays None; V4 distractor bins live under the xhard subkey
         "distractor": None,
         **{tier: {"distractor": copy.deepcopy(dist)} for tier, dist in NEWVALUE_DISTRACTOR.items()},
     }
 
 
 def _resolve_sampling_config(cls, override):
-    """拆出本实例专属的 decision／native 副本；不抽随机数，必须在 Generator 之前调用。"""
+    """Split out this instance's private decision/native copies; draws no random numbers, must be called before the Generator."""
     decision_default, native_default = native_blocks(cls)
     decision, native = split_sampling_config(override, native_default, decision_default)
     assert_native_decision(decision, decision_default, cls.__name__)
-    # V6：旧快照（V5 没有 xhard1/2/3 子树）从源码申报补齐
+    # V6: old snapshots (V5 has no xhard1/2/3 subtrees) get them filled from source declarations
     fill_missing_newvalue(decision, decision_default)
     native["decision"] = decision
     return native
@@ -190,14 +190,14 @@ class VideoUnmask(BaseEnv):
     "pick":1,
     }
 
-    # V4 xhard（派生自 hard，计划 2.8）：pick 2 → 3；容器数 15 → 8（G2：配 min_gap_factor 0.75，
-    # 见 XHARD_BIN_LAYOUT）。另有贴身环带干扰容器（V5：XHARD_DISTRACTOR，VU 15 个 / BU 14 个），不计入 bin。
+    # V4 xhard (derived from hard, plan 2.8): pick 2 -> 3; bins 15 -> 8 (G2: with min_gap_factor 0.75,
+    # see XHARD_BIN_LAYOUT). There are also tight-band distractor bins (V5: XHARD_DISTRACTOR, VU 15 / BU 14), not counted in bin.
     config_xhard4 = {
     'bin':8,
     "pick":3,
     }
 
-    # V6（计划 2.3）新值族 xhard1/2/3：内环容器沿 xhard 为 8，pick 按档 2/3/3
+    # V6 (plan 2.3) new-value family xhard1/2/3: inner-ring bins follow xhard at 8, pick per tier 2/3/3
     config_xhard1 = {
     'bin':8,
     "pick":2,
@@ -229,12 +229,12 @@ class VideoUnmask(BaseEnv):
                      sampling_config=None,
                      native_episode_spec=None,
                      **kwargs):
-        # 必须落在任何随机数调用与 super().__init__() 之前
+        # Must happen before any RNG call and before super().__init__()
         self._sampling = _resolve_sampling_config(type(self), sampling_config)
         self._spec = SpecRecorder(native_episode_spec, "VideoUnmask", {"seed": seed},
                                   difficulty=kwargs.get("difficulty"))
-        # 初始化序号从 -1 起，_initialize_episode 每次进来先加一；
-        # _load_scene 里的取值点用不带序号的路径，所以这里只作兜底。
+        # Initialization index starts at -1; _initialize_episode increments it on each entry;
+        # value points in _load_scene use index-free paths, so this is only a fallback.
         self._native_init_index = -1
         self.use_demonstrationwrapper=False
         self.demonstration_record_traj=False
@@ -322,17 +322,17 @@ class VideoUnmask(BaseEnv):
         bin_layout = decision_cfg["bin_layout_policy"]
         bins_cfg = self._sampling["positions"]["bins"]
         hidden_cfg = self._sampling["positions"]["hidden_cube"]
-        # V6：新值族（xhard1/2/3/xhard）同走 xhard 机制，数值按本局档位查表
+        # V6: the new-value family (xhard1/2/3/xhard) uses the xhard mechanism; values are looked up by this episode's tier
         xhard = is_newvalue_difficulty(self.difficulty)
-        # V4 xhard：间距系数取 decision 的 xhard 条目（G2 0.75）；原三档仍读 native 的原值，表达式不变
+        # V4 xhard: spacing factor from decision's xhard entry (G2 0.75); original three tiers still read native's original value, expression unchanged
         gap_factor = (bin_layout[self.difficulty]["min_gap_factor"] if xhard
                       else bins_cfg["min_gap_factor"])
         if xhard:
             requested_bins = bin_layout["count"][self.difficulty]
-            # 揭示动画只扫 bin_0..bin_{scan-1}：容器数超过它的部分不会被揭示（计划 2.8）
+            # The reveal animation only scans bin_0..bin_{scan-1}: bins beyond that are never revealed (plan 2.8)
             if self._sampling["parameters"]["step_bin_scan"] < requested_bins:
                 raise ValueError(
-                    f"step_bin_scan={self._sampling['parameters']['step_bin_scan']} 小于容器数 {requested_bins}"
+                    f"step_bin_scan={self._sampling['parameters']['step_bin_scan']} is smaller than bin count {requested_bins}"
                 )
             self._spec.record("layout.bin_count.requested", requested_bins)
         for i in range(bin_layout["count"][self.difficulty]):
@@ -352,10 +352,10 @@ class VideoUnmask(BaseEnv):
                 logger.debug(f"Spawned bin_{i} at position {bin_actor.pose.p}")
             except RuntimeError as e:
                 if xhard:
-                    # 2.2④：xhard 下放不满即该局失败，不许静默截断
+                    # 2.2-4: under xhard, failing to place all bins fails the episode; silent truncation not allowed
                     self._spec.record("layout.bin_count.placed", len(self.spawned_bins))
                     raise SceneGenerationError(
-                        f"VideoUnmask xhard 容器放不满：请求 {requested_bins} 个，只放下 {len(self.spawned_bins)} 个"
+                        f"VideoUnmask xhard bins do not fit: requested {requested_bins}, placed only {len(self.spawned_bins)} bins"
                     ) from e
                 break
 
@@ -436,7 +436,7 @@ class VideoUnmask(BaseEnv):
                 "segment":self.bin_0,
             },]
         if xhard:
-            # V4 xhard：按 pick_count 循环追加「放下上一个 → 抓第 k 个」（原分支写死 bin_0/bin_1，只能 2 抓）
+            # V4 xhard: per pick_count, loop-append "put down the previous -> pick the k-th" (the original branch hardcodes bin_0/bin_1, so only 2 picks)
             self._append_xhard_pick_tasks(tasks, decision_cfg["pick_count"][self.difficulty])
         elif decision_cfg["pick_count"][self.difficulty]>1:
             tasks.append({
@@ -471,7 +471,7 @@ class VideoUnmask(BaseEnv):
         self.recovery_pickup_indices, self.recovery_pickup_tasks = task4recovery(self.task_list)
         if self.robomme_failure_recovery:
             # Only inject an intentional failed grasp when recovery mode is enabled
-            # 恢复动作的选择是一次真实抽样：原位置照常抽，回注模式下用冻结的索引
+            # Choosing the recovery action is a real draw: the original draw happens as usual; re-injection mode uses the frozen index
             self.fail_grasp_task_index = self._spec.value(
                 "actions.recovery.selected_action_index",
                 inject_fail_grasp(
@@ -484,8 +484,8 @@ class VideoUnmask(BaseEnv):
             self.fail_grasp_task_index = None
 
         if xhard:
-            # V4 xhard 干扰容器：必须在全部既有取值点之后（含上面 inject_fail_grasp 用同一 generator 的抽样），红线 N5
-            # V5（L13）：统一干扰采样器；仍用主场景 generator、仍在全部既有取值点之后，内环取值与 V4 同 seed 逐位相同
+            # V4 xhard distractor bins: must come after all existing value points (including the inject_fail_grasp draw above using the same generator), red line N5
+            # V5 (L13): unified distractor sampler; still uses the main scene generator, still after all existing value points; inner-ring values bit-identical to V4 for the same seed
             self.distractor_bins, self.distractor_cubes, self.distractor_layout = spawn_distractor_layout(
                 self,
                 cfg=decision_cfg[self.difficulty]["distractor"],
@@ -495,21 +495,21 @@ class VideoUnmask(BaseEnv):
                 recorder=self._spec,
                 hidden_half_size=self.cube_half_size/hidden_cfg["half_size_divisor"],
             )
-            # V4 xhard（用户 2026-09-22「误抓即失败」）：每个已有 failure_func 的抓取／放下任务追加
-            # 「任一干扰容器被抬起（z>0.15，与区域内容器同一判据）即失败」；原三档不进此分支
+            # V4 xhard (user 2026-09-22 "wrong grasp = failure"): every pick/place task that already has failure_func gets appended
+            # "fail if any distractor bin is lifted (z>0.15, same criterion as in-region bins)"; original three tiers do not enter this branch
             add_distractor_misgrasp_failure(self, self.task_list)
 
     def _append_xhard_pick_tasks(self, tasks, pick_total):
-        """xhard 专用：把第 2..pick_total 次抓取按「放下上一个容器 → 抓下一个」追加进任务表。
+        """xhard only: append picks 2..pick_total to the task list as "put down the previous bin -> pick the next".
 
-        各条目与原 hard 分支的第 2 抓逐项同构，只把写死的 bin_0/bin_1、color_names[0]/[1] 换成按 k 取；
-        lambda 用默认参数绑定当次的容器，避免循环变量晚绑定。
+        Each entry mirrors the original hard branch's second pick item by item, only replacing hardcoded bin_0/bin_1 and color_names[0]/[1] with index k;
+        lambdas bind the current bin via default arguments to avoid late binding of the loop variable.
         """
         if pick_total > min(len(self.spawned_bins), len(self.color_names)):
             raise SceneGenerationError(
-                f"pick_count={pick_total} 超过可抓的藏物容器数 {min(len(self.spawned_bins), len(self.color_names))}"
+                f"pick_count={pick_total} exceeds the number of pickable hiding bins {min(len(self.spawned_bins), len(self.color_names))}"
             )
-        # 任务目标文本（utils/task_goal.py）在 xhard 下读这个实际次数
+        # The task goal text (utils/task_goal.py) reads this actual count under xhard
         self.xhard_pick_count = pick_total
         self._spec.record("objects.n_picks", pick_total)
         self._spec.record("objects.pick_order", list(range(pick_total)))
@@ -540,7 +540,7 @@ class VideoUnmask(BaseEnv):
                 })
 
     def _initialize_episode(self, env_idx: torch.Tensor, options: dict):
-        # 每次初始化各自记一份规格，不复用上一次的结果
+        # Each initialization records its own spec, never reusing the previous result
         self._native_init_index = getattr(self, "_native_init_index", -1) + 1
         with torch.device(self.device):
             b = len(env_idx)
@@ -632,10 +632,10 @@ class VideoUnmask(BaseEnv):
         timestep = self.elapsed_steps        
         #Lift and drop bins (bin_0 to bin_4 if they exist)
         if is_newvalue_difficulty(self.difficulty):
-            # V5 xhard（L14，主会话 2026-09-24 定：内环容器也停独立点）：窗口与半窗落回步与原机制逐步相同，
-            # 只把「远处」从共用的 (10,10,10) 换成每个物体各自的画面外停放点，免得 20 多个容器叠放拖慢物理。
-            # 内环容器与原循环扫同一组 bin_<i>（i < step_bin_scan），第 i 个停在 xhard_park_point("bin", i)；
-            # 被藏 cube 在本环境的揭示里本来就不动，无需停放。
+            # V5 xhard (L14, main session 2026-09-24: inner-ring bins also use independent parking): window and half-window lowering steps identical to the original mechanism,
+            # only "far away" changes from the shared (10,10,10) to a per-object off-screen parking point, so 20+ stacked bins do not slow physics.
+            # Inner-ring bins scan the same bin_<i> (i < step_bin_scan) as the original loop; the i-th parks at xhard_park_point("bin", i);
+            # hidden cubes do not move during this env's reveal, so no parking needed.
             reveal_window = self._sampling["positions"]["reveal_window"]
             reveal_actors_parked(
                 self,
@@ -646,7 +646,7 @@ class VideoUnmask(BaseEnv):
                 end_step=reveal_window["end_step"],
                 cur_step=timestep,
             )
-            # 干扰容器（用户 2026-09-22「参与揭示」）：同一窗口，每个一个停放点
+            # Distractor bins (user 2026-09-22 "take part in the reveal"): same window, one parking point each
             reveal_distractor_bins_parked(
                 self,
                 start_step=reveal_window["start_step"],

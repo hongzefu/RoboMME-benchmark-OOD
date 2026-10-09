@@ -28,9 +28,9 @@ from mani_skill.utils.geometry.rotation_conversions import (
 
 from .utils.SceneGenerationError import SceneGenerationError
 from .utils import *
-# V5 L3（仿 VideoPlaceOrder 的 K2 修法）：上一行的 `from .utils import *` 会把同名子模块
-# `utils.SceneGenerationError` 盖到名字 `SceneGenerationError` 上（import 自省核实），原三档的
-# raise / except 因此是 TypeError（按 H2 原三档保持现状）。xhard 用下面这个别名拿到真正的异常类。
+# V5 L3 (following VideoPlaceOrder's K2 fix): the `from .utils import *` line above lets the same-named submodule
+# `utils.SceneGenerationError` shadow the name `SceneGenerationError` (confirmed by import introspection), so in the original three tiers
+# raise / except become TypeError (original three tiers kept as is per H2). xhard uses the alias below to get the real exception class.
 from .utils.SceneGenerationError import SceneGenerationError as _RealSceneGenerationError
 from .utils.subgoal_evaluate_func import static_check, is_static
 from .utils.object_generation import spawn_fixed_cube, build_board_with_hole
@@ -46,7 +46,7 @@ from .utils.bin_collision import (
     nearest_partner_index,
     object_state_from_actor,
 )
-# V5（计划 2.15，L48/L49/L54）：xhard 搭档 reset 规划用的扫掠判据与静止障碍（S2b 新增 API，只在 xhard 路径调用）
+# V5 (plan 2.15, L48/L49/L54): sweep criterion and static obstacles used by xhard partner reset planning (S2b new API, called only on the xhard path)
 from .utils.bin_collision import (
     ObjectState,
     button_base_state,
@@ -54,19 +54,19 @@ from .utils.bin_collision import (
     cube_actor_pose,
     cube_shape_specs,
 )
-# V5 N17：回放冻结规格时复核规划搭档，违反抛 EpisodeSpecError（下划线别名，不经 from .utils import * 外泄）
+# V5 N17: re-check planned partners when replaying a frozen spec, raising EpisodeSpecError on violation (underscore alias, not leaked via from .utils import *)
 from .utils.episode_spec import EpisodeSpecError as _EpisodeSpecError
 
 from ..logging_utils import logger
 
 
 def _scene_gen_error(difficulty):
-    """按难度族选场景生成异常类。
+    """Select the scene-generation exception class by difficulty family.
 
-    新值档返回真正的 ``SceneGenerationError``（可重试的任务性失败）；原三档原样返回本模块里
-    被遮蔽的名字 ``SceneGenerationError``（子模块，raise / except 时仍是 TypeError，行为逐字不变）。
-    用法：``raise _scene_gen_error(self.difficulty)("说明")``、``except _scene_gen_error(self.difficulty):``；
-    只在新值路径上执行的代码直接用 ``_RealSceneGenerationError``。
+    New-value tiers return the real ``SceneGenerationError`` (retryable task failure); original three tiers return this module's
+    shadowed name ``SceneGenerationError`` as is (a submodule, so raise / except still give TypeError; behavior verbatim unchanged).
+    Usage: ``raise _scene_gen_error(self.difficulty)("message")``, ``except _scene_gen_error(self.difficulty):``;
+    code executed only on the new-value path uses ``_RealSceneGenerationError`` directly.
     """
     return _RealSceneGenerationError if is_newvalue_difficulty(difficulty) else SceneGenerationError
 
@@ -86,9 +86,9 @@ capabilities can be simulated and trained properly. Hence there is extra code fo
 """
 
 
-# ── 原版采样输入的原值快照（newtask-v2 10.0）────────────────────────────────────
-# 说明同 BinFill：本字典即不传 sampling_config 时的默认值，也是 --extract-config 的提取目标。
-# 注意 __init__ 里的 np.random.seed(seed) 是全仓唯一的进程级全局播种点，位置不得移动。
+# ── Original-value snapshot of the native sampling inputs (newtask-v2 10.0) ──────────────────────
+# Same note as BinFill: this dict is both the default when no sampling_config is passed and the --extract-config extraction target.
+# Note that np.random.seed(seed) in __init__ is the only process-level global seeding point in the repo; its position must not move.
 NATIVE_SAMPLING = {
     "parameters": {
         "num_repeats": {
@@ -122,7 +122,7 @@ NATIVE_SAMPLING = {
             "randomize_range": [0.1, 0.1],
             "sampling_expression": "(torch.rand(2, generator=generator) - 0.5) * randomize_range",
             "scale": 1.5,
-            "randomize_range_origin": "VideoRepick 调用点显式传入",
+            "randomize_range_origin": "passed explicitly at the VideoRepick call site",
         },
         "easy_medium_cubes": {
             "region3_tri": [[-0.05, -0.1], [-0.05, 0.1], [0.1, 0]],
@@ -144,7 +144,7 @@ NATIVE_SAMPLING = {
             "min_gap_value": 0.02,
             "include_existing": True,
             "include_goal": True,
-            "include_flags_origin": "原值取自 spawn_random_cube 形参默认 True；原调用点未传，现由本快照显式传入",
+            "include_flags_origin": "original value is the spawn_random_cube parameter default True; the original call site did not pass it, now passed explicitly by this snapshot",
             "region4_reachable": False,
         },
         "hard_cubes": {
@@ -165,9 +165,9 @@ NATIVE_SAMPLING = {
 from .utils.xhard import HSV_FLOOR_COLOR, cube_obb2d_exact, hsv_floor_rgb
 from .utils import swap_uniform
 
-# V4 xhard「block 颜色任意」（C2：每局全部方块仍同色，只是色值任意）。
-# 色域按用户 2026-09-22 决定设饱和度/亮度下限：色相任意、S≥0.5、V≥0.4（utils/xhard.py::HSV_FLOOR_COLOR），
-# alpha 固定 1；可经 sampling_config 的 decision.xhard.block_color 覆盖三个区间，不改源码。
+# V4 xhard "block color arbitrary" (C2: all cubes in an episode still share one color, only the color value is arbitrary).
+# Per user decision 2026-09-22 the gamut has saturation/value floors: any hue, S>=0.5, V>=0.4 (utils/xhard.py::HSV_FLOOR_COLOR),
+# alpha fixed 1; the three ranges can be overridden via sampling_config's decision.xhard.block_color without changing source.
 NEWVALUE_BLOCK_COLOR = {
     "policy": "same_color_hsv_floor",
     "sampler": "torch.rand",
@@ -176,27 +176,27 @@ NEWVALUE_BLOCK_COLOR = {
 
 
 def _resolve_episode_spec(spec, task):
-    """准备本实例专属的固定规格副本（新值注入）；详见 BinFill 同名函数。
+    """Prepare this instance's private copy of the fixed spec (new-value injection); see the same-named function in BinFill.
 
-    传 ``None``（没传 ``--episode-specs``）时返回 ``None``，此后每个消费点都走原随机路径，
-    链路与改动前逐字相同。
+    When ``None`` is passed (no ``--episode-specs``), returns ``None``; every consumption point then takes the original random path,
+    identical to pre-change behavior.
     """
     if spec is None:
         return None
     if not isinstance(spec, dict):
-        raise ValueError("episode_spec 必须是字典")
+        raise ValueError("episode_spec must be a dict")
     if spec.get("task") != task:
-        raise ValueError(f"episode_spec 是 {spec.get('task')} 的规格，不能用于 {task}")
+        raise ValueError(f"episode_spec is the spec for {spec.get('task')}, cannot be used for {task}")
     return copy.deepcopy(spec)
 
 
 def _solve_hold_obj_xhard(env, planner, static_steps):
-    """V4 xhard 专用的原地等待：与 ``solve_hold_obj(close=False)`` 同语义，只把裸 ``except`` 收窄为 ``AttributeError``。
+    """V4 xhard-only in-place wait: same semantics as ``solve_hold_obj(close=False)``, only narrowing the bare ``except`` to ``AttributeError``.
 
-    原函数 ``utils/subgoal_planner_func.py::solve_hold_obj`` 用裸 ``except:`` 包住 ``planner.open_gripper()``，
-    会吞掉 step 里抛出的 ``BinCollisionError``；此时 ``elapsed_steps`` 不前进，循环永不结束，且每轮都往
-    ``_runtime_checks`` 追加一条拒绝证据，最终内存暴涨崩溃（本机实测 rc=139）。共享工具函数的既有缺陷
-    按 N12 不就地修，这里另写 xhard 专用路径。
+    The original ``utils/subgoal_planner_func.py::solve_hold_obj`` wraps ``planner.open_gripper()`` in a bare ``except:``,
+    which swallows ``BinCollisionError`` raised in step; ``elapsed_steps`` then never advances, the loop never ends, and every iteration
+    appends a rejection record to ``_runtime_checks``, eventually blowing up memory and crashing (measured locally rc=139). Existing defects of shared utility functions
+    are not fixed in place per N12, so a separate xhard-only path is written here.
     """
     start_step = int(getattr(env, "elapsed_steps", 0))
     target_step = start_step + static_steps
@@ -209,14 +209,14 @@ def _solve_hold_obj_xhard(env, planner, static_steps):
 
 
 def _solve_hold_until_step_xhard(env, planner, target_step):
-    """V6 审查修复 N11：xhard 交换段的原地等待改为等到**绝对步** ``target_step``（与 ``_solve_hold_obj_xhard`` 同语义，
-    只把「相对当前步数 static_steps」换成绝对步）。
+    """V6 review fix N11: the in-place wait of xhard swap segments now waits until **absolute step** ``target_step`` (same semantics as ``_solve_hold_obj_xhard``,
+    only replacing "static_steps relative to the current step" with an absolute step).
 
-    根因（审查 xhard4 ep3 seed 6900300，12 次交换只有 11 个 static 边界）：交换段 static 任务的内部完成判定
-    ``static_check(static_steps=50)`` 从**内部**任务切换那一步起计数，而演示 wrapper 执行的等待解法从**录像侧**任务切换
-    （上一段解法结束）起再等 50 步并多消耗约 4 步开销；录像侧只在每段解法结束时采纳内部任务索引，两条时钟每段漂 4 步，
-    累计超过一段长度后某个内部 static 任务在两次采纳之间整段完成，边界被吞掉。
-    修法：新四档交换段的完成判定与等待解法都钉到同一条绝对时钟——第 k 段结束步 ``swap_schedule[k][3]``，漂移不再累计。
+    Root cause (review xhard4 ep3 seed 6900300: 12 swaps but only 11 static boundaries): the internal completion check of swap-segment static tasks,
+    ``static_check(static_steps=50)``, counts from the step of the **internal** task switch, while the wait solver run by the demonstration wrapper waits 50 steps from the **recording-side** task switch
+    (end of the previous segment's solver) plus about 4 steps of overhead; the recording side only adopts the internal task index at the end of each segment's solver, so the two clocks drift 4 steps per segment,
+    and once the accumulated drift exceeds a segment length, some internal static task completes entirely between two adoptions and its boundary is swallowed.
+    Fix: completion checks and wait solvers of the four new tiers' swap segments are pinned to the same absolute clock -- segment k ends at ``swap_schedule[k][3]`` -- so drift no longer accumulates.
     """
     target_step = int(target_step)
     while int(getattr(env, "elapsed_steps", 0)) < target_step:
@@ -228,19 +228,19 @@ def _solve_hold_until_step_xhard(env, planner, target_step):
 
 
 def _cube_index_of(name):
-    """把规格里的 ``bin_<i>`` 还原成生成序号 ``i``（VideoRepick 的方块沿用 bin_ 前缀）。"""
+    """Map ``bin_<i>`` in the spec back to spawn index ``i`` (VideoRepick cubes keep the bin_ prefix)."""
     return int(str(name).rsplit("_", 1)[1])
 
 
-# ── V5 xhard：搭档 reset 规划（计划 2.15，L47～L49、L54）──────────────────────────────────
-# 下面三个纯函数/类只在 xhard 的 _plan_swaps_xhard 里调用，原三档不经过。
+# ── V5 xhard: partner reset planning (plan 2.15, L47-L49, L54) ──────────────────────────────────
+# The three pure functions/classes below are called only in xhard's _plan_swaps_xhard; the original three tiers never go through them.
 
 
 def _xhard_slot_states(slots, cube_half, margin):
-    """名义槽位 ``[(x, y, yaw), ...]`` → 扫掠判据用的方块状态。
+    """Nominal slots ``[(x, y, yaw), ...]`` -> cube states for the sweep criterion.
 
-    形状用 ``cube_shape_specs(cube_half + margin)``（规划期余量，L49 的 5 mm），位姿复刻
-    ``spawn_random_cube`` 的落点（中心高度仍取真实半边 ``cube_half``，与 P4 原型一致）。
+    Shapes use ``cube_shape_specs(cube_half + margin)`` (planning margin, L49's 5 mm); poses replicate
+    ``spawn_random_cube``'s landing (center height still uses the real half size ``cube_half``, consistent with the P4 prototype).
     """
     shapes = cube_shape_specs(float(cube_half) + float(margin))
     states = []
@@ -251,12 +251,12 @@ def _xhard_slot_states(slots, cube_half, margin):
 
 
 class _XhardSlotSweepFeasibility:
-    """名义槽位对的交换扫掠可行性，按无序槽位对缓存。
+    """Swap sweep feasibility of nominal slot pairs, cached per unordered slot pair.
 
-    ``swap_flat_two_lane`` 结束时两块互换 xy 与朝向，所以槽位集合整局不变、只有占用者在槽位间置换；
-    两块的弯道路径只取决于无序槽位对（谁当发起者路径相同），所以可行性按无序对缓存。
-    bystander = 其余槽位（同样按规划余量放大）+ 静止障碍（L54 的按钮底座）。
-    判据用 S2b 的 ``check_swap_sweep_prefiltered``（判定与 ``check_swap_sweep`` 相同，只加认证预筛提速）。
+    At the end of ``swap_flat_two_lane`` the two cubes exchange xy and orientation, so the slot set is invariant over the episode and only occupants permute among slots;
+    the curved paths of the two cubes depend only on the unordered slot pair (same paths regardless of who initiates), so feasibility is cached per unordered pair.
+    bystander = the other slots (also inflated by the planning margin) + static obstacles (L54's button bases).
+    The criterion uses S2b's ``check_swap_sweep_prefiltered`` (same decision as ``check_swap_sweep``, only adding a certified prefilter for speed).
     """
 
     def __init__(self, slot_states, statics=()):
@@ -278,22 +278,22 @@ class _XhardSlotSweepFeasibility:
 
 
 def _plan_swap_partners_xhard(slot_xy, seq, u, feasible, nearest_k, resolve=None):
-    """按名义槽位推进，逐次给发起者 ``seq[k]`` 规划搭档（纯函数，不抽随机数）。
+    """Advance over nominal slots, planning a partner for initiator ``seq[k]`` each time (pure function, no random draws).
 
-    * 候选 = 发起者当前槽位之外的其余槽位，按 XY 距离升序（稳定排序，等距按槽位序号）；
-    * 最近 ``nearest_k`` 个里至少一个扫掠可行 ⇒ 候选池 = 按距离序的前 ``nearest_k`` 个可行者；
-      否则（回退）⇒ 候选池 = 全部可行者；
-    * ``u[k]`` 在候选池里均匀选一个（下标 ``floor(u·len)``）；候选池为空 ⇒ 抛真 ``SceneGenerationError``。
-    * ``resolve(k, a, b)``：可选的取值钩子，返回**实际采用**的搭档方块号（回放时是冻结值）；
-      实际搭档必须是另一块且其槽位对扫掠可行，否则抛 ``EpisodeSpecError``（N17）。
-    * 名义对换后继续下一次（占用关系随之更新）。
+    * candidates = all slots other than the initiator's current slot, sorted by XY distance ascending (stable sort; ties by slot index);
+    * if at least one of the nearest ``nearest_k`` is sweep-feasible => pool = the first ``nearest_k`` feasible ones in distance order;
+      otherwise (fallback) => pool = all feasible ones;
+    * ``u[k]`` picks one uniformly from the pool (index ``floor(u*len)``); an empty pool => raise a real ``SceneGenerationError``.
+    * ``resolve(k, a, b)``: optional value hook returning the **actually adopted** partner cube index (the frozen value on replay);
+      the actual partner must be another cube whose slot pair is sweep-feasible, otherwise raise ``EpisodeSpecError`` (N17).
+    * after the nominal swap, continue with the next (occupancy updated accordingly).
 
-    返回逐次记录 ``[{"initiator", "partner", "slot_a", "slot_b", "dist_m", "pool", "fallback"}, ...]``。
+    Returns per-swap records ``[{"initiator", "partner", "slot_a", "slot_b", "dist_m", "pool", "fallback"}, ...]``.
     """
     points = np.asarray(slot_xy, dtype=np.float64).reshape(-1, 2)
     count = len(points)
-    occupant = list(range(count))  # occupant[槽位] = 方块号
-    slot_of = list(range(count))   # slot_of[方块号] = 槽位
+    occupant = list(range(count))  # occupant[slot] = cube index
+    slot_of = list(range(count))   # slot_of[cube index] = slot
     plan = []
     for k, initiator in enumerate(seq):
         slot_a = slot_of[initiator]
@@ -312,18 +312,18 @@ def _plan_swap_partners_xhard(slot_xy, seq, u, feasible, nearest_k, resolve=None
             pool = [c for c in order[nearest_k:] if feasible(slot_a, c)]
         if not pool:
             raise _RealSceneGenerationError(
-                f"xhard: 第 {k} 次交换的发起者 bin_{initiator}（槽位 {slot_a}）没有扫掠可行的搭档"
+                f"xhard: swap {k} initiator bin_{initiator} (slot {slot_a}) has no sweep-feasible partner"
             )
         slot_b = pool[min(int(float(u[k]) * len(pool)), len(pool) - 1)]
         partner = occupant[slot_b]
         if resolve is not None:
             partner = int(resolve(k, initiator, partner))
             if not 0 <= partner < count or partner == initiator:
-                raise _EpisodeSpecError(f"xhard: 第 {k} 次交换的冻结搭档 bin_{partner} 非法（发起者 bin_{initiator}）")
+                raise _EpisodeSpecError(f"xhard: swap {k} frozen partner bin_{partner} is invalid (initiator bin_{initiator})")
             slot_b = slot_of[partner]
             if not feasible(slot_a, slot_b):
                 raise _EpisodeSpecError(
-                    f"xhard: 第 {k} 次交换的冻结搭档 bin_{partner} 与发起者 bin_{initiator} 的扫掠在规划口径下不可行"
+                    f"xhard: swap {k} frozen partner bin_{partner} with initiator bin_{initiator} has an infeasible sweep under the planning criteria"
                 )
         plan.append({
             "initiator": initiator, "partner": partner, "slot_a": slot_a, "slot_b": slot_b,
@@ -335,7 +335,7 @@ def _plan_swap_partners_xhard(slot_xy, seq, u, feasible, nearest_k, resolve=None
 
 
 def native_blocks(cls, *, release="newtask-v6"):
-    """本环境的 ``(decision, native)`` 原值块；外部导出与内部解析共用同一份，杜绝两套真值。"""
+    """Original ``(decision, native)`` blocks of this env; shared by external export and internal parsing, so there is only one source of truth."""
     native = copy.deepcopy(NATIVE_SAMPLING)
     if release in ("newtask-v4", "newtask-v5"):
         legacy_configs = {
@@ -350,9 +350,9 @@ def native_blocks(cls, *, release="newtask-v6"):
             },
         }
         return _legacy_decision(legacy_configs, release), native
-    # newtask-v7：与 v6 同一解析路径，取当前类常量（即 V7 定值；v6 值只存于包内 v6 规格 header，0928 方案 R3）
+    # newtask-v7: same parsing path as v6, using current class constants (i.e. V7 fixed values; v6 values live only in the packaged v6 spec header, 0928 plan R3)
     if release not in ("newtask-v6", "newtask-v7"):
-        raise ValueError(f"VideoRepick 不支持 sampling_config release {release!r}")
+        raise ValueError(f"VideoRepick does not support sampling_config release {release!r}")
     native["parameters"]["configs"] = copy.deepcopy(cls.configs)
     return _native_decision(cls), native
 
@@ -393,10 +393,10 @@ def _legacy_decision(configs, release):
 
 
 def _native_decision(cls):
-    """按方案第二节字段表切出 decision 块（原值阶段等于原值）。"""
-    # 第二节 2.10：decision 为布局模式、重复抓放次数范围、逐块颜色策略与是否交换／交换次数。
-    # 原值阶段全部取原规则：布局模式沿用难度自带的锚点／区域，次数与交换次数取自 configs。
-    # V6：四个新值档各有独立 decision 子树；原三档可见部分不变。
+    """Slice the decision block per the section-2 field table (equals the original in the original-value stage)."""
+    # Section 2.10: decision covers layout mode, range of repeated pick-and-place counts, per-cube color policy, and whether/how many swaps.
+    # In the original-value stage everything follows the original rules: layout mode keeps the difficulty's own anchors/region; counts and swap counts come from configs.
+    # V6: each of the four new-value tiers has its own decision subtree; the part visible to the original three tiers is unchanged.
     decision = {
         "layout_mode": "native_by_difficulty",
         "num_repeats_range": {
@@ -411,7 +411,7 @@ def _native_decision(cls):
     }
     for tier in NEWVALUE_DIFFICULTIES:
         tier_cfg = cls.configs[tier]
-        # 原三档仍读 native.parameters.num_repeats；新值档按 tier 读半开重复次数区间。
+        # Original three tiers still read native.parameters.num_repeats; new-value tiers read a half-open repeat count interval per tier.
         decision["num_repeats_range"][tier] = {
             "low": tier_cfg["num_repeats_low"],
             "high_exclusive": tier_cfg["num_repeats_high_exclusive"],
@@ -425,17 +425,17 @@ def _native_decision(cls):
             },
             "block_color": copy.deepcopy(NEWVALUE_BLOCK_COLOR),
         }
-        # S5 使用全部可行槽位对，5 mm 余量与按钮障碍沿用原机制。
+        # S5 uses all feasible slot pairs; the 5 mm margin and button obstacle follow the original mechanism.
         decision[tier]["layout"]["min_center_dist_m"] = tier_cfg["min_center_dist_m"]
         decision[tier]["swap_plan"] = {
-            # V6（计划 2.5，M6(a) S5）：发起者与搭档一起在「全部扫掠可行的槽位对」里按参与次数均衡贪心选
-            #（先比两块参与次数之和、再比较大者；平局在局部流上均匀抽、再抽一次定谁当发起者），禁止立即换回，
-            # 整条极差 > 1 重排 ≤ 20 次；不再限最近 3 个。可行图有孤立槽位（该块不可能参与）则本局 SceneGenerationError，
-            # 与 V5「某发起者没有可行搭档」的失败条件同一口径（reset 成功率不降）。
+            # V6 (plan 2.5, M6(a) S5): initiator and partner are chosen together among "all sweep-feasible slot pairs" by a participation-balancing greedy
+            # (compare the sum of both cubes' participation counts first, then the larger; ties drawn uniformly on the local stream, plus one more draw for who initiates), immediate swap-back forbidden,
+            # reshuffle up to 20 times if the overall spread > 1; no longer limited to the nearest 3. If the feasibility graph has an isolated slot (that cube can never participate), raise SceneGenerationError for this episode,
+            # the same failure criterion as V5's "some initiator has no feasible partner" (reset success rate not reduced).
             "initiator_rule": "s5_balanced_pair",
             "partner_rule": "s5_balanced_greedy",
             "s5": swap_uniform.inner_swap_plan_cfg(require_connected=False, score="sum_max"),
-            # 以下两项沿用 V5：规划期方块半边 +5 mm 余量（L49）；按钮底座作为静止 bystander（L54）
+            # The following two items follow V5: +5 mm margin on cube half size during planning (L49); button bases as static bystanders (L54)
             "sweep_margin_m": tier_cfg["partner_sweep_margin_m"],
             "button_obstacle": tier_cfg["partner_button_obstacle"],
         }
@@ -443,17 +443,17 @@ def _native_decision(cls):
 
 
 def _resolve_sampling_config(cls, override):
-    """准备本实例专属的采样配置副本；不采样、不改随机流，详见 BinFill 同名函数。"""
+    """Prepare this instance's private copy of the sampling config; no sampling, no random stream change; see the same-named function in BinFill."""
     decision_default, native_default = native_blocks(cls, release="newtask-v6")
     decision, native = split_sampling_config(override, native_default, decision_default)
-    # 第一轮只做原值导出／消费：decision 必须逐键等于原值（红线 R7）。
+    # First round only exports/consumes original values: decision must equal the original key by key (red line R7).
     assert_native_decision(decision, decision_default, cls.__name__)
     resolved = native
     resolved["parameters"].setdefault("configs", copy.deepcopy(cls.configs))
     resolved["decision"] = decision
     for key in ("object_selection", "swap_selection"):
         if json.dumps(resolved["parameters"].get(key), sort_keys=True) != json.dumps(NATIVE_SAMPLING["parameters"][key], sort_keys=True):
-            raise ValueError(f"VideoRepick.parameters.{key} 必须完整保留原版规则与类型")
+            raise ValueError(f"VideoRepick.parameters.{key} must keep the original rules and types intact")
     return resolved
 
 
@@ -488,9 +488,9 @@ class VideoRepick(BaseEnv):
         "swap_min":0,
         "swap_max":0,
     }
-    # V6 新值档：块数、交换次数与 repick 次数按最终表分档；布局、颜色、中心距和 S5 机制共用。
+    # V6 new-value tiers: cube count, swap count and repick count tiered per the final table; layout, color, center distance and S5 mechanism shared.
     config_xhard1 = {
-        "cube": 4, "swap_min": 4, "swap_max": 4,  # V7 定值：swap 4/6/8/10、repick 2/3/4/5（0928 方案 §3.2.2）
+        "cube": 4, "swap_min": 4, "swap_max": 4,  # V7 fixed values: swap 4/6/8/10, repick 2/3/4/5 (0928 plan 3.2.2)
         "num_repeats_low": 2, "num_repeats_high_exclusive": 3,
         "layout_mode": "clutter",
         "region_center": [-0.1, 0.0],
@@ -536,13 +536,13 @@ class VideoRepick(BaseEnv):
                      episode_spec=None,
                      native_episode_spec=None,
                      **kwargs):
-        # 必须落在任何随机数调用（含 np.random.seed）与 super().__init__() 之前
+        # Must happen before any RNG call (including np.random.seed) and before super().__init__()
         self._sampling = _resolve_sampling_config(type(self), sampling_config)
         self._episode_spec = _resolve_episode_spec(episode_spec, "VideoRepick")
         self._spec = SpecRecorder(native_episode_spec, "VideoRepick", {"seed": seed},
                                   difficulty=kwargs.get("difficulty"))
-        # 初始化序号从 -1 起，_initialize_episode 每次进来先加一；
-        # _load_scene 里的取值点用不带序号的路径，所以这里只作兜底。
+        # Initialization index starts at -1; _initialize_episode increments it on each entry;
+        # value points in _load_scene use index-free paths, so this is only a fallback.
         self._native_init_index = -1
         self._injection_evidence = {}
         self._runtime_checks = []
@@ -594,11 +594,11 @@ class VideoRepick(BaseEnv):
         self.generator = torch.Generator()
         self.generator.manual_seed(seed)
         if is_newvalue_difficulty(self.difficulty) and self._episode_spec is not None:
-            # 新值规格含逐档 clutter 布局与 S5 交换计划，链路甲的原三块格式不能复用。
-            raise ValueError("VideoRepick 新值档不接受链路甲的 episode_spec；请使用 native_episode_spec")
+            # New-value specs contain per-tier clutter layouts and S5 swap plans; channel A's original three-cube format cannot be reused.
+            raise ValueError("VideoRepick new-value tiers do not accept channel A's episode_spec; use native_episode_spec")
         repeats_cfg = self._sampling["parameters"]["num_repeats"]
         if self._episode_spec is None and is_newvalue_difficulty(self.difficulty):
-            # Repick 次数由当前新值档的半开区间抽取。
+            # Repick count drawn from the current new-value tier's half-open interval.
             tier_repeats = self._sampling["decision"]["num_repeats_range"][self.difficulty]
             self.num_repeats = self._spec.value(
                 "objects.num_repeats",
@@ -613,7 +613,7 @@ class VideoRepick(BaseEnv):
 
         difficulty_cfg = self._sampling["parameters"]["configs"][self.difficulty]
         if self._episode_spec is None and is_newvalue_difficulty(self.difficulty):
-            # 交换次数从当前难度档的 decision 范围抽取。
+            # Swap count drawn from the decision range of the current difficulty tier.
             tier_swap = self._sampling["decision"]["swap"][self.difficulty]
             self.swap_times = self._spec.value(
                 "objects.n_swaps",
@@ -674,7 +674,7 @@ class VideoRepick(BaseEnv):
                 scale=button_cfg["scale"],
                 generator=self.generator,
                 name="button",
-                # 规格给的是**最终**中心，关掉 randomize 后 build_button 不抽随机数
+                # The spec gives the **final** center; with randomize off, build_button draws no random numbers
                 randomize=button_cfg["randomize"] if spec is None else False,
                 randomize_range=tuple(button_cfg["randomize_range"])
             )
@@ -690,7 +690,7 @@ class VideoRepick(BaseEnv):
                 {"color": (0, 1, 0, 1), "name": "green"},
             ]
             if is_newvalue_difficulty(self.difficulty):
-                # 四个新值档共用 clutter + S5 分支；原三档的分支与取值点不变。
+                # The four new-value tiers share the clutter + S5 branch; the original three tiers' branch and value points are unchanged.
                 self._load_cubes_newvalue(avoid)
             elif self.difficulty == "hard":
                 self.spawned_cubes = []
@@ -744,7 +744,7 @@ class VideoRepick(BaseEnv):
                         torch.randint(0, len(options), (1,), generator=self.generator).item(),
                     )
                 else:
-                    # 三块同色，颜色由规格定死（原定义表顺序是 red / blue / green）
+                    # The three cubes share one color, fixed by the spec (original definition table order is red / blue / green)
                     idx = [item["name"] for item in options].index(spec["objects"]["color"])
                 chosen_color = options[idx]["color"]
 
@@ -755,7 +755,7 @@ class VideoRepick(BaseEnv):
                         torch.randperm(len(cube_colors), generator=self.generator).tolist(),
                     )
                     cube_colors = [cube_colors[i] for i in shuffle_indices]
-                # 四个元素全是同一个颜色，打乱与否结果相同；注入路径省掉这次抽样
+                # All four elements are the same color, so shuffling makes no difference; the injection path skips this draw
 
                 self.spawned_cubes = []
 
@@ -776,8 +776,8 @@ class VideoRepick(BaseEnv):
                         region = region3
                     angle, region = rotate_points_random(region, tuple(plain_cfg["layout_rotation_range_rad"]), self.generator)
                 else:
-                    # 规格里的 cubes[i].xy 就是最终位置（锚点旋转 + 偏移在冻结前已算好并过了
-                    # 碰撞检查），注入路径不再走 rotate_points_random，也就不抽随机数
+                    # The spec's cubes[i].xy is the final position (anchor rotation + offset were computed and passed
+                    # collision checks before freezing), so the injection path no longer goes through rotate_points_random and draws no random numbers
                     angle = float(spec["layout"]["theta_rad"])
                     region = None
 
@@ -786,7 +786,7 @@ class VideoRepick(BaseEnv):
                     if spec is not None:
                         entry = spec["layout"]["cubes"][i]
                         if entry["object_id"] != f"bin_{i}":
-                            raise ValueError(f"规格第 {i} 块方块的 object_id 是 {entry['object_id']}，应为 bin_{i}")
+                            raise ValueError(f"spec cube {i} has object_id {entry['object_id']}, expected bin_{i}")
                         fixed_xy = [float(entry["xy"][0]), float(entry["xy"][1])]
                         fixed_yaw = float(entry["yaw_rad"])
                     try:
@@ -837,17 +837,17 @@ class VideoRepick(BaseEnv):
                         )
                         selected_indices = [remaining_indices[i] for i in selected_remaining]
                     else:
-                        # ⚠ 源码无条件赋值 swap_pair{1,2,3}_idx1，所以规格存的是完整的 3 个发起者：
-                        # 第一个必是目标方块，后两个是另外两块的一个排列
+                        # WARNING: the source unconditionally assigns swap_pair{1,2,3}_idx1, so the spec stores all 3 initiators:
+                        # the first must be the target cube, the last two a permutation of the other two cubes
                         spec_initiators = [_cube_index_of(name) for name in spec["objects"]["swap_initiators"]]
                         if spec_initiators[0] != target_indices[0]:
                             raise ValueError(
-                                f"规格的首个交换发起者 bin_{spec_initiators[0]} 不是目标方块 bin_{target_indices[0]}"
+                                f"spec's first swap initiator bin_{spec_initiators[0]} is not the target cube bin_{target_indices[0]}"
                             )
                         selected_indices = spec_initiators[1:]
                         if sorted(selected_indices) != sorted(remaining_indices):
                             raise ValueError(
-                                f"规格的后续发起者 {selected_indices} 不是其余两块 {remaining_indices} 的排列"
+                                f"spec's later initiators {selected_indices} and the remaining two cubes {remaining_indices} are not permutations of each other"
                             )
                     swap_indices = target_indices + selected_indices
 
@@ -857,14 +857,14 @@ class VideoRepick(BaseEnv):
                     self.swap_pair1_idx2 = None
                     self.swap_pair2_idx2 = None
                     self.swap_pair3_idx2 = None
-                    # xhard（swap 4～5 次）：第 k 次发起者循环沿用前 3 个（a,b,c,a,b）；swap ≤ 3 次时本循环不执行
+                    # xhard (4-5 swaps): the k-th initiator cycles through the first 3 (a,b,c,a,b); with <= 3 swaps this loop does not run
                     for k in range(3, self.swap_times):
                         setattr(self, f"swap_pair{k+1}_idx1", self.spawned_cubes[swap_indices[k % 3]])
                         setattr(self, f"swap_pair{k+1}_idx2", None)
                     self._refresh_swap_schedule()
 
                 if spec is not None:
-                    # 只读证据：创建输入 vs 创建后 actor 实际位姿，供 INJECTION_BINDING 核对
+                    # Read-only evidence: creation input vs actual post-creation actor pose, for INJECTION_BINDING checks
                     self._injection_evidence = {
                         "spec_sha256": spec.get("spec_sha256"),
                         "episode": spec.get("episode"),
@@ -885,39 +885,39 @@ class VideoRepick(BaseEnv):
                             for entry, actor in zip(spec["layout"]["cubes"], self.spawned_cubes)
                         ],
                     }
-        except _scene_gen_error(self.difficulty):  # V5 L3：xhard 用真类，原三档仍是被遮蔽的原名字
+        except _scene_gen_error(self.difficulty):  # V5 L3: xhard uses the real class; original three tiers still use the shadowed original name
             raise
         except Exception as exc:
             if is_newvalue_difficulty(self.difficulty) and isinstance(exc, _EpisodeSpecError):
-                # V5 N17：回放冻结规格违反几何规则（最小中心距、规划搭档）是规格／代码类错误，
-                # 不包成可重试的 SceneGenerationError；原三档不进这个分支，行为逐字不变
+                # V5 N17: a replayed frozen spec violating geometry rules (minimum center distance, planned partners) is a spec/code error,
+                # not wrapped as a retryable SceneGenerationError; original three tiers never enter this branch, behavior verbatim unchanged
                 raise
             raise _scene_gen_error(self.difficulty)(
                 f"Failed to load VideoRepick scene for seed {self.seed}"
             ) from exc
 
     def _load_cubes_newvalue(self, avoid):
-        """新值档方块生成：clutter 布局、每局同色任意色值、最小中心距和 S5 reset 规划。
+        """New-value tier cube generation: clutter layout, one arbitrary color per episode, minimum center distance and S5 reset planning.
 
-        取值顺序（原三档不经过这里）：颜色 → 逐块位姿 → 目标 → 剩余方块顺序 → 规划种子 →
-        reset 规划搭档（不抽随机数）→ 逐次注入 ``actions.swap_pairs.<k>``。
-        新值一律从 ``decision.<tier>`` 取布局、颜色和 S5 配置；判据参数沿用 hard 整片区域原值；
-        ``min_gap`` 与原三档一样取 ``self.cube_half_size``。
-        每个取值点都经 ``self._spec``，「请求块数 vs 实际块数」不等直接判本局失败（计划 2.2④）。
+        Value order (original three tiers never come here): color -> per-cube poses -> target -> remaining cube order -> planning seed ->
+        reset partner planning (no random draws) -> per-swap injection of ``actions.swap_pairs.<k>``.
+        New values always take layout, color and S5 config from ``decision.<tier>``; criterion parameters follow the original values of hard's whole region;
+        ``min_gap`` takes ``self.cube_half_size`` like the original three tiers.
+        Every value point goes through ``self._spec``; a mismatch of "requested vs actual cube count" fails the episode directly (plan 2.2-4).
 
-        V5（计划 2.15）：
-        * L50：本档全部方块两两中心距 ≥ ``layout.min_center_dist_m``，经 ``spawn_random_cube(min_center_dist=...)``
-          在拒绝循环内判（每次 trial 仍是 3 个 rand）；已放方块改用 ``cube_obb2d_exact`` 精确障碍，
-          ``include_existing=False``（不再走会退化的 actor 路径）。回放冻结位姿时由 spawn 函数按同一规则复核（N17）。
-        * L47 a'：``objects.swap_initiators_remaining`` 保留原取值点并按本档的其余方块数量抽排列；该排列不再决定 S5 发起者。
-        * S5：由 ``_plan_swaps_newvalue_v6`` 规划全部扫掠可行槽位对。
+        V5 (plan 2.15):
+        * L50: pairwise center distance of all cubes in this tier >= ``layout.min_center_dist_m``, checked inside the rejection loop via ``spawn_random_cube(min_center_dist=...)``
+          (each trial still 3 rands); placed cubes use ``cube_obb2d_exact`` exact obstacles,
+          ``include_existing=False`` (no longer the degenerating actor path). When replaying frozen poses the spawn function re-checks by the same rule (N17).
+        * L47 a': ``objects.swap_initiators_remaining`` keeps the original value point and draws a permutation over this tier's remaining cube count; that permutation no longer decides S5 initiators.
+        * S5: ``_plan_swaps_newvalue_v6`` plans over all sweep-feasible slot pairs.
         """
         tier_decision = self._sampling["decision"][self.difficulty]
         layout = tier_decision["layout"]
         if layout["mode"] != "clutter":
-            raise ValueError(f"VideoRepick {self.difficulty} 只实现了 clutter 布局，收到 {layout['mode']!r}")
+            raise ValueError(f"VideoRepick {self.difficulty} only implements the clutter layout, got {layout['mode']!r}")
         region_cfg = self._sampling["positions"]["hard_cubes"]
-        # V5 L50：最小中心距；按钮 OBB 是 _load_scene 放进 avoid 的第一个元素（L54 规划要用按钮最终中心）
+        # V5 L50: minimum center distance; the button OBB is the first element _load_scene puts into avoid (L54 planning needs the button's final center)
         min_center_dist = float(layout["min_center_dist_m"])
         button_obb = avoid[0] if avoid else None
 
@@ -932,7 +932,7 @@ class VideoRepick(BaseEnv):
 
         requested = int(layout["cube_count"])
         self.spawned_cubes = []
-        placed = []  # 已放方块的精确 OBB（同时进 avoid 与最小中心距的参考点集）
+        placed = []  # Exact OBBs of placed cubes (go into both avoid and the reference point set for minimum center distance)
         for i in range(requested):
             try:
                 cube_actor = spawn_random_cube(
@@ -973,19 +973,19 @@ class VideoRepick(BaseEnv):
         )
         self.target_cube_1 = self.spawned_cubes[target_index]
         remaining_indices = [i for i in range(len(self.spawned_cubes)) if i != target_index]
-        # V5 L47 a'：其余 5 块的完整发起顺序（V4 同一次 randperm，只是不再截 [:2]）
+        # V5 L47 a': full initiation order of the remaining 5 cubes (the same randperm as V4, just no longer truncated to [:2])
         selected_remaining = self._spec.value(
             "objects.swap_initiators_remaining",
             torch.randperm(len(remaining_indices), generator=self.generator).tolist(),
         )
         if sorted(int(i) for i in selected_remaining) != list(range(len(remaining_indices))):
-            # 回放 V4 规格（长度 2）或被篡改的规格：V5 要求其余块的完整排列（N17）
+            # Replaying a V4 spec (length 2) or a tampered spec: V5 requires a full permutation of the remaining cubes (N17)
             raise _EpisodeSpecError(
-                f"{self.difficulty}: objects.swap_initiators_remaining 应为 range({len(remaining_indices)}) 的完整排列，"
-                f"收到 {selected_remaining}"
+                f"{self.difficulty}: objects.swap_initiators_remaining should be a full permutation of range({len(remaining_indices)}), "
+                f"got {selected_remaining}"
             )
-        # V6（计划 2.5 S5）：上面 V5 的发起顺序取值点照旧抽（主流位置不变），但不再决定发起者；
-        # V5 的 objects.swap_partner_u（rand(n_swaps)）换成一次规划种子（平局打破与重排走以它播种的局部流）
+        # V6 (plan 2.5 S5): the V5 initiation order value point above is still drawn (main stream position unchanged), but no longer decides initiators;
+        # V5's objects.swap_partner_u (rand(n_swaps)) is replaced by one planning seed (tie-breaking and reshuffles use a local stream seeded by it)
         plan_seed = int(self._spec.value(
             "objects.swap_plan_seed",
             int(torch.randint(0, int(tier_decision["swap_plan"]["s5"]["plan_seed_high_exclusive"]),
@@ -1000,29 +1000,29 @@ class VideoRepick(BaseEnv):
         self._refresh_swap_schedule()
 
     def _plan_swaps_xhard(self, initiator_seq, partner_u, button_obb):
-        """V5 xhard 搭档 reset 规划（计划 2.15，L48/L49/L54）；只在 xhard 的 ``_load_cubes_xhard`` 里调用。
+        """V5 xhard partner reset planning (plan 2.15, L48/L49/L54); called only in xhard's ``_load_cubes_xhard``.
 
-        在 6 个名义槽位（刚生成的方块位姿）上，用 ``cube_shape_specs(hs + sweep_margin_m)`` 做交换扫掠
-        可行性过滤（按无序槽位对缓存）；``button_obstacle`` 为真时把按钮底座（``button_base_state``，
-        按 ``build_button`` 的最终中心与 scale）作为静止 bystander，压按钮的候选视为不可行（L54）。
-        对第 k 次发起者按距离排序其余槽位，前 ``nearest_k`` 个可行者里用 ``u[k]`` 均匀选；最近
-        ``nearest_k`` 个都不可行则在任一可行里均匀选；没有任何可行搭档抛真 ``SceneGenerationError``（L3）。
+        On the 6 nominal slots (poses of the cubes just spawned), filter swap sweep feasibility with ``cube_shape_specs(hs + sweep_margin_m)``
+        (cached per unordered slot pair); when ``button_obstacle`` is true, the button base (``button_base_state``,
+        from ``build_button``'s final center and scale) is a static bystander, and candidates pressing the button are infeasible (L54).
+        For the k-th initiator, sort the other slots by distance and pick uniformly with ``u[k]`` among the feasible ones in the first ``nearest_k``; if none of the nearest
+        ``nearest_k`` is feasible pick uniformly among any feasible one; if no partner is feasible at all raise a real ``SceneGenerationError`` (L3).
 
-        逐次把 ``{"initiator": "bin_a", "partner": "bin_b"}`` 以 ``value`` 注入 ``actions.swap_pairs.<k>``；
-        回放时用冻结值，并复核「发起者与规划一致、搭档扫掠可行」（N17）。结果存
-        ``self._xhard_swap_partners``（第 k 次交换的搭档方块号），``step`` 的 xhard 分支据此取搭档。
+        Per swap, inject ``{"initiator": "bin_a", "partner": "bin_b"}`` into ``actions.swap_pairs.<k>`` via ``value``;
+        on replay use frozen values and re-check "initiator matches the plan, partner is sweep-feasible" (N17). Results are stored in
+        ``self._xhard_swap_partners`` (partner cube index of the k-th swap), from which ``step``'s xhard branch takes the partner.
         """
         swap_cfg = self._sampling["decision"]["xhard"]["swap_plan"]
         if swap_cfg["initiator_rule"] != "target_then_randperm_k_mod_cube_count":
-            raise ValueError(f"VideoRepick xhard 未实现发起者规则 {swap_cfg['initiator_rule']!r}")
+            raise ValueError(f"VideoRepick xhard: unimplemented initiator rule {swap_cfg['initiator_rule']!r}")
         if swap_cfg["partner_rule"] != "reset_plan_nearest_feasible":
-            raise ValueError(f"VideoRepick xhard 未实现搭档规则 {swap_cfg['partner_rule']!r}")
+            raise ValueError(f"VideoRepick xhard: unimplemented partner rule {swap_cfg['partner_rule']!r}")
         nearest_k = swap_cfg["nearest_k"]
         if isinstance(nearest_k, bool) or not isinstance(nearest_k, int) or nearest_k < 1:
-            raise ValueError(f"VideoRepick xhard swap_plan.nearest_k 必须是正整数，收到 {nearest_k!r}")
+            raise ValueError(f"VideoRepick xhard swap_plan.nearest_k must be a positive integer, got {nearest_k!r}")
         margin = float(swap_cfg["sweep_margin_m"])
         if not margin >= 0.0:
-            raise ValueError(f"VideoRepick xhard swap_plan.sweep_margin_m 不能为负，收到 {margin}")
+            raise ValueError(f"VideoRepick xhard swap_plan.sweep_margin_m must not be negative, got {margin}")
         half = float(self.cube_half_size)
 
         slots = []
@@ -1032,7 +1032,7 @@ class VideoRepick(BaseEnv):
         statics = []
         if swap_cfg["button_obstacle"]:
             if button_obb is None:
-                raise ValueError("VideoRepick xhard：规划要把按钮底座作静止障碍，但 avoid 里没有按钮 OBB")
+                raise ValueError("VideoRepick xhard: planning needs the button base as a static obstacle, but avoid has no button OBB")
             statics.append(button_base_state(
                 "button_base", button_obb[0], scale=float(self._sampling["positions"]["button"]["scale"])
             ))
@@ -1046,7 +1046,7 @@ class VideoRepick(BaseEnv):
             )
             if not isinstance(chosen, dict) or chosen.get("initiator") != f"bin_{initiator}":
                 raise _EpisodeSpecError(
-                    f"xhard: actions.swap_pairs.{k} 的发起者 {chosen!r} 与规划的 bin_{initiator} 不一致"
+                    f"xhard: actions.swap_pairs.{k} initiator {chosen!r} and the planned bin_{initiator} do not match"
                 )
             return _cube_index_of(chosen["partner"])
 
@@ -1054,7 +1054,7 @@ class VideoRepick(BaseEnv):
             [slot[:2] for slot in slots], initiator_seq, partner_u, feasibility.feasible, nearest_k, resolve=resolve,
         )
         self._xhard_swap_partners = [step["partner"] for step in plan]
-        # 只读诊断（不进规格）：逐次路径长度、候选池大小、回退，以及被检查过的槽位对
+        # Read-only diagnostics (not in the spec): per-swap path length, candidate pool size, fallbacks, and the slot pairs checked
         self._xhard_swap_plan_info = {
             "slots": slots,
             "plan": plan,
@@ -1064,21 +1064,21 @@ class VideoRepick(BaseEnv):
         return plan
 
     def _plan_swaps_newvalue_v6(self, plan_seed, button_obb):
-        """V6 四档交换序列 reset 规划（计划 2.5，M6(a) S5）；只在 ``_load_cubes_newvalue`` 里调用。
+        """V6 four-tier swap sequence reset planning (plan 2.5, M6(a) S5); called only in ``_load_cubes_newvalue``.
 
-        槽位可行性与 V5 同一口径（``_XhardSlotSweepFeasibility``：半边 + ``sweep_margin_m`` 余量、按钮底座作静止障碍），
-        一次计算当前档全部 C(n,2) 个槽位对得到可行图 M；M 有孤立槽位即抛真 ``SceneGenerationError``。在 M 上跑 S5
-        （``swap_uniform.plan_balanced_swaps``，局部流由 ``plan_seed`` 播种），逐次 ``value`` 进
-        ``actions.swap_pairs.<k>``；回放用冻结值并复核「槽位对可行、没有立即换回」（N17，违反抛 ``EpisodeSpecError``）。
-        ``record`` ``objects.swap_plan`` = {counts, range, tries, undo}。返回 ``[(发起者, 搭档), ...]``。
+        Slot feasibility uses the same criteria as V5 (``_XhardSlotSweepFeasibility``: half size + ``sweep_margin_m`` margin, button base as a static obstacle),
+        computing all C(n,2) slot pairs of the current tier at once to get the feasibility graph M; an isolated slot in M raises a real ``SceneGenerationError``. Run S5 on M
+        (``swap_uniform.plan_balanced_swaps``, local stream seeded by ``plan_seed``), injecting each swap via ``value`` into
+        ``actions.swap_pairs.<k>``; on replay use frozen values and re-check "slot pair feasible, no immediate swap-back" (N17, raising ``EpisodeSpecError`` on violation).
+        ``record`` ``objects.swap_plan`` = {counts, range, tries, undo}. Returns ``[(initiator, partner), ...]``.
         """
         swap_cfg = self._sampling["decision"][self.difficulty]["swap_plan"]
         if swap_cfg["initiator_rule"] != "s5_balanced_pair" or swap_cfg["partner_rule"] != "s5_balanced_greedy":
-            raise ValueError(f"VideoRepick {self.difficulty} 未实现交换规则 {swap_cfg['initiator_rule']!r}/{swap_cfg['partner_rule']!r}")
+            raise ValueError(f"VideoRepick {self.difficulty}: unimplemented swap rule {swap_cfg['initiator_rule']!r}/{swap_cfg['partner_rule']!r}")
         s5 = swap_uniform.parse_inner_swap_plan_cfg(swap_cfg["s5"])
         margin = float(swap_cfg["sweep_margin_m"])
         if not margin >= 0.0:
-            raise ValueError(f"VideoRepick {self.difficulty} swap_plan.sweep_margin_m 不能为负，收到 {margin}")
+            raise ValueError(f"VideoRepick {self.difficulty} swap_plan.sweep_margin_m must not be negative, got {margin}")
         half = float(self.cube_half_size)
         slots = []
         for cube in self.spawned_cubes:
@@ -1087,7 +1087,7 @@ class VideoRepick(BaseEnv):
         statics = []
         if swap_cfg["button_obstacle"]:
             if button_obb is None:
-                raise ValueError(f"VideoRepick {self.difficulty}：规划要把按钮底座作静止障碍，但 avoid 里没有按钮 OBB")
+                raise ValueError(f"VideoRepick {self.difficulty}: planning needs the button base as a static obstacle, but avoid has no button OBB")
             statics.append(button_base_state(
                 "button_base", button_obb[0], scale=float(self._sampling["positions"]["button"]["scale"])
             ))
@@ -1097,7 +1097,7 @@ class VideoRepick(BaseEnv):
         isolated = swap_uniform.isolated_slots(graph)
         if isolated or (s5["require_connected_graph"] and not swap_uniform.graph_connected(graph)):
             raise _RealSceneGenerationError(
-                f"{self.difficulty}: 槽位 {isolated} 没有扫掠可行的搭档（可行槽位对 {swap_uniform.graph_edges(graph)}）"
+                f"{self.difficulty}: slot {isolated} has no sweep-feasible partner (feasible slot pairs {swap_uniform.graph_edges(graph)})"
             )
         local = torch.Generator()
         local.manual_seed(int(plan_seed))
@@ -1105,7 +1105,7 @@ class VideoRepick(BaseEnv):
                                                 budget=int(s5["range_retry_budget"]),
                                                 accept_range=int(s5["accept_range"]), forbid_undo=True)
         if plan is None:
-            raise _RealSceneGenerationError(f"{self.difficulty}: S5 无法规划 {self.swap_times} 次交换")
+            raise _RealSceneGenerationError(f"{self.difficulty}: S5 cannot plan {self.swap_times} swaps")
         pairs = []
         for k, (a, b) in enumerate(plan.pairs):
             chosen = self._spec.value(
@@ -1116,15 +1116,15 @@ class VideoRepick(BaseEnv):
             try:
                 pairs.append((_cube_index_of(chosen["initiator"]), _cube_index_of(chosen["partner"])))
             except (TypeError, KeyError, ValueError, IndexError) as exc:
-                raise _EpisodeSpecError(f"{self.difficulty}: actions.swap_pairs.{k} 形状非法：{chosen!r}") from exc
+                raise _EpisodeSpecError(f"{self.difficulty}: actions.swap_pairs.{k} has an invalid shape: {chosen!r}") from exc
         problems, stats = swap_uniform.verify_swap_sequence(graph, pairs, forbid_undo=True)
         if problems:
-            raise _EpisodeSpecError(f"{self.difficulty}: 交换序列违反 V6 S5 规则：" + "；".join(problems))
+            raise _EpisodeSpecError(f"{self.difficulty}: swap sequence violates V6 S5 rules: " + "; ".join(problems))
         summary = stats.summary()
         summary["tries"] = int(plan.tries)
         self._spec.record("objects.swap_plan", summary)
         self._newvalue_swap_partners = [int(b) for _a, b in pairs]
-        # 只读诊断（不进规格）
+        # Read-only diagnostics (not in the spec)
         self._newvalue_swap_plan_info = {
             "slots": slots,
             "plan": [{"initiator": a, "partner": b, "slot_a": sa, "slot_b": sb}
@@ -1137,17 +1137,17 @@ class VideoRepick(BaseEnv):
         return pairs
 
     def _newvalue_planned_partner(self, sweep_index, initiator):
-        """第 ``sweep_index`` 次交换 reset 时规划好的搭档 actor。"""
+        """Partner actor planned at reset for swap ``sweep_index``."""
         partners = getattr(self, "_newvalue_swap_partners", None)
         if partners is None or sweep_index >= len(partners):
-            raise SpecBindingError(f"{self.difficulty}: 第 {sweep_index} 次交换没有 reset 规划的搭档")
+            raise SpecBindingError(f"{self.difficulty}: swap {sweep_index} has no reset-planned partner")
         partner = self.spawned_cubes[partners[sweep_index]]
         if partner is initiator:
-            raise SpecBindingError(f"{self.difficulty}: 第 {sweep_index} 次交换规划的搭档与发起者是同一块")
+            raise SpecBindingError(f"{self.difficulty}: swap {sweep_index} planned partner is the same cube as the initiator")
         return partner
 
     def _sweep_checks_enabled(self):
-        """D5（H2）：几何检查只在「甲通道」或新值档乙通道开启；原三档乙通道仍不检查。"""
+        """D5 (H2): geometry checks are enabled only on "channel A" or the new-value tiers' channel B; original three tiers' channel B still does not check."""
         return self._episode_spec is not None or is_newvalue_difficulty(self.difficulty)
 
 
@@ -1159,8 +1159,8 @@ class VideoRepick(BaseEnv):
             qpos=reset_panda.get_reset_panda_param("qpos")
             self.agent.reset(qpos)
             if self._sweep_checks_enabled():
-                # 初始化复核：读实际碰撞盒查方块两两之间；构造期与正式 reset 各走一次
-                # （V4 D5：甲通道或 xhard 乙通道开启，原三档乙通道仍不跑）
+                # Initialization re-check: read actual collision boxes and check cubes pairwise; runs once at construction and once at the formal reset
+                # (V4 D5: enabled on channel A or xhard channel B; original three tiers' channel B still does not run it)
                 gap, rejection = self._check_state_readonly("initial")
                 self._runtime_checks.append(
                     {
@@ -1171,8 +1171,8 @@ class VideoRepick(BaseEnv):
                 )
                 if rejection is not None:
                     raise BinCollisionError(rejection)
-            # V4 xhard：静止/交换段改用只吞 AttributeError 的等待函数（见 _solve_hold_obj_xhard），
-            # 否则 D5 抛出的 BinCollisionError 会被 solve_hold_obj 的裸 except 吞掉并死循环；原三档仍用原函数
+            # V4 xhard: static/swap segments use a wait function that only swallows AttributeError (see _solve_hold_obj_xhard),
+            # otherwise the BinCollisionError raised by D5 would be swallowed by solve_hold_obj's bare except and loop forever; original three tiers still use the original function
             hold_fn = _solve_hold_obj_xhard if is_newvalue_difficulty(self.difficulty) else solve_hold_obj
             tasks = [
             {
@@ -1206,8 +1206,8 @@ class VideoRepick(BaseEnv):
             if self.swap_times>=1:
                 for count in range(self.swap_times):
                     if is_newvalue_difficulty(self.difficulty):
-                        # V6 审查修复 N11（用户「n11 a」）：第 k 段的完成判定与等待解法都钉到该段的绝对结束步
-                        # swap_schedule[k][3]（首段任务成为当前任务时 step() 会按 start_step 刷新时间表），见 _solve_hold_until_step_xhard
+                        # V6 review fix N11 (user "n11 a"): completion check and wait solver of segment k are both pinned to that segment's absolute end step
+                        # swap_schedule[k][3] (step() refreshes the schedule from start_step when the first segment task becomes current), see _solve_hold_until_step_xhard
                         tasks.append(   {
                                 "func": lambda k=count: bool(is_static(self)) and int(self.elapsed_steps) >= int(self.swap_schedule[k][3]),
                                 "name": "static",
@@ -1248,9 +1248,9 @@ class VideoRepick(BaseEnv):
                 "ninth",
                 "tenth",
             ]
-            # V6 审查修复 M1（用户「m1 a」）：新四档「提前按按钮即失败」的时间窗随轮次滚动——每轮抓取／放下各用自己的计时器
-            # （从该任务成为当前任务起算），首轮保留原 [50,500] 步、后续轮次从 0 步起，窗口覆盖到最后一次放下；
-            # 原三档仍用单一计时器 2/3（从首次抓取起 [50,500] 步，不重置）。
+            # V6 review fix M1 (user "m1 a"): the four new tiers' "pressing the button early = failure" window rolls with rounds -- each round's pick/place uses its own timer
+            # (counted from when that task becomes current); the first round keeps the original [50,500] steps, later rounds start from step 0, the window covering up to the last place;
+            # original three tiers still use the single timer 2/3 ([50,500] steps from the first pick, never reset).
             rolling_window = is_newvalue_difficulty(self.difficulty)
             for i in range(self.num_repeats):
                 ordinal = ordinal_words[i] if i < len(ordinal_words) else f"{i+1}th"
@@ -1438,7 +1438,7 @@ class VideoRepick(BaseEnv):
         if generator is None:
             generator = self.generator
 
-        # 交换搭档是「事件发生时才知道」的量：按事件序号分开冻结（方案 8.2）
+        # Swap partners are only "known when the event happens": frozen separately per event index (plan 8.2)
         event_index = getattr(self, "_native_swap_event_index", -1) + 1
         self._native_swap_event_index = event_index
         first_idx = valid_indices[
@@ -1462,11 +1462,11 @@ class VideoRepick(BaseEnv):
         return {"idx1": first_idx, "idx2": second_idx, "distance": distance}
 
     def _verify_swap_binding(self, sweep_index, initiator, resolved_partner):
-        """核验规格预写的搭档与执行时算出的实际最近邻一致；不符即失败，禁止换搭档。"""
+        """Verify that the partner pre-written in the spec matches the actual nearest neighbor computed at execution; fail on mismatch, changing partners is forbidden."""
         pairs = self._episode_spec["actions"]["swap_pairs"]
         if sweep_index >= len(pairs):
             raise SpecBindingError(
-                f"第 {sweep_index} 段交换在规格里没有对应条目（规格只有 {len(pairs)} 段）"
+                f"swap segment {sweep_index} has no entry in the spec (spec only has {len(pairs)} segments)"
             )
         expected = pairs[sweep_index]
         actual_initiator = self.spawned_cubes.index(initiator)
@@ -1491,15 +1491,15 @@ class VideoRepick(BaseEnv):
         self._runtime_checks.append({"kind": "swap_binding", **detail})
         if expected["initiator"] != f"bin_{actual_initiator}":
             raise SpecBindingError(
-                f"第 {sweep_index} 段的发起者是 bin_{actual_initiator}，规格预写 {expected['initiator']}", detail
+                f"segment {sweep_index} initiator is bin_{actual_initiator}, spec pre-wrote {expected['initiator']}", detail
             )
         if expected["partner"] != f"bin_{actual_partner}":
             raise SpecBindingError(
-                f"第 {sweep_index} 段的实际最近邻是 bin_{actual_partner}，规格预写 {expected['partner']}", detail
+                f"segment {sweep_index} actual nearest neighbor is bin_{actual_partner}, spec pre-wrote {expected['partner']}", detail
             )
 
     def _object_states_for_collision(self):
-        """把场上三个方块读成碰撞判据用的状态；只读真实碰撞盒。"""
+        """Read the three cubes on the table into the state used by the collision criterion; reads real collision boxes only."""
         return [
             object_state_from_actor(actor, f"bin_{index}")
             for index, actor in enumerate(self.spawned_cubes)
@@ -1507,7 +1507,7 @@ class VideoRepick(BaseEnv):
         ]
 
     def _check_swap_sweep_from_actual(self, sweep_index, initiator, partner):
-        """从实际位姿对整段交换路径做连续检查；命中即抛错中止该样本。"""
+        """Continuously check the whole swap path from actual poses; on a hit raise to abort the sample."""
         states = {}
         for index, actor in enumerate(self.spawned_cubes):
             if actor is None:
@@ -1530,16 +1530,16 @@ class VideoRepick(BaseEnv):
             raise BinCollisionError(rejection)
 
     def _check_state_readonly(self, stage):
-        """某一时刻的只读复核；返回拒绝证据，不抛错。"""
+        """Read-only re-check at one instant; returns rejection evidence without raising."""
         return check_bin_state(self._object_states_for_collision(), stage=stage)
 
     def _in_swap_window(self):
-        """当前控制步是否落在某一段交换的时间窗内。
+        """Whether the current control step falls within the time window of some swap segment.
 
-        ⚠ 子步检查只在窗口内做。窗口外容器／方块要么静止、要么被
-        ``lift_and_drop_objects_back_to_original`` 逐帧按在原位，初态检查已经覆盖；
-        而子步数远多于控制步，全程每个子步都跑一遍全量 SAT 会把单条样本拖慢十倍以上
-        （实测冒烟时 VideoUnmaskSwap 从 ~47 秒涨到分钟级）。
+        WARNING: substep checks run only inside the window. Outside the window bins/cubes are either static or pinned in place every frame by
+        ``lift_and_drop_objects_back_to_original``, which the initial-state check already covers;
+        substeps far outnumber control steps, so running a full SAT on every substep throughout would slow a single sample down more than tenfold
+        (measured in smoke tests: VideoUnmaskSwap went from ~47 seconds to minutes).
         """
         step = int(self.elapsed_steps)
         return any(start <= step <= end for _a, _b, start, end in getattr(self, "swap_schedule", []))
@@ -1567,7 +1567,7 @@ class VideoRepick(BaseEnv):
             raise BinCollisionError(rejection)
 
     def _refresh_swap_schedule(self,start_step=400):
-        # 通式：第 k 次 swap 占 [start_step+50k, start_step+50(k+1)]；1/2/3 次时与原三分支逐项相同，0 次时不赋值
+        # General formula: the k-th swap occupies [start_step+50k, start_step+50(k+1)]; identical to the original three branches for 1/2/3 swaps, nothing assigned for 0
         if self.swap_times < 1:
             return
         self.swap_schedule = [
@@ -1598,8 +1598,8 @@ class VideoRepick(BaseEnv):
 
                     if pair_idx2 is None and pair_idx1 is not None:
                         if is_newvalue_difficulty(getattr(self, "difficulty", None)):
-                            # 新值档搭档用 reset 时规划好的，不再按实际 XY 取最近邻；
-                            # 下面 D5 的实际位姿扫掠检查照旧跑，作运行时守卫
+                            # New-value tier partners use those planned at reset, no longer the nearest neighbor by actual XY;
+                            # the D5 actual-pose sweep check below still runs as a runtime guard
                             closest_actor = self._newvalue_planned_partner(i, pair_idx1)
                         else:
                             reference_pos = self._get_actor_position(pair_idx1)
@@ -1615,12 +1615,12 @@ class VideoRepick(BaseEnv):
                                     closest_dist = dist
                                     closest_actor = candidate
                         if closest_actor is not None:
-                            # 新值注入的两个运行时检查点（计划第五节步骤 0d）：先核验搭档身份，
-                            # 再从**实际**起态做整段连续几何检查。关闭态两项都不跑。
+                            # Two runtime checkpoints of new-value injection (plan section 5 step 0d): first verify partner identity,
+                            # then run a continuous geometry check of the whole segment from the **actual** start state. Neither runs when disabled.
                             if self._episode_spec is not None:
                                 self._verify_swap_binding(i, pair_idx1, closest_actor)
-                            # V4 D5（H2）：扫掠检查改为「甲通道，或新值档乙通道」；原三档乙通道仍不跑。
-                            # 搭档身份核验只有甲的规格里预写了搭档，乙通道改为只读记录（见下）。
+                            # V4 D5 (H2): the sweep check now runs on "channel A, or the new-value tiers' channel B"; original three tiers' channel B still does not run it.
+                            # Only channel A's spec pre-writes partners for identity verification; channel B only records read-only (see below).
                             if self._sweep_checks_enabled():
                                 self._check_swap_sweep_from_actual(i, pair_idx1, closest_actor)
                             if is_newvalue_difficulty(self.difficulty):
