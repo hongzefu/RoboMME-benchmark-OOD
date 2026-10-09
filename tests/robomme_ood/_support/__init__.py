@@ -1,1 +1,1 @@
-"""测试公共件：只归主会话维护（计划第二部分「子代理分配表」共享文件裁决）。"""
+"""Shared test helpers: maintained only by the main session (shared-file ruling in the plan's part two "sub-agent assignment table")."""

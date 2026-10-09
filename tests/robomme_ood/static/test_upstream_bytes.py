@@ -1,17 +1,17 @@
-"""L0：本仓与官方 ``016ac1c4`` 的上游字节、``UPSTREAM.json`` 清单与 robomme_ood 的导入边界（C01、C18）。
+"""L0: upstream bytes of this repo vs. upstream ``016ac1c4``, the ``UPSTREAM.json`` manifest, and robomme_ood's import boundary (C01, C18).
 
-本仓 = 官方 RoboMME/robomme_benchmark ``016ac1c4`` + ``src/robomme_ood/`` + ``tests/robomme_ood/`` + 两个 ood 文件，
-旧仓的上游守卫 ``scripts/parity/upstream_guard.py`` 随私有评估仓走，本文件把它对本仓仍有意义的几道检查改写成
-不依赖该工具的独立断言：
+This repo = upstream RoboMME/robomme_benchmark ``016ac1c4`` + ``src/robomme_ood/`` + ``tests/robomme_ood/`` + two ood files.
+The old repo's upstream guard ``scripts/parity/upstream_guard.py`` moved to the private evaluation repo; this file rewrites the checks
+that still matter for this repo as independent assertions that do not depend on that tool:
 
-- ``src/robomme`` 每个文件逐字节等于 ``git show 016ac1c4:<路径>`` 的 blob，工作区没有多余文件；
-- 三个官方入口 ``scripts/{dataset_replay,evaluation,run_example}.py`` 与 ``016ac1c4`` 逐字节相同；
-- ``UPSTREAM.json``：登记的 ``src_commit``（旧锚点 ``1fadc0ec``）下 ``src/robomme`` 的树与 ``016ac1c4`` 相同，
-  ``robomme_files`` 的键与 sha256 由 git blob 独立复算一致，``vendor`` 已清空；
-- 导入边界：robomme_ood 自有文件（shim 除外）的相对导入都落在包内，绝对 ``robomme.*`` 只指向 shim 目标或父类模块；
-- 借用闭包：shim 目标在官方源码上的传递依赖不含任何被 robomme_ood 复制的模块。
+- every file in ``src/robomme`` is byte-identical to the blob of ``git show 016ac1c4:<path>``, with no extra files in the working tree;
+- the three upstream entries ``scripts/{dataset_replay,evaluation,run_example}.py`` are byte-identical to ``016ac1c4``;
+- ``UPSTREAM.json``: the ``src/robomme`` tree at the registered ``src_commit`` (old anchor ``1fadc0ec``) equals that of ``016ac1c4``,
+  the keys and sha256 of ``robomme_files`` match an independent recomputation from git blobs, and ``vendor`` is empty;
+- import boundary: relative imports in robomme_ood's own files (shims excluded) all resolve inside the package, and absolute ``robomme.*`` points only to shim targets or parent-class modules;
+- borrow closure: the transitive dependencies of shim targets in upstream source contain no module copied by robomme_ood.
 
-为什么能逐字节：官方 commit 的 blob 就在本仓 git 对象库里（本仓从它分出），不联网。
+Why byte-level comparison works: the upstream commit's blobs are in this repo's git object store (this repo branched from it); no network needed.
 """
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ import pytest
 
 from tests.robomme_ood._support.loaders import REPO
 
-#: 官方锚点（完整 40 位 sha）：本仓自它分出，src/robomme 与三个官方入口逐字节等于它
+#: Upstream anchor (full 40-char sha): this repo branched from it; src/robomme and the three upstream entries are byte-identical to it
 OFFICIAL_COMMIT = "016ac1c4ef3df2b88488abc19db08f3de83647b5"
-#: UPSTREAM.json 登记的旧锚点（旧仓对齐的上游 commit）；与 016ac1c4 在 src/robomme 上是同一棵树
+#: Old anchor registered in UPSTREAM.json (the upstream commit the old repo was aligned to); same src/robomme tree as 016ac1c4
 MANIFEST_COMMIT = "1fadc0ec50316b60ddcfd8e82ac62ef2b70c18f9"
 ENTRIES = ("dataset_replay.py", "evaluation.py", "run_example.py")
 HARD = REPO / "src" / "robomme_ood"
@@ -44,7 +44,7 @@ def manifest() -> dict:
 
 
 def official_blobs(commit: str) -> dict[str, bytes]:
-    """官方 commit 下 src/robomme 每个文件的 blob 字节（一次 ls-tree + 一次 cat-file --batch，不经清单）。"""
+    """Blob bytes of every src/robomme file at the upstream commit (one ls-tree + one cat-file --batch, not via the manifest)."""
     tree = _git("ls-tree", "-r", "-z", commit, "--", "src/robomme")
     entries = []
     for rec in tree.split(b"\0"):
@@ -61,7 +61,7 @@ def official_blobs(commit: str) -> dict[str, bytes]:
         assert got_sha.decode() == sha and kind == b"blob"
         start = nl + 1
         blobs[path] = out[start:start + int(size)]
-        pos = start + int(size) + 1  # blob 后跟一个换行
+        pos = start + int(size) + 1  # a newline follows each blob
     return blobs
 
 
@@ -70,11 +70,11 @@ def blobs() -> dict[str, bytes]:
     return official_blobs(OFFICIAL_COMMIT)
 
 
-# ---------------------------------------------------------------- 上游字节
+# ---------------------------------------------------------------- upstream bytes
 
 
 def byte_mismatches(root: Path, blobs: dict[str, bytes]) -> list[str]:
-    """工作区（以 root 为仓根）src/robomme 与官方 blob 的差异清单：changed／extra／missing。"""
+    """Differences between src/robomme in the working tree (root as repo root) and upstream blobs: changed / extra / missing."""
     have = {str(p.relative_to(root)) for p in (root / "src" / "robomme").rglob("*")
             if p.is_file() and "__pycache__" not in p.parts and not p.name.endswith(".pyc")}
     out = [f"missing:{rel}" for rel in sorted(set(blobs) - have)]
@@ -91,7 +91,7 @@ def test_src_robomme_bytes_equal_official(blobs):
 
 
 def test_byte_mismatches_negative(blobs, tmp_path):
-    """判定器负例：小副本里改 1 字节、多一个文件、少一个文件，各被点名。"""
+    """Checker negatives: in a small copy, changing 1 byte, adding one file, removing one file are each reported."""
     picked = sorted(rel for rel in blobs if rel.endswith(".py"))[:3]
     sub = {rel: blobs[rel] for rel in picked}
     for rel, data in sub.items():
@@ -117,7 +117,7 @@ def test_official_entry_scripts_equal_official():
 
 
 def test_manifest_anchor_same_tree_as_official(manifest):
-    """清单的旧锚点 1fadc0ec 与 016ac1c4 在 src/robomme 上是同一棵树：清单登记的上游字节对本仓仍然成立。"""
+    """The manifest's old anchor 1fadc0ec and 016ac1c4 have the same src/robomme tree: upstream bytes registered in the manifest still hold for this repo."""
     assert manifest["src_commit"] == MANIFEST_COMMIT
     a = _git("rev-parse", f"{manifest['src_commit']}:src/robomme").strip()
     b = _git("rev-parse", f"{OFFICIAL_COMMIT}:src/robomme").strip()
@@ -131,11 +131,11 @@ def test_manifest_files_equal_official_blobs(manifest, blobs):
 
 
 def test_manifest_vendor_empty(manifest):
-    """官方编排脚本的 vendor 副本已随私有评估仓移走：清单 vendor 为空。"""
+    """The vendor copies of upstream orchestration scripts moved to the private evaluation repo: manifest vendor is empty."""
     assert manifest["vendor"] == {}
 
 
-# ---------------------------------------------------------------- 导入边界与借用闭包
+# ---------------------------------------------------------------- import boundary and borrow closure
 
 
 def modname(rel: str) -> str:
@@ -155,7 +155,7 @@ def _resolve(cur: str, is_pkg: bool, level: int, module: str | None) -> str:
 
 
 def iter_imports(mod: str, source: str, is_pkg: bool, known: set[str]):
-    """产出 (lineno, 解析后的目标模块, 是否相对导入)；``from X import y`` 且 ``X.y`` 是模块时取 ``X.y``。"""
+    """Yields (lineno, resolved target module, is relative import); for ``from X import y`` where ``X.y`` is a module, ``X.y`` is used."""
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -168,14 +168,14 @@ def iter_imports(mod: str, source: str, is_pkg: bool, known: set[str]):
 
 
 def hard_sources() -> dict[str, str]:
-    """robomme_ood 的 .py 文件 → 源码（相对仓根路径为键）。"""
+    """robomme_ood .py files -> source (keyed by path relative to repo root)."""
     return {str(p.relative_to(REPO)): p.read_text(encoding="utf-8")
             for p in sorted(HARD.rglob("*.py")) if "__pycache__" not in p.parts}
 
 
 def abs_import_problems(sources: dict[str, str], manifest: dict) -> list[str]:
-    """robomme_ood 自有文件（shim 除外）：相对导入与 ``robomme_ood.*`` 必须落在包内已有模块；
-    绝对 ``robomme.*`` 只许指向 shim 目标或父类模块。"""
+    """robomme_ood's own files (shims excluded): relative imports and ``robomme_ood.*`` must resolve to existing modules in the package;
+    absolute ``robomme.*`` may only point to shim targets or parent-class modules."""
     shims = {s["shim"] for s in manifest["shims"]}
     allowed = {s["target_module"] for s in manifest["shims"]} | set(manifest.get("parents", ()))
     known = {modname(rel) for rel in sources}
@@ -202,7 +202,7 @@ def test_abs_import_boundary(manifest):
 
 
 def test_abs_import_negative(manifest):
-    """判定器负例：自有文件里绝对导入一个非 shim 目标的官方模块、相对导入不存在的模块，都被抓到。"""
+    """Checker negatives: an absolute import of a non-shim-target upstream module and a relative import of a nonexistent module in an own file are both caught."""
     sources = {"src/robomme_ood/env_record_wrapper/zz_probe.py":
                "from robomme.env_record_wrapper.RecordWrapper import RobommeRecordWrapper\nfrom .no_such_mod import x\n",
                "src/robomme_ood/env_record_wrapper/__init__.py": ""}
@@ -211,7 +211,7 @@ def test_abs_import_negative(manifest):
 
 
 def official_edges(manifest: dict, blobs: dict[str, bytes]) -> dict[str, set[str]]:
-    """官方源码（从 git blob 读）上的模块依赖边：模块 → 它导入的官方模块集合。"""
+    """Module dependency edges in upstream source (read from git blobs): module -> set of upstream modules it imports."""
     sources = {}
     for rel in manifest["robomme_files"]:
         name = rel.rsplit("/", 1)[-1]
@@ -223,7 +223,7 @@ def official_edges(manifest: dict, blobs: dict[str, bytes]) -> dict[str, set[str
 
 
 def borrowed_hits(manifest: dict, edges: dict[str, set[str]], hard_rels: list[str]) -> list[str]:
-    """shim 目标的传递闭包里出现被 robomme_ood 复制（非 shim）的官方模块 → 命中清单。"""
+    """Upstream modules copied (not shimmed) by robomme_ood that appear in the transitive closure of shim targets -> list of hits."""
     shims = {s["shim"] for s in manifest["shims"]}
     copied = {"robomme" + modname(rel)[len("robomme_ood"):] for rel in hard_rels if rel not in shims}
     copied &= set(edges)
@@ -248,7 +248,7 @@ def test_borrowed_deps_closure(manifest, blobs):
 
 
 def test_borrowed_deps_negative(manifest, blobs):
-    """判定器负例：在某个 shim 目标的依赖边里加一条指向被复制模块（RecordWrapper）的边 → 命中。"""
+    """Checker negative: adding an edge from some shim target to a copied module (RecordWrapper) -> hit."""
     edges = {k: set(v) for k, v in official_edges(manifest, blobs).items()}
     target = manifest["shims"][0]["target_module"]
     copied = "robomme.env_record_wrapper.RecordWrapper"

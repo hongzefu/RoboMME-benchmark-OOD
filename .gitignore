@@ -211,13 +211,13 @@ __marimo__/
 .cursor/
 .agents/
 
-# 产物根整体不进 git。
+# The artifacts root is kept out of git entirely.
 /artifacts/*
 
-# Claude Code 子代理 worktree（计划执行模式）
+# Claude Code sub-agent worktrees (plan execution mode)
 /.claude/worktrees/
 
-# 运行产物与媒体文件不进 git（入口脚本默认把视频写到 runs/）
+# Run outputs and media files are kept out of git (entry scripts write videos to runs/ by default)
 /runs/
 *.mp4
 *.mkv

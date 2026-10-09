@@ -1,5 +1,5 @@
-# robomme_ood 的 env_record_wrapper：复制件（RecordWrapper、DemonstrationWrapper、OraclePlanner）+ 借用 shim + 子类 builder。
-# 与官方 robomme.env_record_wrapper 导出同名符号；BenchmarkEnvBuilder 换成支持 dataset="ood"／"hard-verify" 的子类。
+# env_record_wrapper of robomme_ood: copies (RecordWrapper, DemonstrationWrapper, OraclePlanner) + borrowing shims + subclassed builder.
+# Exports the same symbol names as upstream robomme.env_record_wrapper; BenchmarkEnvBuilder is replaced by a subclass supporting dataset="ood"/"hard-verify".
 from .RecordWrapper import *
 from .DemonstrationWrapper import *
 from .EndeffectorDemonstrationWrapper import EndeffectorDemonstrationWrapper

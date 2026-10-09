@@ -72,8 +72,8 @@ class DummyModel:
         return self.base_action + noise
 
 
-# 两个数据集：hard-verify＝xhard0（官方 test 里每任务 difficulty=="hard" 的 12 局，1300 步）；
-# ood＝xhard1～5 新值局（每任务 50 局，1800 步）。改 DATASET 选择其一，默认 ood。
+# Two datasets: hard-verify = xhard0 (the 12 episodes per task with difficulty=="hard" in upstream test, 1300 steps);
+# ood = xhard1-5 new-value episodes (50 episodes per task, 1800 steps). Set DATASET to pick one; default is ood.
 DATASET_MAX_STEPS = {"hard-verify": 1300, "ood": 1800}
 DATASET = "ood"
 TASKS = BenchmarkEnvBuilder.get_task_list()
@@ -86,7 +86,7 @@ for task in TASKS:
         env_id=task,
         dataset=DATASET,
         action_space="joint_angle", # change this to your model's action space
-        max_steps=DATASET_MAX_STEPS[DATASET],  # 按数据集固定（不按档查表）
+        max_steps=DATASET_MAX_STEPS[DATASET],  # fixed per dataset (not looked up per tier)
     )
     episode_count = env_builder.get_episode_num()
     for episode in range(episode_count):

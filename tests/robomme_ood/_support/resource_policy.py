@@ -1,16 +1,16 @@
-"""测试资源守卫（pytest 插件，经 pyproject addopts 的 ``-p tests.robomme_ood._support.resource_policy`` 在收集前加载）。
+"""Test resource guard (pytest plugin, loaded before collection via pyproject addopts ``-p tests.robomme_ood._support.resource_policy``).
 
-两档：
-- 默认档（日常门禁）：拒绝真实仿真场景构建、GPU 初始化、模型权重读取与非回环网络；
-  CPU 替身的 reset／step 不受影响。子进程经 sitecustomize 继承同一档。
-- 仿真档（``--allow-sim-reset``）：不装守卫，只允许显式选择 ``tests/robomme_ood/sim``。
+Two modes:
+- Default mode (daily gate): rejects real simulation scene construction, GPU initialization, model weight loading and non-loopback network;
+  reset/step of CPU stand-ins are unaffected. Subprocesses inherit the same mode via sitecustomize.
+- Simulation mode (``--allow-sim-reset``): no guard installed; only an explicit selection of ``tests/robomme_ood/sim`` is allowed.
 
-违规时当场抛 ``ResourcePolicyError``，同时写入事件账本；即使用例吞掉了异常，
-会话结束时账本非空也判整场失败。末尾打印判定行
-``TEST_RESOURCE=PASS|FAIL native_reset=<n> gpu_init=<n> weights=<n> network=<n> violations=<n>``。
+A violation raises ``ResourcePolicyError`` immediately and is also written to the event ledger; even if a test swallows the exception,
+a non-empty ledger at session end fails the whole session. The verdict line printed at the end is
+``TEST_RESOURCE=PASS|FAIL native_reset=<n> gpu_init=<n> weights=<n> network=<n> violations=<n>``.
 
-另做三条套件纪律检查（任一不满足整场失败）：收集为空、出现 xfail（本套件不登记任何 xfail）、
-出现原因不以「未验证」开头的 skip。守卫是测试执行约束，不宣称能挡住任意绕过。
+Three extra suite-discipline checks (any failure fails the whole session): empty collection, any xfail (this suite registers none),
+any skip whose reason does not start with "Unverified". The guard is a test-execution constraint and does not claim to stop arbitrary bypasses.
 """
 from __future__ import annotations
 
@@ -33,10 +33,10 @@ KINDS = ("native_reset", "gpu_init", "weights", "network")
 
 
 class ResourcePolicyError(RuntimeError):
-    """日常门禁里触碰了被禁资源。"""
+    """A forbidden resource was touched in the daily gate."""
 
 
-# ---------------------------------------------------------------- 账本
+# ---------------------------------------------------------------- ledger
 
 
 def _ledger_path() -> Path | None:
@@ -45,7 +45,7 @@ def _ledger_path() -> Path | None:
 
 
 def record(kind: str, detail: str) -> None:
-    """记一条违规（父子进程都写同一份 jsonl）。"""
+    """Record one violation (parent and child processes write the same jsonl)."""
     path = _ledger_path()
     if path is None:
         return
@@ -55,7 +55,7 @@ def record(kind: str, detail: str) -> None:
 
 def violate(kind: str, detail: str):
     record(kind, detail)
-    raise ResourcePolicyError(f"资源守卫拒绝 {kind}: {detail}")
+    raise ResourcePolicyError(f"resource guard rejected {kind}: {detail}")
 
 
 def read_ledger(path: Path) -> list[dict]:
@@ -64,7 +64,7 @@ def read_ledger(path: Path) -> list[dict]:
     return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
 
 
-# ---------------------------------------------------------------- 补丁
+# ---------------------------------------------------------------- patches
 
 
 def _patch_mani_skill(mod) -> None:
@@ -73,7 +73,7 @@ def _patch_mani_skill(mod) -> None:
         return
 
     def _blocked_init(self, *a, **k):  # noqa: ANN001
-        violate("native_reset", f"{type(self).__name__}.__init__ 会构建真实 SAPIEN 场景")
+        violate("native_reset", f"{type(self).__name__}.__init__ would build a real SAPIEN scene")
 
     base.__init__ = _blocked_init
     base._resource_policy_patched = True
@@ -84,7 +84,7 @@ def _patch_torch_cuda(mod) -> None:
         return
 
     def _blocked(*a, **k):
-        violate("gpu_init", "torch.cuda 初始化")
+        violate("gpu_init", "torch.cuda initialization")
 
     for name in ("init", "_lazy_init"):
         if hasattr(mod, name):
@@ -98,7 +98,7 @@ def _patch_torch(mod) -> None:
         return
 
     def _blocked_load(*a, **k):
-        violate("weights", "torch.load 读取权重")
+        violate("weights", "torch.load reading weights")
 
     mod.load = _blocked_load
     mod._resource_policy_patched = True
@@ -106,7 +106,7 @@ def _patch_torch(mod) -> None:
 
 def _patch_safetensors(mod) -> None:
     def _blocked(*a, **k):
-        violate("weights", f"{mod.__name__} 读取权重")
+        violate("weights", f"{mod.__name__} reading weights")
 
     for name in ("load_file", "safe_open", "load"):
         if hasattr(mod, name):
@@ -114,15 +114,16 @@ def _patch_safetensors(mod) -> None:
 
 
 def _patch_sapien(mod) -> None:
-    """sapien 本体是 C 扩展，构造器无法可靠替换；挡场景入口，并把渲染子模块里的材质与渲染系统换成拒绝工厂
-    （真实 RenderMaterial 在 CPU 下会起渲染上下文、实测可段错误；离线世界夹具在自己的上下文内另行替换并还原）。"""
+    """sapien itself is a C extension and its constructors cannot be replaced reliably; block the scene entry and replace materials
+    and render systems in the render submodule with rejecting factories (a real RenderMaterial on CPU starts a render context and was
+    observed to segfault; the offline-world fixture does its own replacement and restore within its own context)."""
     for name in ("Scene",):
         cls = getattr(mod, name, None)
         if cls is None:
             continue
         try:
             def _blocked(self, *a, _n=name, **k):  # noqa: ANN001
-                violate("native_reset", f"sapien.{_n} 构造")
+                violate("native_reset", f"sapien.{_n} construction")
 
             cls.__init__ = _blocked
         except (TypeError, AttributeError):
@@ -135,7 +136,7 @@ def _patch_sapien(mod) -> None:
             continue
 
         def _blocked_factory(*a, _n=name, **k):
-            violate("native_reset", f"sapien.render.{_n} 构造")
+            violate("native_reset", f"sapien.render.{_n} construction")
 
         try:
             setattr(render, name, _blocked_factory)
@@ -191,7 +192,7 @@ LOOPBACK = {"127.0.0.1", "::1", "localhost", "0.0.0.0", ""}
 def _host_of(address) -> str | None:
     if isinstance(address, (tuple, list)) and address:
         return str(address[0])
-    return None  # unix socket 等
+    return None  # unix sockets etc.
 
 
 def _guarded_connect(self, address):
@@ -212,7 +213,7 @@ _installed = False
 
 
 def install() -> None:
-    """装守卫（幂等）。已导入的模块立即打补丁，未导入的在导入时打。"""
+    """Install the guard (idempotent). Already-imported modules are patched immediately; others are patched on import."""
     global _installed
     if _installed:
         return
@@ -223,11 +224,11 @@ def install() -> None:
     sys.meta_path.insert(0, _PatchFinder())
     socket.socket.connect = _guarded_connect
     socket.create_connection = _guarded_create_connection
-    # 渲染与 CUDA 设备一律不可见，即便绕过补丁也拿不到 GPU。
+    # Render and CUDA devices are always hidden, so a GPU is unreachable even if the patches are bypassed.
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 
-# ---------------------------------------------------------------- pytest 钩子
+# ---------------------------------------------------------------- pytest hooks
 
 
 def pytest_addoption(parser):
@@ -235,7 +236,7 @@ def pytest_addoption(parser):
         "--allow-sim-reset",
         action="store_true",
         default=False,
-        help="仿真档：不装资源守卫，只允许运行 tests/robomme_ood/sim（每次 59 + 1 = 60 次 reset，长期授权见计划 Q8）",
+        help="simulation mode: no resource guard; only tests/robomme_ood/sim may run (59 + 1 = 60 resets per run; standing authorization, see plan Q8)",
     )
 
 
@@ -259,9 +260,9 @@ def pytest_configure(config):
     sim = config.getoption("--allow-sim-reset")
     touches_sim = _args_touch_sim(config.args)
     if touches_sim and not sim:
-        raise pytest.UsageError("tests/robomme_ood/sim 只能带 --allow-sim-reset 运行（会起真实仿真 reset）")
+        raise pytest.UsageError("tests/robomme_ood/sim can only run with --allow-sim-reset (it performs real simulation resets)")
     if sim and not touches_sim:
-        raise pytest.UsageError("--allow-sim-reset 只能与显式选择的 tests/robomme_ood/sim 一起使用")
+        raise pytest.UsageError("--allow-sim-reset can only be used with an explicit selection of tests/robomme_ood/sim")
     config._rp_mode = "sim" if sim else "cpu"
     if sim:
         return
@@ -270,7 +271,7 @@ def pytest_configure(config):
     config._rp_ledger = Path(ledger)
     os.environ[ENV_MODE] = "cpu"
     os.environ[ENV_LEDGER] = ledger
-    # 子进程经 sitecustomize 继承守卫。
+    # Subprocesses inherit the guard via sitecustomize.
     old = os.environ.get("PYTHONPATH", "")
     os.environ["PYTHONPATH"] = os.pathsep.join(x for x in (str(SITE_DIR), old) if x)
     install()
@@ -305,15 +306,15 @@ def pytest_sessionfinish(session, exitstatus):
         return
     rows = read_ledger(cfg._rp_ledger)
     counts = {k: sum(1 for r in rows if r["kind"] == k) for k in KINDS}
-    bad_skips = [(n, r) for n, r in _SKIPS if not r.startswith("未验证")]
+    bad_skips = [(n, r) for n, r in _SKIPS if not r.startswith("Unverified")]
     if rows:
-        _PROBLEMS.append(f"资源守卫账本有 {len(rows)} 条违规")
+        _PROBLEMS.append(f"resource guard ledger has {len(rows)} violations")
     if bad_skips:
-        _PROBLEMS.append(f"{len(bad_skips)} 个 skip 原因不以「未验证」开头：{bad_skips[:5]}")
+        _PROBLEMS.append(f"{len(bad_skips)} skip reasons do not start with 'Unverified': {bad_skips[:5]}")
     if _XFAILS:
-        _PROBLEMS.append(f"出现未登记的 xfail：{_XFAILS[:5]}")
+        _PROBLEMS.append(f"unregistered xfail found: {_XFAILS[:5]}")
     if session.testscollected == 0 and not cfg.option.collectonly:
-        _PROBLEMS.append("收集为空")
+        _PROBLEMS.append("empty collection")
     cfg._rp_counts = counts
     cfg._rp_violations = len(rows)
     if _PROBLEMS and session.exitstatus == 0:
@@ -331,7 +332,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     counts = getattr(config, "_rp_counts", {k: 0 for k in KINDS})
     for p in _PROBLEMS:
         terminalreporter.write_line(f"RESOURCE_POLICY_PROBLEM {p}")
-    not_verified = [n for n, r in _SKIPS if r.startswith("未验证")]
+    not_verified = [n for n, r in _SKIPS if r.startswith("Unverified")]
     ok = not _PROBLEMS
     terminalreporter.write_line(
         f"TEST_RESOURCE={'PASS' if ok else 'FAIL'} "

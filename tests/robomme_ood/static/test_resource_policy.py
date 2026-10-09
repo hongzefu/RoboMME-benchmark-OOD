@@ -1,6 +1,6 @@
-"""资源守卫的反证用例：被禁入口必须先被拒、且原生调用没有发生；子进程继承同一档。
+"""Counter-evidence tests for the resource guard: forbidden entries must be rejected first and the native call must not happen; subprocesses inherit the same mode.
 
-每个用例把账本临时指到 tmp 文件，避免故意触发的违规让整场判失败。
+Each test temporarily points the ledger at a tmp file so intentionally triggered violations do not fail the whole session.
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def test_real_env_construction_is_refused(private_ledger):
 def test_gym_make_of_registered_task_is_refused(private_ledger):
     import gymnasium as gym
 
-    import robomme_ood  # noqa: F401  注册 16 个任务
+    import robomme_ood  # noqa: F401  registers the 16 tasks
 
     with pytest.raises(rp.ResourcePolicyError):
         gym.make("PickXtimes", obs_mode="rgb", difficulty="easy", seed=0)

@@ -1,4 +1,4 @@
-"""按文件路径加载 scripts/ 下的脚本模块（scripts 不是包，生产代码也按路径互相加载）。"""
+"""Load script modules under scripts/ by file path (scripts is not a package; production code also loads them by path)."""
 from __future__ import annotations
 
 import importlib.util
@@ -11,7 +11,7 @@ _CACHE: dict[str, object] = {}
 
 
 def script_path(rel: str) -> Path:
-    """rel 相对 scripts/，如 ``parity/noise_gate.py``。"""
+    """rel is relative to scripts/, e.g. ``parity/noise_gate.py``."""
     p = SCRIPTS / rel
     if not p.is_file():
         raise FileNotFoundError(p)
@@ -19,10 +19,10 @@ def script_path(rel: str) -> Path:
 
 
 def load_script(rel: str, *, fresh: bool = False):
-    """加载脚本模块；同一路径默认复用同一模块对象，``fresh=True`` 时重新执行一份独立副本。
+    """Load a script module; the same path reuses the same module object by default, ``fresh=True`` executes a separate fresh copy.
 
-    模块名由相对路径派生（``_script_parity_noise_gate``），脚本目录临时加到 sys.path 头部，
-    以便脚本里 ``import <同目录模块>`` 的写法照常工作。
+    The module name is derived from the relative path (``_script_parity_noise_gate``); the script directory is temporarily
+    prepended to sys.path so that ``import <sibling module>`` in scripts works as usual.
     """
     path = script_path(rel)
     key = str(path)

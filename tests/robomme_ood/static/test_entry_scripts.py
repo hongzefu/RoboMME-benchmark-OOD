@@ -1,10 +1,10 @@
-"""L0：顶层入口（C18 入口白名单、生产不依赖 tests、``run_example.EPISODE_LIMITS`` 与官方元数据一致）。
+"""L0: top-level entries (C18 entry whitelist, production does not depend on tests, ``run_example.EPISODE_LIMITS`` matches upstream metadata).
 
-- ``evaluation_ood.py`` 与官方 ``016ac1c4`` 的 ``scripts/evaluation.py``（经 ``git show`` 读，不读工作区）恰好差白名单
-  四处：3 个单行 hunk（import、``dataset=DATASET``、``max_steps=DATASET_MAX_STEPS[DATASET]``）加 1 个纯插入块
-  （``TASKS`` 之前的数据集选择块：``hard-verify``↔1300、``ood``↔1800，默认 ``ood``）。
-- ``scripts/`` 恰好四个文件：官方三入口加 ``evaluation_ood.py``，没有子目录。
-- ``scripts/``、``challenge_interface/`` 与 ``src/robomme_ood/`` 的生产代码不 import ``tests``（AST 收集 import 语句，L0 允许）。
+- ``evaluation_ood.py`` differs from upstream ``016ac1c4``'s ``scripts/evaluation.py`` (read via ``git show``, not the working tree) by exactly
+  the four whitelisted places: 3 single-line hunks (import, ``dataset=DATASET``, ``max_steps=DATASET_MAX_STEPS[DATASET]``) plus 1 pure insertion
+  block (the dataset selection block before ``TASKS``: ``hard-verify``<->1300, ``ood``<->1800, default ``ood``).
+- ``scripts/`` has exactly four files: the three upstream entries plus ``evaluation_ood.py``, no subdirectories.
+- Production code in ``scripts/``, ``challenge_interface/`` and ``src/robomme_ood/`` does not import ``tests`` (import statements collected via AST, allowed at L0).
 """
 from __future__ import annotations
 
@@ -22,20 +22,20 @@ from tests.robomme_ood._support.loaders import REPO, load_script
 from tests.robomme_ood.contract.test_constants import DATASET_MAX_STEPS, DEFAULT_DATASET
 
 SCRIPTS = REPO / "scripts"
-#: 官方 RoboMME/robomme_benchmark 的锚点 commit（本仓自它分出；完整 40 位 sha）
+#: Anchor commit of upstream RoboMME/robomme_benchmark (this repo branched from it; full 40-char sha)
 OFFICIAL_COMMIT = "016ac1c4ef3df2b88488abc19db08f3de83647b5"
 SCRIPTS_SET = {"dataset_replay.py", "evaluation.py", "run_example.py", "evaluation_ood.py"}
 PRODUCTION_DIRS = (REPO / "scripts", REPO / "challenge_interface", REPO / "src" / "robomme_ood")
 
 
-# ---------------------------------------------------------------- evaluation_ood 与官方 evaluation 的差异
+# ---------------------------------------------------------------- diff between evaluation_ood and upstream evaluation
 
 
 def single_line_hunks(old: str, new: str, *, allow_insert: bool = False):
-    """逐行差异；每块必须是「一行换一行」（插入块之前行号相同，之后按插入行数平移），否则返回 None 表示形态不合。
+    """Line diff; every block must be "one line replaced by one line" (line numbers equal before the insertion block, shifted by its length after), otherwise returns None meaning the shape does not match.
 
-    ``allow_insert`` 为假时返回 [(新文件行号(1 起), 旧行, 新行)]，且不允许任何插入；为真时最多允许一个纯插入块，
-    返回 (单行替换列表, 插入块 (新文件起始行号(1 起), [插入的行]) 或 None)。
+    When ``allow_insert`` is false, returns [(new-file line number (1-based), old line, new line)] and allows no insertion; when true, allows at most one pure insertion block
+    and returns (list of single-line replacements, insertion block (new-file start line (1-based), [inserted lines]) or None).
     """
     a, b = old.splitlines(), new.splitlines()
     out, insert = [], None
@@ -68,30 +68,30 @@ def test_evaluation_ood_diff_is_three_single_line_hunks_and_dataset_block():
     old = _official_evaluation()
     new = (SCRIPTS / "evaluation_ood.py").read_text(encoding="utf-8")
     res = single_line_hunks(old, new, allow_insert=True)
-    assert res is not None, "差异形态不合"
+    assert res is not None, "diff shape does not match"
     hunks, insert = res
     assert len(hunks) == 3 and insert is not None, res
     (l1, o1, n1), (l2, o2, n2), (l3, o3, n3) = hunks
-    # 1) import：只把包名换成 robomme_ood。
+    # 1) import: only the package name is changed to robomme_ood.
     assert o1 == "from robomme.env_record_wrapper import BenchmarkEnvBuilder"
     assert n1 == "from robomme_ood.env_record_wrapper import BenchmarkEnvBuilder"
     tree = ast.parse(new)
     first_def = min(n.lineno for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef)))
     assert l1 < first_def
-    # 2) dataset：test → DATASET，缩进不变。
+    # 2) dataset: test -> DATASET, indentation unchanged.
     assert o2.strip() == 'dataset="test",' and n2.strip() == 'dataset=DATASET,'
     assert o2[: len(o2) - len(o2.lstrip())] == n2[: len(n2) - len(n2.lstrip())]
-    # 3) max_steps：整数字面值 → 按数据集查 DATASET_MAX_STEPS，缩进不变。
+    # 3) max_steps: integer literal -> DATASET_MAX_STEPS lookup by dataset, indentation unchanged.
     mo = re.match(r"^(\s*)max_steps=\d+,", o3)
     mn = re.match(r"^(\s*)max_steps=DATASET_MAX_STEPS\[DATASET\],", n3)
     assert mo and mn and mo.group(1) == mn.group(1)
-    # 位置：后两处恰是 BenchmarkEnvBuilder(...) 调用的 dataset／max_steps 关键字参数。
+    # Position: the last two are exactly the dataset/max_steps keyword arguments of the BenchmarkEnvBuilder(...) call.
     kw = {k.arg: k for k in _builder_call(tree).keywords}
     assert kw["dataset"].value.lineno == l2
     assert isinstance(kw["dataset"].value, ast.Name) and kw["dataset"].value.id == "DATASET"
     assert kw["max_steps"].value.lineno == l3
     assert isinstance(kw["max_steps"].value, ast.Subscript)
-    # 4) 插入块：只在 TASKS 之前、只含注释与两个赋值——两个接口与步数配对（hard-verify 1300、ood 1800），默认 ood。
+    # 4) insertion block: only before TASKS, containing only comments and two assignments; two datasets paired with step limits (hard-verify 1300, ood 1800), default ood.
     start, block = insert
     assert block[-1].startswith("DATASET = ") and new.splitlines()[start - 1 + len(block)].startswith("TASKS = ")
     code = [ln for ln in block if not ln.startswith("#")]
@@ -104,21 +104,21 @@ def test_single_line_hunks_negatives():
     base = "a\nb\nc\n"
     assert single_line_hunks(base, base) == []
     assert single_line_hunks(base, "a\nB\nc\n") == [(2, "b", "B")]
-    assert single_line_hunks(base, "a\nb\nx\nc\n") is None  # 多一行
-    assert single_line_hunks(base, "a\nc\n") is None  # 少一行
-    assert single_line_hunks(base, "a\nB\nC\n") is None  # 两行连成一块
-    # 允许一个插入块：插入后的单行替换按插入行数平移；两个插入块、删行仍判不合
+    assert single_line_hunks(base, "a\nb\nx\nc\n") is None  # one extra line
+    assert single_line_hunks(base, "a\nc\n") is None  # one line missing
+    assert single_line_hunks(base, "a\nB\nC\n") is None  # two lines merged into one block
+    # One insertion block is allowed: single-line replacements after it are shifted by its length; two insertion blocks or deleted lines still fail
     assert single_line_hunks(base, "a\nx\ny\nb\nC\n", allow_insert=True) == ([(5, "c", "C")], (2, ["x", "y"]))
     assert single_line_hunks(base, "x\na\nb\ny\nc\n", allow_insert=True) is None
     assert single_line_hunks(base, "a\nc\n", allow_insert=True) is None
 
 
-# ---------------------------------------------------------------- 入口清单
+# ---------------------------------------------------------------- entry list
 
 
 def test_scripts_has_exactly_four_files():
-    """``scripts/`` 只有四个文件、没有子目录（对拍、生成、评估编排工具都在私有评估仓）。"""
-    entries = [p for p in SCRIPTS.iterdir() if p.name != "__pycache__"]  # 按路径加载脚本时解释器会写字节码缓存
+    """``scripts/`` has only four files and no subdirectories (parity, generation and evaluation orchestration tools live in the private evaluation repo)."""
+    entries = [p for p in SCRIPTS.iterdir() if p.name != "__pycache__"]  # the interpreter writes bytecode caches when scripts are loaded by path
     assert {p.name for p in entries} == SCRIPTS_SET
     assert [p.name for p in entries if p.is_dir()] == []
     tracked = subprocess.run(["git", "ls-files", "--", "scripts"], cwd=REPO, check=True, capture_output=True,
@@ -126,11 +126,11 @@ def test_scripts_has_exactly_four_files():
     assert {t.removeprefix("scripts/") for t in tracked} == SCRIPTS_SET
 
 
-# ---------------------------------------------------------------- 生产代码不 import tests
+# ---------------------------------------------------------------- production code does not import tests
 
 
 def imports_of_tests(source: str) -> list[str]:
-    """源码中指向 ``tests`` 包的导入（import／from-import／importlib.import_module／__import__ 字面值）。"""
+    """Imports in source pointing to the ``tests`` package (import / from-import / importlib.import_module / __import__ literals)."""
     hits = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):

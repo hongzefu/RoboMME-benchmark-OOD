@@ -6,11 +6,11 @@
    "src/robomme/",
    "src/robomme_ood/UPSTREAM.json"
   ],
-  "symbol": "src/robomme 全部文件；UPSTREAM.json robomme_files／src_commit",
-  "oracle": "官方 016ac1c4 的 git 树与 blob（ls-tree + cat-file --batch，测试侧逐文件比字节，不经清单 sha 中转）；UPSTREAM.json 的旧锚点 1fadc0ec 与 016ac1c4 在 src/robomme 上树 id 相同，逐文件 sha256 须等于 sha256(blob)",
-  "positive": "工作区 src/robomme 文件集合与逐文件字节 = 016ac1c4 blob（UPSTREAM_BYTES=PASS diff=0）；清单文件集合与 sha 由 blob 复算一致；两锚点 src/robomme 树相同",
-  "negative": "判定器小副本改 1 字节、多 1 文件、少 1 文件各被点名",
-  "boundaries": "旧仓守卫 scripts/parity/upstream_guard.py 随私有评估仓；本仓改为独立断言，不联网",
+  "symbol": "all files in src/robomme; UPSTREAM.json robomme_files/src_commit",
+  "oracle": "git tree and blobs of upstream 016ac1c4 (ls-tree + cat-file --batch; the test compares bytes file by file, not via manifest sha); UPSTREAM.json's old anchor 1fadc0ec has the same src/robomme tree id as 016ac1c4, and per-file sha256 must equal sha256(blob)",
+  "positive": "working-tree src/robomme file set and per-file bytes = 016ac1c4 blobs (UPSTREAM_BYTES=PASS diff=0); manifest file set and sha match recomputation from blobs; both anchors have the same src/robomme tree",
+  "negative": "checker on a small copy: changing 1 byte, one extra file, one missing file are each reported",
+  "boundaries": "the old repo guard scripts/parity/upstream_guard.py moved to the private evaluation repo; this repo uses independent assertions, no network",
   "nodeids": [
    "tests/robomme_ood/static/test_upstream_bytes.py::test_src_robomme_bytes_equal_official",
    "tests/robomme_ood/static/test_upstream_bytes.py::test_byte_mismatches_negative",
@@ -29,10 +29,10 @@
   "domain": "C18",
   "source": "src/robomme_ood/UPSTREAM.json",
   "symbol": "manifest_sha256 / load_manifest",
-  "oracle": "剔除 manifest_sha256 后 canonical JSON（sort_keys、紧凑分隔符）的 sha256",
-  "positive": "真实清单自签成立；src_commit 为 40 位",
+  "oracle": "sha256 of canonical JSON (sort_keys, compact separators) with manifest_sha256 removed",
+  "positive": "the real manifest's self-signature holds; src_commit is 40 chars",
   "negative": "",
-  "boundaries": "签名只防篡改，不替代逐文件比对（见 C18-UPSTREAM-BYTES）",
+  "boundaries": "the signature only guards against tampering and does not replace per-file comparison (see C18-UPSTREAM-BYTES)",
   "nodeids": [
    "tests/robomme_ood/static/test_copies_vs_upstream.py::test_manifest_self_signature_holds"
   ],
@@ -48,11 +48,11 @@
    "scripts/evaluation.py",
    "scripts/run_example.py"
   ],
-  "symbol": "三个官方入口全文",
-  "oracle": "git show 016ac1c4:scripts/<名>.py 逐字节",
-  "positive": "三个入口 ENTRY_SCRIPTS=PASS diff=0",
+  "symbol": "full text of the three upstream entries",
+  "oracle": "git show 016ac1c4:scripts/<name>.py byte for byte",
+  "positive": "three entries ENTRY_SCRIPTS=PASS diff=0",
   "negative": "",
-  "boundaries": "入口集合本身见 C18-ENTRY-SET",
+  "boundaries": "the entry set itself: see C18-ENTRY-SET",
   "nodeids": [
    "tests/robomme_ood/static/test_upstream_bytes.py::test_official_entry_scripts_equal_official"
   ],
@@ -68,8 +68,8 @@
   "source": [
    "src/robomme_ood/UPSTREAM.json"
   ],
-  "symbol": "vendor 段",
-  "oracle": "官方编排脚本的 vendor 副本随私有评估仓移走，本仓清单 vendor 为空",
+  "symbol": "vendor section",
+  "oracle": "vendor copies of upstream orchestration scripts moved to the private evaluation repo; vendor in this repo's manifest is empty",
   "positive": "vendor == {}",
   "negative": "",
   "boundaries": "",
@@ -87,10 +87,10 @@
    "src/robomme_ood/UPSTREAM.json"
   ],
   "symbol": "shims[]",
-  "oracle": "git 跟踪的 hard 包文件按内容反推三行 shim 形态（注释指向 UPSTREAM.json、import importlib, sys、sys.modules 别名），不用路径公式；目标文件 sha256 与字节数对 git 对象独立复算",
-  "positive": "由内容反推的 {shim 路径: 别名目标} = 清单登记；每个 shim 形态与目标成立（目标 sha 对 016ac1c4 复算）",
-  "negative": "判定器：三行形态多一行、少一行、导入行不对都判不合",
-  "boundaries": "旧仓守卫的 tmp 副本负例随私有评估仓",
+  "oracle": "git-tracked hard-package files are classified as three-line shims from their content (comment pointing to UPSTREAM.json, import importlib, sys, sys.modules alias), not by a path formula; target file sha256 and byte size are recomputed independently from git objects",
+  "positive": "{shim path: alias target} derived from content = manifest registration; every shim form and target holds (target sha recomputed against 016ac1c4)",
+  "negative": "checker: three-line form with one extra line, one missing line, or a wrong import line is rejected",
+  "boundaries": "the old repo guard's tmp-copy negatives moved to the private evaluation repo",
   "nodeids": [
    "tests/robomme_ood/static/test_copies_vs_upstream.py::test_shim_registry_equals_shim_files_on_disk",
    "tests/robomme_ood/static/test_copies_vs_upstream.py::test_shim_form_and_target",
@@ -107,10 +107,10 @@
    "src/robomme_ood/**/*.py",
    "src/robomme_ood/UPSTREAM.json"
   ],
-  "symbol": "robomme_ood 自有文件的 import 语句（AST）",
-  "oracle": "hard 自有文件（shim 除外）的相对导入与 robomme_ood.* 落在包内已有模块；绝对 robomme.* 只许 shim 目标或 parents",
-  "positive": "真实仓库 ABS_IMPORT=PASS unresolved=0",
-  "negative": "合成自有文件里绝对导入非 shim 目标的官方模块、相对导入不存在的模块，两处都被抓到",
+  "symbol": "import statements of robomme_ood's own files (AST)",
+  "oracle": "relative imports and robomme_ood.* in hard's own files (shims excluded) resolve to existing modules in the package; absolute robomme.* only allowed for shim targets or parents",
+  "positive": "real repo ABS_IMPORT=PASS unresolved=0",
+  "negative": "in a synthetic own file, an absolute import of a non-shim-target upstream module and a relative import of a nonexistent module are both caught",
   "boundaries": "",
   "nodeids": [
    "tests/robomme_ood/static/test_upstream_bytes.py::test_abs_import_boundary",
@@ -127,10 +127,10 @@
    "src/robomme_ood/UPSTREAM.json",
    "src/robomme/"
   ],
-  "symbol": "shims[].target_module 在官方源码上的传递闭包",
-  "oracle": "在 016ac1c4 的官方源码（git blob）上求 shim 目标的传递闭包，不得含 robomme_ood 复制（非 shim）的模块",
-  "positive": "真实仓库 BORROWED_DEPS=PASS changed_hits=0",
-  "negative": "给某 shim 目标的依赖边加一条指向复制件 RecordWrapper 的边 → 命中",
+  "symbol": "transitive closure of shims[].target_module in upstream source",
+  "oracle": "compute the transitive closure of shim targets on upstream source at 016ac1c4 (git blobs); it must not contain modules copied (non-shim) by robomme_ood",
+  "positive": "real repo BORROWED_DEPS=PASS changed_hits=0",
+  "negative": "adding a dependency edge from a shim target to the copied RecordWrapper -> hit",
   "boundaries": "",
   "nodeids": [
    "tests/robomme_ood/static/test_upstream_bytes.py::test_borrowed_deps_closure",
@@ -144,11 +144,11 @@
   "id": "C18-COPIES-WHITELIST",
   "domain": "C18",
   "source": "src/robomme_ood/env_record_wrapper/{RecordWrapper,OraclePlannerDemonstrationWrapper,DemonstrationWrapper}.py",
-  "symbol": "与 016ac1c4:src/robomme/env_record_wrapper 同名文件的逐行差异",
-  "oracle": "白名单按行精确列出：RecordWrapper 差 fail_safe_limit 2000→5000（连同 1 行注释换 4 行注释）与 vqa_options 一行 import；OraclePlanner 差一行 import；DemonstrationWrapper 逐字节相同",
-  "positive": "三个复制件差异恰好等于白名单",
-  "negative": "5000 改回 2000、多一行注释 → 差异不等于白名单；同文件差异为空",
-  "boundaries": "注释也算差异，改注释须同步白名单",
+  "symbol": "line diff of same-named files against 016ac1c4:src/robomme/env_record_wrapper",
+  "oracle": "whitelist listed exactly by line: RecordWrapper differs by fail_safe_limit 2000->5000 (with 1 comment line replaced by 4 comment lines) and one vqa_options import line; OraclePlanner differs by one import line; DemonstrationWrapper is byte-identical",
+  "positive": "the diffs of the three copies equal the whitelist exactly",
+  "negative": "5000 changed back to 2000, one extra comment line -> diff no longer equals the whitelist; empty diff for identical file",
+  "boundaries": "comments count as diffs too; changing a comment requires updating the whitelist",
   "nodeids": [
    "tests/robomme_ood/static/test_copies_vs_upstream.py::test_copy_differs_from_official_exactly_by_whitelist",
    "tests/robomme_ood/static/test_copies_vs_upstream.py::test_line_diff_detects_reverted_limit_and_extra_comment"
@@ -165,11 +165,11 @@
   "source": [
    "scripts/evaluation_ood.py"
   ],
-  "symbol": "与 016ac1c4:scripts/evaluation.py 的逐行差异；BenchmarkEnvBuilder(...) 的 dataset／max_steps 关键字",
-  "oracle": "对 git show 016ac1c4:scripts/evaluation.py 恰好 3 个单行 hunk 加 TASKS 之前 1 个纯插入块（白名单四处）：import 包名、dataset=DATASET、max_steps=DATASET_MAX_STEPS[DATASET]；后两处为 BenchmarkEnvBuilder 调用的关键字参数；插入块只含两个赋值 DATASET_MAX_STEPS={\"hard-verify\": 1300, \"ood\": 1800}、DATASET=\"ood\"",
-  "positive": "真实入口满足，BENCH_ENTRY_DIFF=PASS changes=4 unexpected=0",
-  "negative": "判定器：多一行、少一行、两行连块、两个插入块均判形态不合",
-  "boundaries": "ood 配 1800、hard-verify 配 1300（钉值 DATASET_MAX_STEPS）",
+  "symbol": "line diff against 016ac1c4:scripts/evaluation.py; dataset/max_steps keywords of BenchmarkEnvBuilder(...)",
+  "oracle": "against git show 016ac1c4:scripts/evaluation.py exactly 3 single-line hunks plus 1 pure insertion block before TASKS (four whitelisted places): import package name, dataset=DATASET, max_steps=DATASET_MAX_STEPS[DATASET]; the last two are keyword arguments of the BenchmarkEnvBuilder call; the insertion block contains only two assignments DATASET_MAX_STEPS={\"hard-verify\": 1300, \"ood\": 1800}, DATASET=\"ood\"",
+  "positive": "the real entry satisfies it, BENCH_ENTRY_DIFF=PASS changes=4 unexpected=0",
+  "negative": "checker: one extra line, one missing line, two lines merged into a block, two insertion blocks are all rejected as shape mismatch",
+  "boundaries": "ood pairs with 1800, hard-verify with 1300 (pinned values DATASET_MAX_STEPS)",
   "nodeids": [
    "tests/robomme_ood/static/test_entry_scripts.py::test_evaluation_ood_diff_is_three_single_line_hunks_and_dataset_block",
    "tests/robomme_ood/static/test_entry_scripts.py::test_single_line_hunks_negatives"
@@ -187,10 +187,10 @@
    "scripts/evaluation_ood.py"
   ],
   "symbol": "BenchmarkEnvBuilder(max_steps=...)",
-  "oracle": "按档步数查表 TIER_MAX_STEPS 已删除：步数上限由入口按数据集给出，hard-verify 1300、ood 1800（钉值 DATASET_MAX_STEPS），默认 ood",
-  "positive": "evaluation_ood.py 插入块的 DATASET_MAX_STEPS 与 DATASET 逐值等于钉值",
+  "oracle": "the per-tier step table TIER_MAX_STEPS was deleted: the step cap is given by the entry per dataset, hard-verify 1300, ood 1800 (pinned values DATASET_MAX_STEPS), default ood",
+  "positive": "DATASET_MAX_STEPS and DATASET in the insertion block of evaluation_ood.py equal the pinned values",
   "negative": "",
-  "boundaries": "只断言入口源码取值；实跑步数由仿真冒烟另测",
+  "boundaries": "only asserts values in entry source; actual run step counts are tested separately by the simulation smoke",
   "nodeids": [
    "tests/robomme_ood/static/test_entry_scripts.py::test_evaluation_ood_diff_is_three_single_line_hunks_and_dataset_block"
   ],
@@ -204,9 +204,9 @@
   "source": [
    "scripts/"
   ],
-  "symbol": "scripts/ 文件集合",
-  "oracle": "恰好四个文件 {dataset_replay.py, evaluation.py, run_example.py, evaluation_ood.py}，无子目录；工作区与 git ls-files 两边一致",
-  "positive": "集合相等",
+  "symbol": "file set of scripts/",
+  "oracle": "exactly four files {dataset_replay.py, evaluation.py, run_example.py, evaluation_ood.py}, no subdirectories; working tree and git ls-files agree",
+  "positive": "sets equal",
   "negative": "",
   "boundaries": "",
   "nodeids": [
@@ -224,11 +224,11 @@
    "challenge_interface/**/*.py",
    "src/robomme_ood/**/*.py"
   ],
-  "symbol": "import 语句（AST）",
-  "oracle": "不得出现 tests／tests.* 的 import、from-import、import_module、__import__ 字面值",
-  "positive": "全部生产文件为零命中",
-  "negative": "6 种指向 tests 的写法必须命中；testscenario、相对 .tests、字符串里的 import 不误报",
-  "boundaries": "动态拼接的模块名不在静态检查能力内",
+  "symbol": "import statements (AST)",
+  "oracle": "no import, from-import, import_module or __import__ literal of tests/tests.* may appear",
+  "positive": "zero hits in all production files",
+  "negative": "6 spellings pointing to tests must hit; testscenario, relative .tests and import inside strings are not flagged",
+  "boundaries": "dynamically built module names are beyond static checking",
   "nodeids": [
    "tests/robomme_ood/static/test_entry_scripts.py::test_production_code_does_not_import_tests",
    "tests/robomme_ood/static/test_entry_scripts.py::test_imports_of_tests_catches",
@@ -243,8 +243,8 @@
   "domain": "C18",
   "source": "scripts/run_example.py",
   "symbol": "EPISODE_LIMITS / DatasetType / TaskID",
-  "oracle": "src/robomme/env_metadata/<split>/record_dataset_*_metadata.json 的 record_count 与 episode 编号",
-  "positive": "每个 split 的每个任务 record_count = 上限、episode 恰为 0..上限-1，任务集合 = TaskID 去 All",
+  "oracle": "record_count and episode numbers of src/robomme/env_metadata/<split>/record_dataset_*_metadata.json",
+  "positive": "for every task of every split record_count = limit, episodes are exactly 0..limit-1, task set = TaskID minus All",
   "negative": "",
   "boundaries": "",
   "nodeids": [
@@ -258,11 +258,11 @@
   "id": "C18-WHEEL",
   "domain": "C18",
   "source": "pyproject.toml",
-  "symbol": "[tool.hatch.build.targets.wheel] packages；[project] name／version",
-  "oracle": "git ls-files src/robomme src/robomme_ood；源码树字节",
-  "positive": "离线构建 wheel、tmp uv 环境 --no-deps 非 editable 安装：wheel 文件集合 = 跟踪文件集合，安装后逐字节相同；dist-info 名称版本一致且非 editable；仓库外 cwd 导入落在 tmp site-packages",
+  "symbol": "[tool.hatch.build.targets.wheel] packages; [project] name/version",
+  "oracle": "git ls-files src/robomme src/robomme_ood; source tree bytes",
+  "positive": "offline wheel build, tmp uv environment --no-deps non-editable install: wheel file set = tracked file set, byte-identical after install; dist-info name and version match and not editable; import from a cwd outside the repo resolves to tmp site-packages",
   "negative": "",
-  "boundaries": "依赖借当前解释器 site-packages 只读挂 PYTHONPATH；离线装不了记 skip「未验证」",
+  "boundaries": "dependencies borrowed read-only from the current interpreter's site-packages via PYTHONPATH; if offline install fails, record skip \"Unverified\"",
   "nodeids": [
    "tests/robomme_ood/static/test_package.py::test_wheel_contents_equal_tracked_sources",
    "tests/robomme_ood/static/test_package.py::test_installed_files_byte_identical_to_source",
@@ -279,11 +279,11 @@
   "source": [
    "tests/robomme_ood/contract/test_constants.py"
   ],
-  "symbol": "OFFICIAL_NAMES 残留检查：scripts/、src/robomme_ood/、tests/ 下 git 跟踪的活代码（三个上游入口、包内规格、UPSTREAM.json、*.md 除外）；别名表段 LEGACY_NAMES",
-  "oracle": "1006 改名计划第一部分一、第二部分八.2：旧名写法由测试独立列出；豁免只有官方家族名形式、test_constants.py 的 LEGACY_NAMES 段（构建器须拒绝的两个旧数据集名）、标注「历史目录名」或「历史数据键」的行、XHARD0_IN_TEST_HARD 系列、测试自身",
-  "positive": "真实仓库 OFFICIAL_NAMES=PASS files=<n> hits=0；别名表段在 test_constants.py 恰一对且别处没有",
-  "negative": "旧写法逐条被抓；官方名、家族名、标注行不误报；别名表段只在 test_constants.py 豁免",
-  "boundaries": "*.md 不扫（现行文档由主会话另改）；只看文本，不判语义",
+  "symbol": "OFFICIAL_NAMES residue check: git-tracked live code under scripts/, src/robomme_ood/, tests/ (excluding the three upstream entries, in-package specs, UPSTREAM.json, *.md); alias-table block LEGACY_NAMES",
+  "oracle": "1006 rename plan part one sec. 1, part two sec. 8.2: legacy spellings are listed independently by the test; the only exemptions are official family-name forms, the LEGACY_NAMES block in test_constants.py (the two legacy dataset names the builder must reject), lines marked \"legacy dir name\" or \"legacy data key\", the XHARD0_IN_TEST_HARD family, and the test itself",
+  "positive": "real repo OFFICIAL_NAMES=PASS files=<n> hits=0; exactly one alias-table block pair in test_constants.py and none elsewhere",
+  "negative": "every legacy spelling is caught; official names, family names and marked lines are not flagged; the alias-table block is exempt only in test_constants.py",
+  "boundaries": "*.md not scanned (current docs are updated separately by the main session); text only, no semantic judgment",
   "nodeids": [
    "tests/robomme_ood/static/test_official_names.py::test_official_names_no_legacy_residue",
    "tests/robomme_ood/static/test_official_names.py::test_alias_block_present_and_closed",
