@@ -1,23 +1,23 @@
-"""V4 xhard：Unmask 族的外环干扰容器（NEWTASK_RELEASE_V4_PLAN 2.7① / B3 / B13 / H1）。
+"""V4 xhard: outer-ring distractor containers for the Unmask family (NEWTASK_RELEASE_V4_PLAN 2.7 (1) / B3 / B13 / H1).
 
-只被 xhard 分支调用；原三档从不进入本模块，所以不影响 V0/V1。
+Only called from xhard branches; the original three tiers never enter this module, so V0/V1 are unaffected.
 
-做法（全部是本模块自己的判据，**不改** ``object_generation.spawn_random_bin`` 的既有语义）：
+Approach (all criteria are this module's own; the existing semantics of ``object_generation.spawn_random_bin`` are **not changed**):
 
-* 位置：在 ``[-R, R]²``（``R = ring_max_abs_xy[1]``）上均匀抽 ``(x, y)``，拒绝
-  ``max(|x|,|y|) < ring_max_abs_xy[0]`` 的点 ⇒ 中心严格落在方环 ``max(|x|,|y|) ∈ [r_in, r_out]``；
-* 相机可见：把容器按「任意 yaw 的外接正方形」取底面与顶面 8 个角点投到前视相机
-  （``eye / target / fov / 分辨率`` 与环境 ``_default_sensor_configs`` 写死的相同），全部落在画面内才接受；
-* 避让：与 ``spawn_random_bin`` 同一判据——``avoid`` 里的 actor 按 OBB 外扩 ``min_gap``、预制 OBB 元组原样，
-  候选中心到障碍 OBB 的点距须 ``≥ bin_half_size + min_gap``；已放的干扰容器随即进 ``avoid``；
-* yaw：位置通过全部检查后才抽 ``u·90°``（与 ``spawn_random_bin`` 一致）；
-* 含 cube：随机取 ``cube_count_range`` 闭区间内的个数、随机挑容器、从 ``DISTRACTOR_COLORS`` 不放回挑颜色。
+* Position: draw ``(x, y)`` uniformly on ``[-R, R]²`` (``R = ring_max_abs_xy[1]``), rejecting
+  points with ``max(|x|,|y|) < ring_max_abs_xy[0]`` ⇒ the center lies strictly in the square ring ``max(|x|,|y|) ∈ [r_in, r_out]``;
+* Camera visibility: project the 8 corner points of the bottom and top faces of the container's "circumscribed square for any yaw" into the front camera
+  (``eye / target / fov / resolution`` identical to the hard-coded values in the env's ``_default_sensor_configs``); accepted only if all fall inside the image;
+* Avoidance: same criterion as ``spawn_random_bin`` -- actors in ``avoid`` are OBBs inflated by ``min_gap``, prefab OBB tuples are used as-is,
+  the point distance from the candidate center to an obstacle OBB must be ``>= bin_half_size + min_gap``; placed distractor containers are added to ``avoid`` immediately;
+* yaw: ``u·90°`` is drawn only after the position passes all checks (consistent with ``spawn_random_bin``);
+* Containing cubes: randomly take a count in the closed interval ``cube_count_range``, randomly pick containers, pick colors from ``DISTRACTOR_COLORS`` without replacement.
 
-随机调用顺序固定为：逐容器（拒绝循环的 2 次 rand/次 + 通过后的 1 次 yaw）→ cube 个数 → 挑容器 → 挑颜色。
-调用方必须把本函数放在该环境**全部既有取值点之后**（红线 N5）。
+The random call order is fixed: per container (2 rand per rejection-loop iteration + 1 yaw after passing) -> cube count -> pick containers -> pick colors.
+Callers must place this function **after all existing sampling points** of the env (red line N5).
 
-每个取值点都经 ``recorder.value``（带 ``decision_key``）；请求数与实际数经 ``recorder.record`` 记下，
-放不满直接抛 :class:`SceneGenerationError`（2.2④：不许静默截断）。
+Every sampling point goes through ``recorder.value`` (with ``decision_key``); the requested and actual counts are recorded via ``recorder.record``;
+if not all can be placed, :class:`SceneGenerationError` is raised directly (2.2 (4): no silent truncation).
 """
 
 from __future__ import annotations
@@ -31,25 +31,25 @@ from .object_generation import _trimesh_box_to_obb2d, build_bin, spawn_fixed_cub
 from .SceneGenerationError import SceneGenerationError
 from .xhard import DISTRACTOR_COLORS
 
-# 与 VideoUnmask / ButtonUnmask 的 _default_sensor_configs 逐字相同（那里是写死的字面量）
+# Byte-identical to _default_sensor_configs of VideoUnmask / ButtonUnmask (hard-coded literals there)
 BASE_CAMERA_EYE = (0.3, 0.0, 0.4)
 BASE_CAMERA_TARGET = (0.0, 0.0, -0.2)
 BASE_CAMERA_FOV = np.pi / 2
 BASE_CAMERA_RES = 256
 
-# 干扰容器用的名字前缀：刻意不叫 bin_<i>，否则会被 step 里的揭示动画扫到（计划 2.7①）
+# Name prefix for distractor containers: deliberately not bin_<i>, otherwise the reveal animation in step would sweep them in (plan 2.7 (1))
 DISTRACTOR_BIN_PREFIX = "distractor_bin"
 DISTRACTOR_CUBE_PREFIX = "distractor_cube"
 
 
 def bin_geometry(cube_half_size: float) -> tuple[float, float, float]:
-    """返回 ``(采样判据半边, 任意 yaw 外接半边, 高度)``，与 ``build_bin`` / ``spawn_random_bin`` 同一套尺寸。"""
+    """Return ``(sampling-criterion half extent, any-yaw circumscribed half extent, height)``, using the same dimensions as ``build_bin`` / ``spawn_random_bin``."""
     inner_side = cube_half_size * 2.5
     wall_thickness = 0.005
     floor_thickness = 0.004
-    half = (inner_side + wall_thickness) * 0.5          # spawn_random_bin 的 bin_half_size
-    outer_half = inner_side * 0.5 + wall_thickness       # 外廓半边（0.03）
-    height = floor_thickness + cube_half_size * 2.5      # 底板 + 墙高
+    half = (inner_side + wall_thickness) * 0.5          # bin_half_size of spawn_random_bin
+    outer_half = inner_side * 0.5 + wall_thickness       # outer half extent (0.03)
+    height = floor_thickness + cube_half_size * 2.5      # floor plate + wall height
     return half, outer_half * np.sqrt(2.0), height
 
 
@@ -65,7 +65,7 @@ def _camera_axes(eye, target):
 
 def visible_in_camera(points, eye=BASE_CAMERA_EYE, target=BASE_CAMERA_TARGET,
                       fov=BASE_CAMERA_FOV, margin_px: float = 0.0, res: int = BASE_CAMERA_RES) -> bool:
-    """针孔模型：所有点都在相机前方且投影落在 ``[margin, res-margin]`` 像素框内才算可见。"""
+    """Pinhole model: visible only if all points are in front of the camera and project into the ``[margin, res-margin]`` pixel box."""
     eye, forward, right, up = _camera_axes(eye, target)
     tan_half = np.tan(fov / 2.0)
     limit = 1.0 - 2.0 * margin_px / res
@@ -82,7 +82,7 @@ def visible_in_camera(points, eye=BASE_CAMERA_EYE, target=BASE_CAMERA_TARGET,
 
 
 def bin_corners(x: float, y: float, reach: float, height: float):
-    """容器按任意 yaw 的外接正方形取底面与顶面 8 个角点（保守：对任何 yaw 都成立）。"""
+    """8 corner points of the bottom and top faces of the container's circumscribed square for any yaw (conservative: holds for every yaw)."""
     return [(x + sx * reach, y + sy * reach, z)
             for sx in (-1.0, 1.0) for sy in (-1.0, 1.0) for z in (0.0, height)]
 
@@ -93,7 +93,7 @@ def in_ring(x: float, y: float, ring) -> bool:
 
 
 def _obstacle_obbs(avoid, min_gap):
-    """与 spawn_random_bin 同一收集口径：actor 外扩 min_gap，预制 OBB 元组原样。"""
+    """Same collection convention as spawn_random_bin: actors inflated by min_gap, prefab OBB tuples as-is."""
     out = []
     for item in avoid:
         if isinstance(item, tuple):
@@ -106,7 +106,7 @@ def _obstacle_obbs(avoid, min_gap):
         try:
             out.append(_trimesh_box_to_obb2d(get_actor_obb(actor, to_world_frame=True, vis=False),
                                              extra_pad=float(pad)))
-        except Exception:  # noqa: BLE001 与原实现一致：没有物理网格的对象忽略
+        except Exception:  # noqa: BLE001 consistent with the original implementation: objects without a physical mesh are ignored
             pass
     return out
 
@@ -124,10 +124,10 @@ def spawn_ring_distractor_bins(env, *, cfg: dict, avoid: list, generator: torch.
                                recorder, hidden_half_size: float,
                                spec_prefix: str = "objects.distractors",
                                decision_prefix: str = "xhard.distractor"):
-    """放 ``cfg['count']`` 个外环干扰容器，其中随机 ``cube_count_range`` 个内含干扰色 cube。
+    """Place ``cfg['count']`` outer-ring distractor containers, a random ``cube_count_range`` of which contain a distractor-color cube.
 
-    ``cfg`` 即 decision 里 ``xhard.distractor`` 子树；返回 ``(bins, cubes)`` 两个列表，
-    并把已放容器追加进 ``avoid``（调用方若还有后续避让可以继续用）。
+    ``cfg`` is the ``xhard.distractor`` subtree of decision; returns two lists ``(bins, cubes)``,
+    and appends the placed containers to ``avoid`` (callers can keep using it for later avoidance).
     """
     count = int(cfg["count"])
     ring = [float(v) for v in cfg["ring_max_abs_xy"]]
@@ -135,14 +135,14 @@ def spawn_ring_distractor_bins(env, *, cfg: dict, avoid: list, generator: torch.
     min_gap = env.cube_half_size * float(cfg["min_gap_factor"])
     max_trials = int(cfg["max_trials"])
     if not (0 < ring[0] < ring[1]):
-        raise ValueError(f"ring_max_abs_xy 非法：{ring}")
+        raise ValueError(f"invalid ring_max_abs_xy: {ring}")
     if not (0 <= low <= high <= count) or high > len(DISTRACTOR_COLORS):
-        raise ValueError(f"cube_count_range 非法：{[low, high]}（容器 {count} 个、干扰色 {len(DISTRACTOR_COLORS)} 种）")
+        raise ValueError(f"invalid cube_count_range: {[low, high]} ({count} containers, {len(DISTRACTOR_COLORS)} distractor colors)")
 
     pool = [c["name"] for c in DISTRACTOR_COLORS]
     if list(cfg["color_pool"]) != pool:
-        # 色池是全局决策 B2（黄/青/品红），不许按局改；申报在 decision 里只为留档可见
-        raise ValueError(f"color_pool 必须等于全局干扰色池 {pool}，收到 {cfg['color_pool']}")
+        # the color pool is global decision B2 (yellow/cyan/magenta) and must not change per episode; declared in decision only for visibility in records
+        raise ValueError(f"color_pool must equal the global distractor color pool {pool}, got {cfg['color_pool']}")
 
     half, reach_any_yaw, height = bin_geometry(env.cube_half_size)
     reject_reach = half + min_gap
@@ -152,7 +152,7 @@ def spawn_ring_distractor_bins(env, *, cfg: dict, avoid: list, generator: torch.
     bins = []
     for i in range(count):
         placed = None
-        # 障碍 OBB 每个容器只收集一次（trimesh 取 OBB 较慢）；本容器的拒绝循环里 avoid 不变
+        # obstacle OBBs are collected only once per container (trimesh OBB is slow); avoid is unchanged within this container's rejection loop
         obbs = _obstacle_obbs(avoid, min_gap)
         for _ in range(max_trials):
             x = float(torch.rand(1, generator=generator).item() * 2.0 * span - span)
@@ -169,7 +169,7 @@ def spawn_ring_distractor_bins(env, *, cfg: dict, avoid: list, generator: torch.
         if placed is None:
             recorder.record(f"{spec_prefix}.placed", len(bins))
             raise SceneGenerationError(
-                f"xhard 干扰容器放不满：请求 {count} 个，第 {i} 个在 {max_trials} 次尝试内无可行位置"
+                f"xhard distractor containers cannot all be placed: requested {count}, container {i} has no feasible position within {max_trials} attempts"
             )
         x, y, yaw = recorder.value(f"{spec_prefix}.bins.{i}", list(placed),
                                    decision_key=f"{decision_prefix}.ring_max_abs_xy")
@@ -195,7 +195,7 @@ def spawn_ring_distractor_bins(env, *, cfg: dict, avoid: list, generator: torch.
         decision_key=f"{decision_prefix}.color_pool",
     )
     if len(cube_bins) != n_cubes or len(color_idx) != n_cubes:
-        raise SceneGenerationError(f"干扰 cube 规格自相矛盾：个数 {n_cubes}、容器 {cube_bins}、颜色 {color_idx}")
+        raise SceneGenerationError(f"distractor cube spec is self-contradictory: count {n_cubes}, containers {cube_bins}, colors {color_idx}")
 
     cubes = []
     for j, (b_idx, c_idx) in enumerate(zip(cube_bins, color_idx)):
@@ -216,17 +216,17 @@ def spawn_ring_distractor_bins(env, *, cfg: dict, avoid: list, generator: torch.
     return bins, cubes
 
 
-# ── 干扰容器的揭示与误抓判失败（用户 2026-09-22 决策「参与揭示+误抓即失败」）──────────────
-# 四个 Unmask 环境（VideoUnmask / ButtonUnmask / VideoUnmaskSwap / ButtonUnmaskSwap）的 xhard 共用；
-# 两个 Swap 环境的干扰容器由 unmask_swap_xhard.build_distractors 生成，同样挂在 env.distractor_bins 上。
-# 只在新值族（V6 族判断）分支被调用，原三档从不进入。
+# -- Reveal of distractor containers and failure on mis-grasp (user decision 2026-09-22: "take part in reveal + mis-grasp means failure") --------------
+# Shared by the xhard of the four Unmask envs (VideoUnmask / ButtonUnmask / VideoUnmaskSwap / ButtonUnmaskSwap);
+# the distractor containers of the two Swap envs are generated by unmask_swap_xhard.build_distractors and are likewise attached to env.distractor_bins.
+# Only called in new-value family branches (V6 family check); the original three tiers never enter.
 
 
 def reveal_distractor_bins(env, *, start_step: int, end_step: int, cur_step: int) -> None:
-    """让干扰容器与区域内容器走**同一揭示机制、同一时段**：逐个调用
-    ``statechange.lift_and_drop_objects_back_to_original``（窗口前半段移到远处露出内容、半窗那一步放回原位）。
+    """Make distractor containers use **the same reveal mechanism, in the same period** as the in-region containers: call one by one
+    ``statechange.lift_and_drop_objects_back_to_original`` (moved far away in the first half of the window to expose contents, put back at the half-window step).
 
-    空的干扰容器同样抬起（露出无物）。只做揭示，不进 ``spawned_bins``、不参与 swap / 最近邻。
+    Empty distractor containers are lifted too (exposing nothing). Only reveals; not added to ``spawned_bins``, not part of swap / nearest neighbor.
     """
     from .statechange import lift_and_drop_objects_back_to_original
 
@@ -239,20 +239,20 @@ def reveal_distractor_bins(env, *, start_step: int, end_step: int, cur_step: int
 
 
 def any_distractor_bin_lifted(env):
-    """任一干扰容器被抬起即真；判据与区域内容器相同（``subgoal_evaluate_func.is_bin_pickup``：z > 0.15）。"""
+    """True if any distractor container is lifted; same criterion as in-region containers (``subgoal_evaluate_func.is_bin_pickup``: z > 0.15)."""
     from .subgoal_evaluate_func import is_any_bin_pickup
 
     return is_any_bin_pickup(env, [a for a in (getattr(env, "distractor_bins", None) or []) if a is not None])
 
 
 def add_distractor_misgrasp_failure(env, tasks) -> int:
-    """给任务表里每个**已有** ``failure_func`` 的条目追加「任一干扰容器被抬起即失败」，返回改动条数。
+    """For every entry in the task list that **already has** a ``failure_func``, append "fail if any distractor container is lifted"; returns the number of entries changed.
 
-    * 只包装 ``failure_func`` 非 None 的条目（即抓取 / 放下两类；static、按钮等原本不判失败的条目不动）；
-    * 新的 ``failure_func`` 返回 ``[原结果, 干扰判据]`` 列表，由 ``_coerce_failure_result`` 取 any——
-      原结果的形态（如 ButtonUnmask 首个抓取任务返回的单元素列表）原样保留在列表第一项里；
-    * 原 ``failure_func`` 不是可调用对象时（预先算好的值）原样作为第一项；
-    * 只改 ``failure_func`` 一个键，``solve``（``inject_fail_grasp`` 替换的对象）与其余键不动，调用先后均可。
+    * Only entries whose ``failure_func`` is not None are wrapped (i.e. the grasp / drop kinds; entries such as static or buttons that originally never fail are untouched);
+    * the new ``failure_func`` returns a list ``[original result, distractor criterion]``, and ``_coerce_failure_result`` takes any --
+      the shape of the original result (e.g. the single-element list returned by ButtonUnmask's first grasp task) is kept as-is as the first item of the list;
+    * when the original ``failure_func`` is not callable (a precomputed value), it is used as-is as the first item;
+    * only the ``failure_func`` key is changed; ``solve`` (the object replaced by ``inject_fail_grasp``) and other keys are untouched, and call order does not matter.
     """
     changed = 0
     for task in tasks:

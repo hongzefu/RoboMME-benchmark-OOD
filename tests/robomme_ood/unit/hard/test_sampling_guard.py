@@ -1,8 +1,8 @@
-"""``sampling_config`` 守卫与难度工具（hard 包 ``utils/sampling_config.py``、``utils/difficulty.py``）。
+"""``sampling_config`` guard and difficulty tools (hard package ``utils/sampling_config.py``, ``utils/difficulty.py``).
 
-手写小表做输入：拆块（新旧两种格式、非法形态、深拷贝不别名）、新值档缺档补齐的边界、原值部分逐键守卫与
-新值部分的结构守卫；难度归一与档位号。另对 16 任务真实的 ``_resolve_sampling_config``：包内 header 的配置
-被接受；改一个原值或在新值档里加申报外的键即被拒。
+Inputs are small hand-written tables: splitting (old and new formats, invalid shapes, deep copy without aliasing), boundaries of filling missing new-value tiers, per-key guard on the original-value part and
+structural guard on the new-value part; difficulty normalization and tier numbers. Also, for the real ``_resolve_sampling_config`` of all 16 tasks: the in-package header config
+is accepted; changing one original value or adding an undeclared key in a new-value tier is rejected.
 """
 from __future__ import annotations
 
@@ -35,19 +35,19 @@ def test_split_new_and_legacy_formats():
     dec, nat = SC.split_sampling_config(override, NATIVE, DECISION)
     assert dec == {"x": 1} and nat == NATIVE
     override["native"]["parameters"]["a"] = 5
-    assert nat["parameters"]["a"] == 1, "返回值不得与输入别名"
+    assert nat["parameters"]["a"] == 1, "return value must not alias the input"
     dec, nat = SC.split_sampling_config({"native": NATIVE}, NATIVE, DECISION)
     assert dec == DECISION
-    dec, nat = SC.split_sampling_config(copy.deepcopy(NATIVE), NATIVE, DECISION)  # 旧格式 = 只给 native
+    dec, nat = SC.split_sampling_config(copy.deepcopy(NATIVE), NATIVE, DECISION)  # old format = only native given
     assert dec == DECISION and nat == NATIVE
 
 
 @pytest.mark.parametrize("bad", [
-    [],  # 不是字典
-    {"decision": {}},  # 缺 native
-    {"native": NATIVE, "extra": 1},  # 多键
-    {"native": {"parameters": {}}},  # native 缺 positions
-    {"native": NATIVE, "decision": []},  # decision 不是字典
+    [],  # not a dict
+    {"decision": {}},  # missing native
+    {"native": NATIVE, "extra": 1},  # extra key
+    {"native": {"parameters": {}}},  # native missing positions
+    {"native": NATIVE, "decision": []},  # decision is not a dict
 ])
 def test_split_rejects_malformed(bad):
     with pytest.raises(SC.SamplingConfigError):
@@ -60,8 +60,8 @@ def test_split_rejects_malformed(bad):
 def test_fill_adds_only_v6_tiers_next_to_existing_xhard4():
     default = {"t": {"xhard4": {"k": 4}, "xhard1": {"k": 1}, "xhard2": {"k": 2}, "xhard5": {"k": 5}}}
     got = SC.fill_missing_newvalue({"t": {"xhard4": {"k": 40}}}, default)
-    assert got == {"t": {"xhard4": {"k": 40}, "xhard1": {"k": 1}, "xhard2": {"k": 2}}}, "xhard5 不在补齐范围"
-    # 同层没有 xhard4（或只有历史键 xhard）：一概不补
+    assert got == {"t": {"xhard4": {"k": 40}, "xhard1": {"k": 1}, "xhard2": {"k": 2}}}, "xhard5 is outside the fill range"
+    # no xhard4 on the same level (or only the historical key xhard): never fill
     assert SC.fill_missing_newvalue({"t": {"xhard": {"k": 0}}}, default) == {"t": {"xhard": {"k": 0}}}
     assert SC.fill_missing_newvalue({"t": {}}, default) == {"t": {}}
 
@@ -86,7 +86,7 @@ def test_guard_accepts_value_changes_inside_declared_newvalue_tiers():
 def test_guard_rejects_native_deviation():
     dec = copy.deepcopy(DECISION)
     dec["n"]["hard"] = 4
-    with pytest.raises(SC.SamplingConfigError, match="原值"):
+    with pytest.raises(SC.SamplingConfigError, match="original value"):
         SC.assert_native_decision(dec, DECISION, "T")
 
 
@@ -129,7 +129,7 @@ def test_require_xhard4_only():
             D.require_xhard4_only(tier, "MoveCube")
 
 
-# ── 16 任务真实的 _resolve_sampling_config ──────────────────────────────────────
+# -- real _resolve_sampling_config of all 16 tasks ---------------------------------------
 
 
 @pytest.mark.parametrize("task,tier", O.delivered_cells())
@@ -137,8 +137,8 @@ def test_task_accepts_packaged_header_config(task, tier):
     header, _ = O.delivered_rows(task, tier, 0)
     mod = O.task_module(task)
     resolved = mod._resolve_sampling_config(O.task_class(task), header["sampling_config"][task])
-    # 解析结果 = native 两块 + 挂上的 decision（生产 _resolve_sampling_config 的返回形态）；
-    # header 里的每个 native 键原样保留（BinFill、RouteStick 另在 parameters 里补 configs，不改已有键）
+    # resolved result = the two native blocks + the attached decision (the return shape of production _resolve_sampling_config);
+    # every native key in the header is kept as-is (BinFill and RouteStick additionally add configs under parameters without changing existing keys)
     assert set(resolved) == {"parameters", "positions", "decision"}
     assert resolved["decision"] == header["sampling_config"][task]["decision"]
     native = header["sampling_config"][task]["native"]
@@ -152,7 +152,7 @@ def test_task_rejects_tampered_native_decision(task):
     header, _ = O.delivered_rows(task, tier, 0)
     cfg = copy.deepcopy(header["sampling_config"][task])
     mod, cls = O.task_module(task), O.task_class(task)
-    # 在 decision 里加一个原三档可见的申报外键：原值守卫必须拒绝
+    # add an undeclared key visible to the original three tiers in decision: the original-value guard must reject it
     cfg["decision"]["__undeclared__"] = 1
     with pytest.raises(SC.SamplingConfigError):
         mod._resolve_sampling_config(cls, cfg)

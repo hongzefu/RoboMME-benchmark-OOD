@@ -223,102 +223,102 @@ def _build_new_cube_obb2d(x, y, half_size_xy, yaw, pad_xy=0.0):
     return c, A, h
 
 def _center_rule_point_xy(point):
-    """中心距参考点 → (2,) float64；预制障碍三元组 ``(c, A, h)`` 取其中心 ``c``。"""
+    """Center-distance reference point -> (2,) float64; for a prefab obstacle triple ``(c, A, h)`` take its center ``c``."""
     if isinstance(point, tuple) and len(point) == 3 and isinstance(point[0], np.ndarray) and isinstance(point[1], np.ndarray):
         point = point[0]
     if hasattr(point, "detach"):
         point = point.detach().cpu().numpy()
     xy = np.asarray(point, dtype=np.float64).reshape(-1)
     if xy.shape != (2,):
-        raise ValueError(f"中心距参考点必须是 xy 两个数或预制障碍 (c, A, h)，收到形状 {xy.shape}")
+        raise ValueError(f"center-distance reference point must be two xy numbers or a prefab obstacle (c, A, h), got shape {xy.shape}")
     return xy
 
 
 def _normalize_center_rules(min_center_dist, center_exclusion, who):
-    """V5（L4 b）：把两个中心类拒绝参数整理成纯数值，只在至少一个参数非 None 时调用。
+    """V5 (L4 b): normalize the two center-type rejection parameters into plain numbers; only called when at least one is not None.
 
-    * ``min_center_dist = (d, points)``：候选中心与 ``points`` 中任一点的距离 ``< d`` 即拒；
-      ``points`` 的元素是 xy（列表／数组／张量）或预制障碍三元组（取其中心），可为空。
-    * ``center_exclusion = (center_xy, radius)``：候选中心离 ``center_xy`` 的距离 ``< radius`` 即拒。
-    返回 ``(d, points(N,2), zone_center(2,), zone_radius)``，未启用的规则对应项为 None。
+    * ``min_center_dist = (d, points)``: reject if the distance from the candidate center to any point in ``points`` is ``< d``;
+      elements of ``points`` are xy (list / array / tensor) or prefab obstacle triples (their center is taken); may be empty.
+    * ``center_exclusion = (center_xy, radius)``: reject if the candidate center's distance to ``center_xy`` is ``< radius``.
+    Returns ``(d, points(N,2), zone_center(2,), zone_radius)``; items of disabled rules are None.
     """
     d = points = zone_center = zone_radius = None
     if min_center_dist is not None:
         try:
             d, raw_points = min_center_dist
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"{who}: min_center_dist 应为 (d, points)，收到 {min_center_dist!r}") from exc
+            raise ValueError(f"{who}: min_center_dist should be (d, points), got {min_center_dist!r}") from exc
         d = float(d)
         if not d >= 0.0:
-            raise ValueError(f"{who}: min_center_dist 的 d 必须 ≥ 0，收到 {d}")
+            raise ValueError(f"{who}: d of min_center_dist must be >= 0, got {d}")
         pts = [_center_rule_point_xy(point) for point in raw_points]
         points = np.stack(pts) if pts else np.zeros((0, 2), dtype=np.float64)
     if center_exclusion is not None:
         try:
             raw_center, zone_radius = center_exclusion
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"{who}: center_exclusion 应为 (center_xy, radius)，收到 {center_exclusion!r}") from exc
+            raise ValueError(f"{who}: center_exclusion should be (center_xy, radius), got {center_exclusion!r}") from exc
         zone_center = _center_rule_point_xy(raw_center)
         zone_radius = float(zone_radius)
         if not zone_radius >= 0.0:
-            raise ValueError(f"{who}: center_exclusion 的 radius 必须 ≥ 0，收到 {zone_radius}")
+            raise ValueError(f"{who}: radius of center_exclusion must be >= 0, got {zone_radius}")
     return d, points, zone_center, zone_radius
 
 
 def _center_rules_violation(rules, x, y):
-    """纯数值判定（不抽随机数）：违反任一中心规则时返回说明文字，否则返回 None。"""
+    """Pure numeric check (no random draws): returns an explanation if any center rule is violated, otherwise None."""
     d, points, zone_center, zone_radius = rules
     c = np.array([x, y], dtype=np.float64)
     if d is not None and len(points):
         dist = np.linalg.norm(points - c, axis=1)
         k = int(np.argmin(dist))
         if dist[k] < d:
-            return f"与第 {k} 个参考点中心距 {float(dist[k]):.6f} < {d}"
+            return f"center distance to reference point {k} is {float(dist[k]):.6f} < {d}"
     if zone_center is not None:
         r = float(np.linalg.norm(c - zone_center))
         if r < zone_radius:
-            return f"中心离禁区圆心 {r:.6f} < {zone_radius}"
+            return f"center distance to exclusion-zone center {r:.6f} < {zone_radius}"
     return None
 
 
 def _assert_center_rules_hold(rules, x, y, who, spec_path):
-    """N17：回放冻结值／注入值不经拒绝循环，必须按同一规则复核，违反即报错（不静默带回违规布局）。"""
+    """N17: replayed frozen / injected values bypass the rejection loop and must be re-checked by the same rules; violations raise (no silently returned violating layout)."""
     why = _center_rules_violation(rules, x, y)
     if why is not None:
-        raise _EpisodeSpecError(f"{who}: 冻结或注入的中心 ({x}, {y})（{spec_path}）违反中心规则：{why}")
+        raise _EpisodeSpecError(f"{who}: frozen or injected center ({x}, {y}) ({spec_path}) violates center rule: {why}")
 
 
-# ── V6（计划 2.6，MoveCube 统一区域 U）：显式可选的区域类中心判据；默认 None 整段跳过（L4 b）──────────
+# -- V6 (plan 2.6, MoveCube unified region U): explicit optional region-type center criteria; default None skips the whole block (L4 b) ----------
 def _normalize_region_rules(annulus, base_band, segment_clearance, push_feasible, who):
-    """V6：把四个区域类参数整理成纯数值，只在至少一个参数非 None 时调用（不抽随机数）。
+    """V6: normalize the four region-type parameters into plain numbers; only called when at least one is not None (no random draws).
 
-    * ``annulus = (center_xy, r_in, r_out)``：候选中心离 ``center_xy`` 的距离须落在 ``[r_in, r_out]``；
-    * ``base_band = (base_xy, d_min, d_max)``：候选中心离机械臂基座的水平距离须落在 ``[d_min, d_max]``；
-    * ``segment_clearance = [(a_xy, b_xy, gap), ...]``：候选中心到每条线段 ``ab`` 的最近距离须 ``≥ gap``；
-    * ``push_feasible = (target_xy, d_min, d_max, backoff, lateral, base_xy, r_min, r_max)``：
-      候选（方块）中心到 ``target_xy`` 的距离须落在 ``[d_min, d_max]``，且推起点
-      ``c − backoff·d − s·lateral·n``（``d`` 为推方向单位向量、``n`` 为其左法向、``s∈{0,+1,−1}``）
-      离 ``base_xy`` 的距离都落在 ``[r_min, r_max]``。
-    返回 dict，未启用的规则对应项为 None。
+    * ``annulus = (center_xy, r_in, r_out)``: the candidate center's distance to ``center_xy`` must lie in ``[r_in, r_out]``;
+    * ``base_band = (base_xy, d_min, d_max)``: the candidate center's horizontal distance to the robot arm base must lie in ``[d_min, d_max]``;
+    * ``segment_clearance = [(a_xy, b_xy, gap), ...]``: the candidate center's closest distance to each segment ``ab`` must be ``>= gap``;
+    * ``push_feasible = (target_xy, d_min, d_max, backoff, lateral, base_xy, r_min, r_max)``:
+      the distance from the candidate (cube) center to ``target_xy`` must lie in ``[d_min, d_max]``, and the push start points
+      ``c − backoff·d − s·lateral·n`` (``d`` the unit push direction, ``n`` its left normal, ``s∈{0,+1,−1}``)
+      must all be within ``[r_min, r_max]`` of ``base_xy``.
+    Returns a dict; items of disabled rules are None.
     """
     rules = {"annulus": None, "base_band": None, "segments": None, "push": None}
     if annulus is not None:
         try:
             c, r_in, r_out = annulus
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"{who}: annulus 应为 (center_xy, r_in, r_out)，收到 {annulus!r}") from exc
+            raise ValueError(f"{who}: annulus should be (center_xy, r_in, r_out), got {annulus!r}") from exc
         r_in, r_out = float(r_in), float(r_out)
         if not (0.0 <= r_in <= r_out):
-            raise ValueError(f"{who}: annulus 须满足 0 ≤ r_in ≤ r_out，收到 ({r_in}, {r_out})")
+            raise ValueError(f"{who}: annulus must satisfy 0 <= r_in <= r_out, got ({r_in}, {r_out})")
         rules["annulus"] = (_center_rule_point_xy(c), r_in, r_out)
     if base_band is not None:
         try:
             b, lo, hi = base_band
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"{who}: base_band 应为 (base_xy, d_min, d_max)，收到 {base_band!r}") from exc
+            raise ValueError(f"{who}: base_band should be (base_xy, d_min, d_max), got {base_band!r}") from exc
         lo, hi = float(lo), float(hi)
         if not (0.0 <= lo <= hi):
-            raise ValueError(f"{who}: base_band 须满足 0 ≤ d_min ≤ d_max，收到 ({lo}, {hi})")
+            raise ValueError(f"{who}: base_band must satisfy 0 <= d_min <= d_max, got ({lo}, {hi})")
         rules["base_band"] = (_center_rule_point_xy(b), lo, hi)
     if segment_clearance is not None:
         segs = []
@@ -326,28 +326,28 @@ def _normalize_region_rules(annulus, base_band, segment_clearance, push_feasible
             try:
                 a, b, gap = item
             except (TypeError, ValueError) as exc:
-                raise ValueError(f"{who}: segment_clearance 的元素应为 (a_xy, b_xy, gap)，收到 {item!r}") from exc
+                raise ValueError(f"{who}: elements of segment_clearance should be (a_xy, b_xy, gap), got {item!r}") from exc
             gap = float(gap)
             if not gap >= 0.0:
-                raise ValueError(f"{who}: segment_clearance 的 gap 必须 ≥ 0，收到 {gap}")
+                raise ValueError(f"{who}: gap of segment_clearance must be >= 0, got {gap}")
             segs.append((_center_rule_point_xy(a), _center_rule_point_xy(b), gap))
         rules["segments"] = segs
     if push_feasible is not None:
         try:
             tgt, d_min, d_max, backoff, lateral, base, r_min, r_max = push_feasible
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"{who}: push_feasible 应为 (target_xy, d_min, d_max, backoff, lateral, base_xy, "
-                             f"r_min, r_max)，收到 {push_feasible!r}") from exc
+            raise ValueError(f"{who}: push_feasible should be (target_xy, d_min, d_max, backoff, lateral, base_xy, "
+                             f"r_min, r_max), got {push_feasible!r}") from exc
         vals = [float(v) for v in (d_min, d_max, backoff, lateral, r_min, r_max)]
         if not (0.0 < vals[0] <= vals[1] and vals[2] >= 0.0 and vals[3] >= 0.0 and 0.0 <= vals[4] <= vals[5]):
-            raise ValueError(f"{who}: push_feasible 数值不合法：{push_feasible!r}")
+            raise ValueError(f"{who}: invalid push_feasible values: {push_feasible!r}")
         rules["push"] = (_center_rule_point_xy(tgt), vals[0], vals[1], vals[2], vals[3],
                          _center_rule_point_xy(base), vals[4], vals[5])
     return rules
 
 
 def point_segment_distance_xy(p, a, b):
-    """点 ``p`` 到线段 ``ab`` 的最近距离（xy，float64；``a == b`` 时退化为点距）。"""
+    """Closest distance from point ``p`` to segment ``ab`` (xy, float64; degenerates to point distance when ``a == b``)."""
     p = np.asarray(p, dtype=np.float64); a = np.asarray(a, dtype=np.float64); b = np.asarray(b, dtype=np.float64)
     ab = b - a
     denom = float(ab @ ab)
@@ -356,44 +356,44 @@ def point_segment_distance_xy(p, a, b):
 
 
 def _region_rules_violation(rules, x, y):
-    """纯数值判定（不抽随机数）：违反任一区域规则时返回说明文字，否则返回 None。"""
+    """Pure numeric check (no random draws): returns an explanation if any region rule is violated, otherwise None."""
     c = np.array([x, y], dtype=np.float64)
     if rules["annulus"] is not None:
         center, r_in, r_out = rules["annulus"]
         r = float(np.linalg.norm(c - center))
         if not (r_in <= r <= r_out):
-            return f"中心离圆环圆心 {r:.6f} 不在 [{r_in}, {r_out}]"
+            return f"center distance to annulus center {r:.6f} not in [{r_in}, {r_out}]"
     if rules["base_band"] is not None:
         base, lo, hi = rules["base_band"]
         r = float(np.linalg.norm(c - base))
         if not (lo <= r <= hi):
-            return f"中心离基座 {r:.6f} 不在 [{lo}, {hi}]"
+            return f"center distance to base {r:.6f} not in [{lo}, {hi}]"
     if rules["segments"]:
         for k, (a, b, gap) in enumerate(rules["segments"]):
             dist = point_segment_distance_xy(c, a, b)
             if dist < gap:
-                return f"中心离第 {k} 条线段 {dist:.6f} < {gap}"
+                return f"center distance to segment {k} is {dist:.6f} < {gap}"
     if rules["push"] is not None:
         tgt, d_min, d_max, backoff, lateral, base, r_min, r_max = rules["push"]
         d = tgt - c
         n = float(np.linalg.norm(d))
         if not (d_min <= n <= d_max):
-            return f"推距 {n:.6f} 不在 [{d_min}, {d_max}]"
+            return f"push distance {n:.6f} not in [{d_min}, {d_max}]"
         d = d / n
         lat = np.array([-d[1], d[0]], dtype=np.float64)
         for s in (0.0, 1.0, -1.0):
             start = c - backoff * d - s * lateral * lat
             r = float(np.linalg.norm(start - base))
             if not (r_min <= r <= r_max):
-                return f"推起点（侧移 {s:+.0f}）离基座 {r:.6f} 不在 [{r_min}, {r_max}]"
+                return f"push start point (lateral {s:+.0f}) distance to base {r:.6f} not in [{r_min}, {r_max}]"
     return None
 
 
 def _assert_region_rules_hold(rules, x, y, who, spec_path):
-    """N17：回放冻结值／注入值按同一区域规则复核，违反即报错。"""
+    """N17: replayed frozen / injected values are re-checked by the same region rules; violations raise."""
     why = _region_rules_violation(rules, x, y)
     if why is not None:
-        raise _EpisodeSpecError(f"{who}: 冻结或注入的中心 ({x}, {y})（{spec_path}）违反区域规则：{why}")
+        raise _EpisodeSpecError(f"{who}: frozen or injected center ({x}, {y}) ({spec_path}) violates region rule: {why}")
 
 
 def spawn_random_cube(
@@ -412,15 +412,15 @@ def spawn_random_cube(
         generator=None,
         fixed_xy=None,
         fixed_yaw=None,
-        recorder=None,  # newtaskRelease-v3 步 4：只读导出／原值回注的记录器
-        spec_path=None,  # 该取值点在 episode_spec 里的路径
-        corner_bias=0.0,  # V4 xhard：边角偏置 ∈[0,1]，0 ⇒ 与原均匀采样逐字等价（见 utils/xhard.py::corner_push）
-        min_center_dist=None,  # V5（L4 b）：(d, points)，候选中心与任一参考点距离 < d 即拒；None ⇒ 整段跳过
-        center_exclusion=None,  # V5（L4 b）：(center_xy, radius)，候选中心离圆心 < radius 即拒；None ⇒ 整段跳过
-        annulus=None,  # V6（MoveCube U）：(center_xy, r_in, r_out)，中心须在圆环内；None ⇒ 整段跳过
-        base_band=None,  # V6：(base_xy, d_min, d_max)，中心离基座须在区间内；None ⇒ 整段跳过
-        segment_clearance=None,  # V6：[(a_xy, b_xy, gap), ...]，中心离每条线段须 ≥ gap；None ⇒ 整段跳过
-        push_feasible=None,  # V6：(target_xy, d_min, d_max, backoff, lateral, base_xy, r_min, r_max)；None ⇒ 整段跳过
+        recorder=None,  # newtaskRelease-v3 step 4: recorder for read-only export / original-value replay injection
+        spec_path=None,  # path of this sampling point in episode_spec
+        corner_bias=0.0,  # V4 xhard: corner bias ∈[0,1]; 0 ⇒ byte-equivalent to the original uniform sampling (see utils/xhard.py::corner_push)
+        min_center_dist=None,  # V5 (L4 b): (d, points); reject if the candidate center is < d from any reference point; None ⇒ whole block skipped
+        center_exclusion=None,  # V5 (L4 b): (center_xy, radius); reject if the candidate center is < radius from the center; None ⇒ whole block skipped
+        annulus=None,  # V6 (MoveCube U): (center_xy, r_in, r_out); center must be inside the annulus; None ⇒ whole block skipped
+        base_band=None,  # V6: (base_xy, d_min, d_max); center distance to base must be within the interval; None ⇒ whole block skipped
+        segment_clearance=None,  # V6: [(a_xy, b_xy, gap), ...]; center distance to each segment must be >= gap; None ⇒ whole block skipped
+        push_feasible=None,  # V6: (target_xy, d_min, d_max, backoff, lateral, base_xy, r_min, r_max); None ⇒ whole block skipped
     ):
     """
     Drop a cube (onto table) in rectangular region using rejection sampling, and return the cube actor.
@@ -428,23 +428,23 @@ def spawn_random_cube(
     - avoid: Input a list of objects. Can be [actor, ...] or [(actor, pad), ...] (pad in meters).
     - generator: Must pass torch.Generator for randomization.
 
-    新值注入通道（NEW_VALUE_INJECTION_TEST_PLAN 步骤 0a）：传入 ``fixed_xy``（米）与
-    可选的 ``fixed_yaw``（弧度）时**跳过拒绝采样循环**，直接用该位姿建方块，一次随机数
-    都不抽，因此这条路径连 ``generator`` 都不需要。创建仍走下面同一个 ``_finalize_cube``
-    （内部就是原来的 ``actors.build_cube`` 那一段），所以注入版与原版建出的 actor
-    除位姿外完全一致。两个参数都不传时，本函数行为逐字不变。
+    New-value injection channel (NEW_VALUE_INJECTION_TEST_PLAN step 0a): when ``fixed_xy`` (meters) and
+    optional ``fixed_yaw`` (radians) are given, the **rejection sampling loop is skipped** and the cube is built at that pose directly; not a single random number
+    is drawn, so this path does not even need ``generator``. Creation still goes through the same ``_finalize_cube`` below
+    (internally the original ``actors.build_cube`` block), so actors built by the injected and original versions
+    are identical except for pose. When neither parameter is given, this function's behavior is byte-identical.
 
-    V5 中心类拒绝规则（NEWTASK_RELEASE_V5_PLAN L4 b，xhard 专用，默认 None）：
-    ``min_center_dist=(d, points)`` / ``center_exclusion=(center_xy, radius)``，判的是**方块中心**
-    （即下面拒绝循环里的 ``(x, y)``，也是建方块用的 xy）。在既有 OBB／圆判据之后、``recorder.value``
-    之前求值，违反即 ``continue`` 重抽，自身不抽随机数，只改变 trial 次数。回放（``recorder.value``
-    返回冻结值）与 ``fixed_xy`` 注入不经拒绝循环，按同一规则复核，违反抛 ``EpisodeSpecError``（N17）。
-    两个参数都为 None 时不执行任何新增判定，行为与改动前逐位相同。
+    V5 center-type rejection rules (NEWTASK_RELEASE_V5_PLAN L4 b, xhard only, default None):
+    ``min_center_dist=(d, points)`` / ``center_exclusion=(center_xy, radius)`` check the **cube center**
+    (the ``(x, y)`` in the rejection loop below, which is also the xy used to build the cube). Evaluated after the existing OBB / circle criteria and before ``recorder.value``;
+    a violation does ``continue`` to redraw; they draw no random numbers themselves and only change the trial count. Replay (``recorder.value``
+    returning the frozen value) and ``fixed_xy`` injection bypass the rejection loop and are re-checked by the same rules; violations raise ``EpisodeSpecError`` (N17).
+    When both parameters are None no new check is executed and behavior is bitwise identical to before the change.
 
-    V6 区域类拒绝规则（计划 2.6，MoveCube 统一区域 U 专用，默认 None）：``annulus`` / ``base_band`` /
-    ``segment_clearance`` / ``push_feasible``（语义见 ``_normalize_region_rules``），同样判**方块中心**、
-    排在 V5 中心规则之后、``recorder.value`` 之前，违反即 ``continue``；回放与注入按同一规则复核（N17）。
-    四个参数都为 None 时整段跳过，原有调用方逐位不变。
+    V6 region-type rejection rules (plan 2.6, MoveCube unified region U only, default None): ``annulus`` / ``base_band`` /
+    ``segment_clearance`` / ``push_feasible`` (semantics see ``_normalize_region_rules``) likewise check the **cube center**,
+    ordered after the V5 center rules and before ``recorder.value``; a violation does ``continue``; replay and injection are re-checked by the same rules (N17).
+    When all four parameters are None the whole block is skipped and existing callers are bitwise unchanged.
     """
     # Cache
     if not hasattr(self, "_spawned_cubes"):
@@ -575,7 +575,7 @@ def spawn_random_cube(
             circle_list.append((_actor_xy(self.goal_site), R_goal + R_new_ext + min_gap))
 
     # === Sampling Iteration ===
-    # 固定值路径不抽随机数，因此不要求 generator；原路径的强制要求原样保留
+    # the fixed-value path draws no random numbers, so generator is not required; the original path's mandatory requirement is kept as-is
     if generator is None and fixed_xy is None:
         raise ValueError("spawn_random_cube: generator argument must be explicitly passed for randomization")
 
@@ -589,7 +589,7 @@ def spawn_random_cube(
         region_rules = _normalize_region_rules(annulus, base_band, segment_clearance, push_feasible, "spawn_random_cube")
 
     def _finalize_cube(x, y, yaw):
-        """原来内联在循环里的创建段，原路径与固定值路径共用，杜绝两份创建代码漂移。"""
+        """Creation block originally inlined in the loop, shared by the original and fixed-value paths to prevent two copies of creation code from drifting."""
         q = _yaw_to_quat_tensor(yaw, device=device)
 
         cube = actors.build_cube(
@@ -608,8 +608,8 @@ def spawn_random_cube(
         return cube
 
     if fixed_xy is not None:
-        # 位姿已由外部规格定死：不做拒绝采样，也不做几何判定——几何可行性已在冻结前
-        # 用同一套 OBB 判据筛过（STATIC_GEOMETRY；当时的旧测试设施已随旧测试一并删除）。
+        # the pose is fixed by the external spec: no rejection sampling and no geometry check -- geometric feasibility was screened before freezing
+        # with the same OBB criteria (STATIC_GEOMETRY; the old test infrastructure of that time was deleted together with the old tests).
         if center_rules is not None:
             _assert_center_rules_hold(center_rules, float(fixed_xy[0]), float(fixed_xy[1]),
                                       "spawn_random_cube", spec_path)
@@ -629,7 +629,7 @@ def spawn_random_cube(
         u1 = torch.rand(1, generator=generator).item()
         u2 = torch.rand(1, generator=generator).item()
         if corner_bias:
-            # V4：只做确定性映射、不多抽随机数；corner_bias=0 时整段跳过
+            # V4: deterministic mapping only, no extra random draws; the whole block is skipped when corner_bias=0
             u1 = corner_push(u1, corner_bias)
             u2 = corner_push(u2, corner_bias)
 
@@ -664,16 +664,16 @@ def spawn_random_cube(
         if hit:
             continue
 
-        # V5（L4 b）：中心类规则在既有判据之后、recorder.value 之前；None 时整段跳过
+        # V5 (L4 b): center-type rules come after the existing criteria and before recorder.value; whole block skipped when None
         if center_rules is not None and _center_rules_violation(center_rules, x, y) is not None:
             continue
-        # V6：区域类规则在 V5 中心规则之后；None 时整段跳过
+        # V6: region-type rules come after the V5 center rules; whole block skipped when None
         if region_rules is not None and _region_rules_violation(region_rules, x, y) is not None:
             continue
 
         # Passing detection, create cube (pose and collision detection use same yaw to ensure consistency)
         if recorder is not None and spec_path is not None:
-            # 拒绝采样的全部失败尝试照常发生（随机流不漂移）；这里只冻结被接受的那组位姿
+            # all failed rejection-sampling attempts still happen (the random stream does not drift); only the accepted pose is frozen here
             x, y, yaw = recorder.value(spec_path, [x, y, yaw])
             if center_rules is not None:
                 _assert_center_rules_hold(center_rules, x, y, "spawn_random_cube", spec_path)
@@ -713,14 +713,14 @@ def spawn_random_target(
         generator=None,
         randomize=True,      # Control whether to randomize position
         target_style="purple",  # Choose which color scheme target to create
-        recorder=None,  # newtaskRelease-v3 步 4：只读导出／原值回注的记录器
-        spec_path=None,  # 该取值点在 episode_spec 里的路径
-        min_center_dist=None,  # V5（L4 b）：(d, points)，候选圆盘中心与任一参考点距离 < d 即拒；None ⇒ 整段跳过
-        center_exclusion=None,  # V5（L4 b）：(center_xy, radius)，候选圆盘中心离圆心 < radius 即拒；None ⇒ 整段跳过
-        annulus=None,  # V6（MoveCube U）：语义同 spawn_random_cube 同名参数，判圆盘中心；None ⇒ 整段跳过
-        base_band=None,  # V6：同上
-        segment_clearance=None,  # V6：同上
-        push_feasible=None,  # V6：同上
+        recorder=None,  # newtaskRelease-v3 step 4: recorder for read-only export / original-value replay injection
+        spec_path=None,  # path of this sampling point in episode_spec
+        min_center_dist=None,  # V5 (L4 b): (d, points); reject if the candidate disk center is < d from any reference point; None ⇒ whole block skipped
+        center_exclusion=None,  # V5 (L4 b): (center_xy, radius); reject if the candidate disk center is < radius from the center; None ⇒ whole block skipped
+        annulus=None,  # V6 (MoveCube U): same semantics as the parameter of the same name in spawn_random_cube, checks the disk center; None ⇒ whole block skipped
+        base_band=None,  # V6: same as above
+        segment_clearance=None,  # V6: same as above
+        push_feasible=None,  # V6: same as above
     ):
     """
     Drop a target (onto table) in rectangular region using rejection sampling, and return the target actor.
@@ -729,11 +729,11 @@ def spawn_random_target(
     - generator: Must pass torch.Generator for randomization (when randomize=True).
     - randomize: Control whether to randomize position. If False, generate directly at region_center.
 
-    V5 中心类拒绝规则（L4 b，xhard 专用，默认 None）：语义与 ``spawn_random_cube`` 同名参数相同，
-    判的是**圆盘中心**（拒绝循环里的 ``(x, y)``）；回放冻结值按同一规则复核（N17）。
-    两个参数都为 None 时不执行任何新增判定，行为与改动前逐位相同。
-    V6 区域类规则（``annulus`` / ``base_band`` / ``segment_clearance`` / ``push_feasible``）同 ``spawn_random_cube``，
-    判圆盘中心；四个都为 None 时整段跳过。
+    V5 center-type rejection rules (L4 b, xhard only, default None): same semantics as the parameters of the same name in ``spawn_random_cube``,
+    checking the **disk center** (the ``(x, y)`` in the rejection loop); replayed frozen values are re-checked by the same rules (N17).
+    When both parameters are None no new check is executed and behavior is bitwise identical to before the change.
+    V6 region-type rules (``annulus`` / ``base_band`` / ``segment_clearance`` / ``push_feasible``) are the same as ``spawn_random_cube``,
+    checking the disk center; the whole block is skipped when all four are None.
     """
     # Cache
     random_yaw=False
@@ -936,16 +936,16 @@ def spawn_random_target(
         if hit:
             continue
 
-        # V5（L4 b）：中心类规则在既有判据之后、recorder.value 之前；None 时整段跳过
+        # V5 (L4 b): center-type rules come after the existing criteria and before recorder.value; whole block skipped when None
         if center_rules is not None and _center_rules_violation(center_rules, x, y) is not None:
             continue
-        # V6：区域类规则在 V5 中心规则之后；None 时整段跳过
+        # V6: region-type rules come after the V5 center rules; whole block skipped when None
         if region_rules is not None and _region_rules_violation(region_rules, x, y) is not None:
             continue
 
         # Passed detection, create target (pose and collision detection use same yaw to ensure consistency)
         if recorder is not None and spec_path is not None:
-            # 拒绝采样的失败尝试照常发生；这里只冻结被接受的 xy
+            # failed rejection-sampling attempts still happen; only the accepted xy is frozen here
             x, y = recorder.value(spec_path, [x, y])
             if center_rules is not None:
                 _assert_center_rules_hold(center_rules, x, y, "spawn_random_target", spec_path)
@@ -1004,8 +1004,8 @@ def build_button(
             name: str = "button",  # ⭐ New: button name
             randomize: bool = True,  # ⭐ New: whether to randomize position
             randomize_range=(0.1, 0.4),  # ⭐ New: randomization range, (range_x, range_y)
-            recorder=None,  # newtaskRelease-v3 步 4：只读导出／原值回注的记录器
-            spec_path=None,  # 该取值点在 episode_spec 里的路径
+            recorder=None,  # newtaskRelease-v3 step 4: recorder for read-only export / original-value replay injection
+            spec_path=None,  # path of this sampling point in episode_spec
     ):
         # ------- Scaling and Travel -------
         if scale is None:
@@ -1043,7 +1043,7 @@ def build_button(
             cx += float(offset[0]) * range_x
             cy += float(offset[1]) * range_y
         if recorder is not None and spec_path is not None:
-            # 原抽样照常执行（随机流不漂移）；回注模式下真正用于建按钮的是冻结值
+            # the original sampling still runs (the random stream does not drift); in replay mode the frozen value is what actually builds the button
             cx, cy = recorder.value(spec_path, [cx, cy])
         center_xy = (cx, cy)
 
@@ -1216,8 +1216,8 @@ def spawn_random_bin(
         max_trials=256,
         generator=None,
         yaw_scale_deg=90.0,
-        recorder=None,  # newtaskRelease-v3 步 4：只读导出／原值回注的记录器
-        spec_path=None,  # 该取值点在 episode_spec 里的路径
+        recorder=None,  # newtaskRelease-v3 step 4: recorder for read-only export / original-value replay injection
+        spec_path=None,  # path of this sampling point in episode_spec
 ):
     """
     Drop a bin in rectangular region using rejection sampling, and return the bin actor.
@@ -1294,10 +1294,10 @@ def spawn_random_bin(
             continue
 
         # Passing detection, create bin (at specified position), with random z-axis rotation
-        # yaw_scale_deg 的默认值即原来的内联常量 90.0，范围外的任务照原样调用不受影响
+        # the default of yaw_scale_deg is the original inline constant 90.0; tasks outside the range call it as before, unaffected
         z_rotation = float(torch.rand(1, generator=generator).item() * yaw_scale_deg)  # 0-360 degrees
         if recorder is not None and spec_path is not None:
-            # 位置通过拒绝检查后才抽 yaw：三个量一起冻结，失败尝试照常发生
+            # yaw is drawn only after the position passes the rejection checks: the three quantities are frozen together, failed attempts still happen
             x, y, z_rotation = recorder.value(spec_path, [x, y, z_rotation])
         bin_actor = build_bin(self, callsign=name_prefix, position=[x, y, 0.002], z_rotation_deg=z_rotation)
 

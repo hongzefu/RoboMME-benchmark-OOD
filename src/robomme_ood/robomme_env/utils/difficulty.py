@@ -5,41 +5,41 @@ from __future__ import annotations
 from typing import Optional
 
 
-# ⚠ 白名单是 16 个任务共享的；某任务是否支持某档由它自己的 configs 决定
-# V6：四个新值档按难度升序排列，全部沿用同一生成机制并按档读取数值。
+# ⚠ The whitelist is shared by all 16 tasks; whether a task supports a tier is decided by its own configs
+# V6: the four new-value tiers are ordered by ascending difficulty; all reuse the same generation mechanism and read values per tier.
 NATIVE_DIFFICULTIES = ("easy", "medium", "hard")
-#: 新值族的四个公共档，按难度升序。
-#: ⚠ v8（1001 方案 §2.1、R8）保持四档不动：VideoRepick、VideoUnmaskSwap、ButtonUnmaskSwap 等把它当
-#: 「每个任务都有的档」遍历，加进 xhard5 会让它们读不存在的 configs 或凭空多出 xhard5 子树。
+#: The four common tiers of the new-value family, in ascending difficulty.
+#: ⚠ v8 (1001 proposal §2.1, R8) keeps these four tiers unchanged: VideoRepick, VideoUnmaskSwap, ButtonUnmaskSwap, etc. iterate over it as
+#: "the tiers every task has"; adding xhard5 would make them read nonexistent configs or spawn a spurious xhard5 subtree.
 NEWVALUE_DIFFICULTIES = ("xhard1", "xhard2", "xhard3", "xhard4")
-#: v8 新增的第五档；只有 SwingXtimes、StopCube 自己的配置里有这一档。
+#: Fifth tier added in v8; only SwingXtimes and StopCube have it in their own configs.
 XHARD5 = "xhard5"
-#: 全部合法新值档（xhard1～xhard5），只用于全局合法性（VALID_DIFFICULTIES）与族判断／档位号。
+#: All valid new-value tiers (xhard1..xhard5); used only for global validity (VALID_DIFFICULTIES) and family checks / tier numbers.
 ALL_NEWVALUE_TIERS = (*NEWVALUE_DIFFICULTIES, XHARD5)
 VALID_DIFFICULTIES = set(NATIVE_DIFFICULTIES) | set(ALL_NEWVALUE_TIERS)
-#: 新值族在全序里的档位号（xhard1=1 … xhard5=5）。
+#: Tier number of the new-value family in the total order (xhard1=1 ... xhard5=5).
 _NEWVALUE_TIER = {name: i + 1 for i, name in enumerate(ALL_NEWVALUE_TIERS)}
-#: 原版无梯度、不加档的环境，只认 xhard4 这一个新值档（v8 起 StopCube 已扩至 xhard1～5，不再在此列）。
+#: Envs with no difficulty gradient in the original release and no added tiers accept only the single new-value tier xhard4 (since v8 StopCube is extended to xhard1..5 and is no longer listed here).
 NO_TIER_ENVS = ("MoveCube", "InsertPeg")
 
 
 def is_newvalue_difficulty(value: Optional[str]) -> bool:
-    """族判断：本局难度是否属于新值族；None 与原三档返回 False。"""
+    """Family check: whether this episode's difficulty belongs to the new-value family; None and the original three tiers return False."""
     return isinstance(value, str) and value.strip().lower() in _NEWVALUE_TIER
 
 
 def newvalue_tier(value: Optional[str]) -> int:
-    """新值族档位号：xhard1=1 至 xhard5=5；不在族内返回 0。"""
+    """New-value family tier number: xhard1=1 to xhard5=5; returns 0 outside the family."""
     if not isinstance(value, str):
         return 0
     return _NEWVALUE_TIER.get(value.strip().lower(), 0)
 
 
 def require_xhard4_only(difficulty: Optional[str], env_name: str) -> None:
-    """无梯度环境（v8 起只剩 InsertPeg、MoveCube 调用）拒绝 xhard1/2/3/5，只允许 xhard4，不静默映射。"""
+    """Gradient-free envs (since v8 only InsertPeg and MoveCube call this) reject xhard1/2/3/5 and allow only xhard4, with no silent mapping."""
     if is_newvalue_difficulty(difficulty) and difficulty.strip().lower() != "xhard4":
         raise ValueError(
-            f"{env_name} 原版无难度梯度、不加档，只支持新值档 'xhard4'；收到 {difficulty!r}"
+            f"{env_name} has no difficulty gradient in the original release and no added tiers; only the new-value tier 'xhard4' is supported; got {difficulty!r}"
         )
 
 

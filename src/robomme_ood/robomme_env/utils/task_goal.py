@@ -45,27 +45,27 @@ num2words_2 = {
 }
 
 def _unmask_pick_count(self):
-    """VideoUnmask / ButtonUnmask 的抓取次数。
+    """Number of picks for VideoUnmask / ButtonUnmask.
 
-    原三档沿用原口径（类属性 ``configs[难度]['pick']``）；xhard 优先读环境实际用来建任务表的次数
-    ``xhard_pick_count``（外部 sampling_config 可改 decision 的 xhard 值，类属性不会跟着变）。
+    Original three tiers keep the original convention (class attribute ``configs[difficulty]['pick']``); xhard prefers the count the env actually used to build its task list,
+    ``xhard_pick_count`` (an external sampling_config may change the xhard value of a decision; the class attribute does not follow).
     """
     pick = self.env.unwrapped.configs[self.difficulty]['pick']
-    # V6 族判断：新值族（xhard1/2/3/xhard）统一读实际次数。本模块会被单测按文件路径单独加载（无包上下文），
-    # 故不用相对导入，直接对新值族档名做成员判断（与 utils/difficulty.NEWVALUE_DIFFICULTIES 同一组名字）。
+    # V6 family check: the new-value family (xhard1/2/3/xhard) always reads the actual count. Unit tests load this module by file path (no package context),
+    # so no relative import is used; membership is checked directly against the new-value tier names (same names as utils/difficulty.NEWVALUE_DIFFICULTIES).
     if isinstance(self.difficulty, str) and self.difficulty.strip().lower() in ("xhard1", "xhard2", "xhard3", "xhard4"):
         pick = getattr(self.env.unwrapped, "xhard_pick_count", pick)
     return pick
 
 
 def _is_newvalue_tier(self):
-    """V6 新值族判断（xhard1～xhard4）；本模块被单测按文件路径单独加载，故不走相对导入。"""
+    """V6 new-value family check (xhard1..xhard4); unit tests load this module by file path, so no relative import is used."""
     difficulty = getattr(self, "difficulty", None)
     return isinstance(difficulty, str) and difficulty.strip().lower() in ("xhard1", "xhard2", "xhard3", "xhard4")
 
 
 def _unmask_multi_pick_clause(color_names, pick):
-    """V4 xhard（pick ≥ 3）专用：逐个列出要抓的容器；原三档（pick ≤ 2）不经过这里，文本逐字不变。"""
+    """V4 xhard (pick >= 3) only: list each container to pick; original three tiers (pick <= 2) never get here, so their text is byte-identical."""
     parts = [f"pick up the container hiding the {color_names[0]} cube"]
     for k in range(1, pick - 1):
         parts.append(f"next pick up another container hiding the {color_names[k]} cube")
@@ -143,7 +143,7 @@ def get_language_goal(self, env):
         if self.pick_times == 2:
             language_goals.append(f"watch the video carefully, then pick up the container hiding the {cube_0_color} cube, finally pick up another container hiding the {cube_1_color} cube")
         elif self.pick_times >= 3:
-            # V4 xhard（pick 3）：原分支只有 1 抓／2 抓两支，3 抓会落到 1 抓文本
+            # V4 xhard (pick 3): the original branch only had 1-pick / 2-pick cases; 3 picks would fall into the 1-pick text
             cube_2_color = color_names[2]
             language_goals.append(f"watch the video carefully, then pick up the container hiding the {cube_0_color} cube, next pick up another container hiding the {cube_1_color} cube, finally pick up another container hiding the {cube_2_color} cube")
         else:
@@ -168,7 +168,7 @@ def get_language_goal(self, env):
         if self.pick_times == 2:
             language_goals.append(f"first press both buttons on the table, then pick up the container hiding the {cube_0_color} cube, finally pick up another container hiding the {cube_1_color} cube")
         elif self.pick_times >= 3:
-            # V4 xhard（pick 3）：原分支只有 1 抓／2 抓两支，3 抓会落到 1 抓文本
+            # V4 xhard (pick 3): the original branch only had 1-pick / 2-pick cases; 3 picks would fall into the 1-pick text
             cube_2_color = color_names[2]
             language_goals.append(f"first press both buttons on the table, then pick up the container hiding the {cube_0_color} cube, next pick up another container hiding the {cube_1_color} cube, finally pick up another container hiding the {cube_2_color} cube")
         else:
@@ -178,9 +178,9 @@ def get_language_goal(self, env):
         target_color_name = self.target_color_name
         target_target_language = self.target_target_language
         if _is_newvalue_tier(self):
-            # V6 审查修复 N3/N4（用户「vpb只保留这一句」）：新四档每局只生成一句——
-            # before 题用「last placed before」，after 题用「first placed after」；
-            # right/immediately（双块档时序不成立）与 previously placed（额外放台时不唯一）三种说法删去。原三档四句不变。
+            # V6 review fix N3/N4 (user: "keep only this one sentence for vpb"): the four new tiers generate only one sentence per episode --
+            # before questions use "last placed before", after questions use "first placed after";
+            # right/immediately (timing does not hold for two-cube tiers) and previously placed (not unique with an extra placement stand) are removed. The original three tiers keep all four sentences.
             if target_target_language == "before":
                 language_goals.append(f"watch the video carefully, then place the {target_color_name} cube on the target where it was last placed before the button was pressed")
             else:
@@ -206,7 +206,7 @@ def get_language_goal(self, env):
 
     elif env == 'PickHighlight':
         if _is_newvalue_tier(self):
-            # V6 审查修复 F1（K2）：新四档两句与新任务链（逐块抓放 + 末尾按钮）一致，并修正 highlighteted 拼写；原三档两句原样保留
+            # V6 review fix F1 (K2): the two sentences for the four new tiers match the new task chain (pick-and-place each cube + final button) and fix the "highlighteted" typo; the original three tiers keep both sentences as-is
             language_goals.append("first press the button, then pick up all highlighted cubes one by one, finally press the button to stop")
             language_goals.append("first press the button, then pick up every cube highlighted with a white area on the table one at a time, finally press the button again to stop")
         else:

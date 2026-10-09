@@ -19,14 +19,14 @@ def generate_dynamic_walk(indices, steps=50, start_idx=None, allow_backtracking=
         plot (bool): Whether to plot
     """
 
-    # 显式配置只开放既有拓扑；调用者不传时保留原来的任意线性节点列表接口。
+    # An explicit config only opens the existing topologies; when callers omit it, the original arbitrary linear node-list interface is kept.
     neighbor_order = [-1, 1]
     if walk_config is not None:
         if (walk_config.get("node_indices") != list(indices)
                 or walk_config.get("start_selection") != "randint"
                 or walk_config.get("neighbor_order") != [-1, 1]
                 or walk_config.get("force_reverse_at_endpoint") is not True):
-            raise ValueError("generate_dynamic_walk 只支持原有线性邻接与端点回退规则")
+            raise ValueError("generate_dynamic_walk only supports the original linear adjacency and endpoint fallback rules")
         neighbor_order = walk_config["neighbor_order"]
 
     # 1. Initialization

@@ -710,14 +710,14 @@ def _options_swingxtimes(env, planner, require_target, base) -> List[dict]:
     return options
 
 def _videoplace_drop_available(env, base):
-    """VideoPlace* 「drop onto」的候选落点（V4 计划 2.14 / 2.15）。
+    """Candidate drop targets for VideoPlace* "drop onto" (V4 plan 2.14 / 2.15).
 
-    原三档：原样返回 ``env.targets``（同一个列表对象，输出逐字不变）。
-    xhard：演示里多了「放回原位」这一步，其落点 actor（``xhard_home_sites``）不在 ``targets`` 里，
-    不扩进来的话 choice-action 匹配会选不到 ⇒ 追加在 ``targets`` 之后。
+    Original three tiers: return ``env.targets`` as-is (the same list object; output byte-identical).
+    xhard: the demo has an extra "put back to original position" step whose target actor (``xhard_home_sites``) is not in ``targets``;
+    without adding it, choice-action matching cannot select it ⇒ appended after ``targets``.
 
-    V6 新值档统一回原位，故加入其演示末段使用的 home 落点。历史规格仍可携带副本曾支持的
-    ``xhard_goal_drop_sites``，保留该候选扩展以保证旧规格回放。
+    V6 new-value tiers always return to the original position, so the home targets used in the final demo segment are added. Historical specs may still carry the
+    ``xhard_goal_drop_sites`` once supported by the replica; this candidate extension is kept so old specs replay.
     """
     home_sites = getattr(base, "xhard_home_sites", None) or []
     drop_sites = getattr(base, "xhard_goal_drop_sites", None) or []

@@ -1,26 +1,26 @@
-"""每局规格的只读导出与原值回注（newtaskRelease-v3 步 4）。
+"""Read-only export and original-value replay injection of per-episode specs (newtaskRelease-v3 step 4).
 
-方案第三节／8.2 规定的两件事，本模块用同一个对象承担：
+The two things required by section 3 / 8.2 of the proposal are handled by one object in this module:
 
-* **导出（C 路）**：在**原调用点**把每个取值点的结果只读记下来，不多抽、不少抽、
-  不改变任何取值，最后封存成 ``episode_spec``。
-* **回注（D 路）**：同一调用点照常执行原抽样（随机流不漂移，红线 R8），但**真正用于建场景
-  的值来自冻结规格**；原抽样结果只作兼容核验。
+* **Export (path C)**: at the **original call site**, record each sampling point's result read-only, with no extra or missing draws
+  and no value changed, and finally seal it into ``episode_spec``.
+* **Replay injection (path D)**: the same call site still performs the original sampling (the random stream does not drift, red line R8), but **the values actually used to build the scene
+  come from the frozen spec**; the original sampled result is only used for a compatibility check.
 
-这一点是 G4 的核心判据：方案明确拒绝「重抽出相同值却绕过规格」的实现——本模块通过
-``value()`` 返回冻结值（而不是返回抽样值）来结构性地保证规格确实被消费。
+This is the core criterion of G4: the proposal explicitly rejects implementations that "redraw the same value while bypassing the spec" -- this module
+structurally guarantees that the spec is really consumed by having ``value()`` return the frozen value (not the sampled value).
 
-与既有注入通道的关系：四个早接了 ``episode_spec`` 的环境里，那条「传了规格就跳过抽样」的
-分支属于旧注入模式，按红线 R9 原样保留、不复用为 D 路；本模块只挂在原随机分支上，
-由新的 ``native_episode_spec`` 开关驱动。
+Relation to the existing injection channel: in the four envs that adopted ``episode_spec`` early, the branch that "skips sampling when a spec is passed"
+belongs to the old injection mode and is kept as-is per red line R9, not reused as path D; this module hooks only onto the original random branch,
+driven by the new ``native_episode_spec`` switch.
 
-V6 新值模式：xhard1～xhard4 导出的规格标 ``native-newvalue/2``，
-原三档仍标 ``native-parity/1``；两类**不许互喂**（回注时 kind 与本局难度不符即拒绝）。
-新值规格回注时的每条不等都要尽量归因到某个 ``decision`` 键（``value(..., decision_key=...)``），
-归不了因的才算 RNG 漂移；原值规格仍要求零不等。
+V6 new-value mode: specs exported for xhard1..xhard4 are tagged ``native-newvalue/2``,
+the original three tiers are still tagged ``native-parity/1``; the two kinds **must not be cross-fed** (replay rejects a kind that does not match this episode's difficulty).
+Every mismatch during new-value spec replay should be attributed to some ``decision`` key where possible (``value(..., decision_key=...)``);
+only unattributable ones count as RNG drift; original-value specs still require zero mismatches.
 
-V7 共用布局的「派生（derive 信封）」与「分层回注（``native-layered/3``）」两种模式已于维护计划阶段 1b（W4）删除；
-现行只有导出与回注两种模式，新值族难度只接受 ``native-newvalue/2`` 全量规格。
+The V7 shared-layout modes "derive (derive envelope)" and "layered replay (``native-layered/3``)" were removed in maintenance-plan stage 1b (W4);
+only export and replay modes remain, and new-value family difficulties accept only full ``native-newvalue/2`` specs.
 """
 
 from __future__ import annotations
@@ -29,13 +29,13 @@ import copy
 from typing import Any
 
 SPEC_KIND = "native-parity/1"
-# V6 新值档规格版本。
+# V6 new-value tier spec version.
 SPEC_KIND_NEWVALUE = "native-newvalue/2"
 SPEC_KINDS = (SPEC_KIND, SPEC_KIND_NEWVALUE)
 
 
 def spec_kind_for(difficulty: str | None) -> str:
-    """按本局难度决定规格类别：新值族档走 V6 规格类别，其余（含不传）一律原值类别。"""
+    """Decide the spec kind by this episode's difficulty: new-value family tiers use the V6 spec kind, everything else (including not given) uses the original-value kind."""
     from .difficulty import is_newvalue_difficulty
 
     if is_newvalue_difficulty(difficulty):
@@ -44,7 +44,7 @@ def spec_kind_for(difficulty: str | None) -> str:
 
 
 class EpisodeSpecError(ValueError):
-    """规格的形态、版本或身份与本局不符。"""
+    """The spec's shape, version or identity does not match this episode."""
 
 
 def _set_path(tree: dict, path: str, value: Any) -> None:
@@ -59,13 +59,13 @@ def _get_path(tree: dict, path: str):
     node = tree
     for part in path.split("."):
         if not isinstance(node, dict) or part not in node:
-            raise EpisodeSpecError(f"规格缺少取值点 {path}")
+            raise EpisodeSpecError(f"spec is missing sampling point {path}")
         node = node[part]
     return node
 
 
 def _plain(value: Any):
-    """把张量／numpy 标量转成可 JSON 化的原生对象，不改数值。"""
+    """Convert tensor / numpy scalars into JSON-serializable native objects without changing values."""
     if hasattr(value, "detach"):
         value = value.detach().cpu()
     if hasattr(value, "tolist"):
@@ -78,7 +78,7 @@ def _plain(value: Any):
 
 
 class SpecRecorder:
-    """一个环境实例一份；``spec=None`` 为导出模式，否则为原值回注模式。"""
+    """One per env instance; ``spec=None`` is export mode, otherwise original-value replay mode."""
 
     def __init__(self, spec: dict | None, task: str, identity: dict | None = None,
                  difficulty: str | None = None):
@@ -86,7 +86,7 @@ class SpecRecorder:
         self.identity = dict(identity or {})
         self.mismatches: list[dict] = []
         self.trace: list[dict] = []
-        # 本局规格类别由难度决定（spec_kind_for）；不传 difficulty 时与 V3 行为逐字一致。
+        # This episode's spec kind is decided by difficulty (spec_kind_for); without difficulty the behavior is byte-identical to V3.
         self.spec_kind = spec_kind_for(difficulty)
         self.difficulty = difficulty
         if spec is None:
@@ -98,16 +98,16 @@ class SpecRecorder:
                 "identity": self.identity,
             }
         else:
-            # 新值族难度只接受 V6 全量规格；原值难度只接受 native-parity/1（原值与新值不许互喂）
+            # new-value family difficulties accept only the V6 full spec; original-value difficulties accept only native-parity/1 (original and new values must not be cross-fed)
             accepted = (self.spec_kind,)
             if not isinstance(spec, dict) or spec.get("spec_kind") not in accepted:
                 raise EpisodeSpecError(
-                    f"native_episode_spec 需要 spec_kind∈{accepted}"
-                    f"（收到 {spec.get('spec_kind') if isinstance(spec, dict) else type(spec).__name__}；"
-                    "原值与新值规格不许互喂）"
+                    f"native_episode_spec requires spec_kind in {accepted}"
+                    f" (got {spec.get('spec_kind') if isinstance(spec, dict) else type(spec).__name__}; "
+                    "original-value and new-value specs must not be cross-fed)"
                 )
             if spec.get("task") != task:
-                raise EpisodeSpecError(f"规格属于 {spec.get('task')}，不能用于 {task}")
+                raise EpisodeSpecError(f"spec belongs to {spec.get('task')}, cannot be used for {task}")
             self.mode = "replay"
             self._frozen = copy.deepcopy(spec)
             self._document = copy.deepcopy(spec)
@@ -122,13 +122,13 @@ class SpecRecorder:
         return self.spec_kind == SPEC_KIND_NEWVALUE
 
     def value(self, path: str, drawn: Any, decision_key: str | None = None):
-        """原调用点：导出模式返回抽样值并记录；回注模式返回冻结值并把抽样值记为兼容核验。
+        """Original call site: export mode returns the sampled value and records it; replay mode returns the frozen value and records the sampled value for the compatibility check.
 
-        ⚠ 回注模式**一定**返回冻结值——即便原抽样恰好抽出同样的数，也不允许用抽样值，
-        否则就成了方案点名拒绝的「重抽相同却绕过规格」。
+        ⚠ Replay mode **always** returns the frozen value -- even if the original sampling happens to draw the same number, the sampled value must not be used,
+        otherwise it becomes the "redraw the same value while bypassing the spec" that the proposal explicitly rejects.
 
-        ``decision_key``：新值模式下该取值点受哪个 ``decision`` 键控制（如 ``number_range.xhard``）；
-        回注不等时记进 mismatch 供归因，原值模式忽略。
+        ``decision_key``: in new-value mode, which ``decision`` key controls this sampling point (e.g. ``number_range.xhard``);
+        recorded in mismatch for attribution when replay differs; ignored in original-value mode.
         """
         plain = _plain(drawn)
         if self.mode == "export":
@@ -138,28 +138,28 @@ class SpecRecorder:
         frozen = _get_path(self._frozen, path)
         self.trace.append({"path": path, "drawn": plain, "frozen": frozen, "source": "spec"})
         if plain != frozen:
-            # 兼容核验不通过只记录，不改变「用冻结值」这一事实；上层据此判 RNG 是否漂移。
+            # a failed compatibility check is only recorded and does not change the fact that "the frozen value is used"; the caller uses it to judge RNG drift.
             self.mismatches.append(self._mismatch(path, plain, frozen, decision_key))
         return frozen
 
     def _mismatch(self, path, drawn, frozen, decision_key):
         entry = {"path": path, "drawn": drawn, "frozen": frozen}
         if self.newvalue:
-            # 新值模式才带归因字段；原值模式的 mismatch 形态与 V3 逐字一致。
+            # only new-value mode carries the attribution field; the original-value mismatch shape is byte-identical to V3.
             entry["decision_key"] = decision_key
         return entry
 
     def unattributed_mismatches(self) -> list[dict]:
-        """归不了因的不等：原值模式下是全部 mismatch，新值模式下是没有 decision_key 的那些。"""
+        """Unattributable mismatches: all mismatches in original-value mode, those without decision_key in new-value mode."""
         if not self.newvalue:
             return list(self.mismatches)
         return [item for item in self.mismatches if not item.get("decision_key")]
 
     def record(self, path: str, value: Any) -> None:
-        """只读记录派生量或运行观测；回注模式下同样核验。
+        """Record derived quantities or runtime observations read-only; also checked in replay mode.
 
-        与 :meth:`value` 的区别只在于「不替换取值」——它同样计入 trace，因为这个路径
-        确实在本局被访问过；否则 SPEC_BINDING 会把它误判成「有记录却没被消费」。
+        The only difference from :meth:`value` is "does not replace the value" -- it is still counted in the trace because this path
+        really was accessed in this episode; otherwise SPEC_BINDING would misjudge it as "recorded but not consumed".
         """
         plain = _plain(value)
         self.trace.append({"path": path, "value": plain, "source": "record"})
@@ -175,7 +175,7 @@ class SpecRecorder:
             self.mismatches.append(self._mismatch(path, plain, frozen, None))
 
     def leaf_paths(self) -> list[str]:
-        """规格里全部取值点路径（回注模式用于算「有记录却没被消费」的 unused）。"""
+        """All sampling-point paths in the spec (used in replay mode to compute the "recorded but not consumed" unused set)."""
         out: list[str] = []
 
         def walk(node, prefix):
@@ -191,7 +191,7 @@ class SpecRecorder:
         return out
 
     def consumed_paths(self) -> list[str]:
-        """本局真正经 ``value()``／``record()`` 消费过的取值点。"""
+        """Sampling points actually consumed in this episode via ``value()`` / ``record()``."""
         return [item["path"] for item in self.trace]
 
     def to_dict(self) -> dict:

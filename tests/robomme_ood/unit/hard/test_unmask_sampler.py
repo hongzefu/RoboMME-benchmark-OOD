@@ -1,8 +1,8 @@
-"""Unmask 系干扰容器统一采样器（``utils/unmask_distractor_sampler.py``）：配置校验、点到 OBB 判据、
-采样结果按同一规则复核、回注模式复核拒绝改坏的冻结布局、停放点与「抬走—放回」时间线。
+"""Unified distractor-container sampler for the Unmask family (``utils/unmask_distractor_sampler.py``): config validation, point-to-OBB criterion,
+re-checking sampled results by the same rules, replay-injection re-check rejecting a corrupted frozen layout, park points and the "lift away -- put back" timeline.
 
-期望来自性质与手写小表：采样结果必须过独立的规则复核（``verify_distractor_layout`` 只作被测的另一半，
-另外手算环带与间距）；停放点网格按手写坐标核对。
+Expectations come from properties and small hand-written tables: sampled results must pass the independent rule re-check (``verify_distractor_layout`` is only the other half under test;
+annulus and spacing are also computed by hand); the park-point grid is checked against hand-written coordinates.
 """
 from __future__ import annotations
 
@@ -19,11 +19,11 @@ from robomme_ood.robomme_env.utils.SceneGenerationError import SceneGenerationEr
 
 from . import offline_scene as O
 
-H = 0.02  # 方块半边长（与任务同值，只作几何尺度）
+H = 0.02  # cube half extent (same value as the task; used only as a geometric scale)
 
 
 def _cfg(**over):
-    """取包内 VideoUnmask xhard2 的真实干扰配置做基准。"""
+    """Use the real distractor config of in-package VideoUnmask xhard2 as the baseline."""
     header, _ = O.delivered_rows("VideoUnmask", "xhard2", 0)
     cfg = copy.deepcopy(header["sampling_config"]["VideoUnmask"]["decision"]["xhard2"]["distractor"])
     cfg.update(over)
@@ -67,15 +67,15 @@ def test_parse_rejects_missing_or_extra_keys():
         S.parse_distractor_cfg(_cfg(extra=1))
 
 
-# ── 几何 ────────────────────────────────────────────────────────────────────────
+# -- geometry ------------------------------------------------------------------------
 
 
 def test_point_hits_obbs_strict_reach():
-    # 尺寸取 2 的幂，距离可逐位表示：点到盒边恰 0.125
+    # sizes are powers of 2 so distances are exactly representable: point to box edge is exactly 0.125
     box = (np.zeros(2), np.eye(2), np.array([0.25, 0.25]))
     assert S.point_hits_obbs(np.array([0.375, 0.0]), [box], 0.125 + 1e-9) is True
-    assert S.point_hits_obbs(np.array([0.375, 0.0]), [box], 0.125) is False  # 恰等于 reach：严格 < 不成立
-    assert S.point_hits_obbs(np.array([0.5, 0.5]), [box], 0.35) is False  # 到角点 √2·0.25≈0.3536
+    assert S.point_hits_obbs(np.array([0.375, 0.0]), [box], 0.125) is False  # exactly equal to reach: strict < does not hold
+    assert S.point_hits_obbs(np.array([0.5, 0.5]), [box], 0.35) is False  # to the corner √2·0.25≈0.3536
     assert S.point_hits_obbs(np.array([0.5, 0.5]), [box], 0.36) is True
 
 
@@ -87,7 +87,7 @@ def test_bin_obb2d_is_axis_square_rotated_by_yaw():
     assert angle == pytest.approx(30.0, abs=1e-6) or angle == pytest.approx(60.0, abs=1e-6)
 
 
-# ── 采样与复核 ────────────────────────────────────────────────────────────────
+# -- sampling and re-check ----------------------------------------------------------------
 
 
 @pytest.mark.parametrize("seed", range(4))
@@ -98,9 +98,9 @@ def test_sampled_layout_obeys_ring_spacing_and_counts(seed):
     lo, hi = cfg["ring_max_abs_xy"]
     for x, y, yaw in lay.bins:
         m = max(abs(x), abs(y))
-        assert lo - 1e-9 <= m <= hi + 1e-9, "落在环带内（以最大坐标绝对值计）"
+        assert lo - 1e-9 <= m <= hi + 1e-9, "inside the annulus (measured by the max absolute coordinate)"
         assert 0.0 <= yaw <= 90.0
-    # 手算间距：容器中心两两距离不小于两个外廓半边（俯视不相交的必要条件）
+    # hand-computed spacing: pairwise container-center distance is at least two outer half extents (necessary for no overlap in top view)
     half = S.bin_outer_half(H)
     for i in range(lay.count):
         for j in range(i + 1, lay.count):
@@ -115,14 +115,14 @@ def test_verify_flags_tampered_layout():
     cfg = _cfg()
     lay = S.sample_distractor_layout(cfg, obstacles=[], generator=_gen(1), cube_half_size=H)
     bad = copy.deepcopy(lay)
-    bad.bins[1] = bad.bins[0]  # 两个容器叠在一起
+    bad.bins[1] = bad.bins[0]  # two containers stacked on each other
     bad.cube_bins = [0, 0]
     problems = S.verify_distractor_layout(bad, cfg, obstacles=[], cube_half_size=H)
-    assert any("间距不足" in p for p in problems) and any("cube_bins" in p for p in problems)
+    assert any("insufficient spacing" in p for p in problems) and any("cube_bins" in p for p in problems)
 
 
 def test_sampling_exhaustion_raises_with_placed_count():
-    blocker = (np.zeros(2), np.eye(2), np.array([1.0, 1.0]))  # 整个桌面都是障碍
+    blocker = (np.zeros(2), np.eye(2), np.array([1.0, 1.0]))  # the whole table is an obstacle
     with pytest.raises(S.DistractorPlacementError) as err:
         S.sample_distractor_layout(_cfg(max_trials=8), obstacles=[blocker], generator=_gen(0), cube_half_size=H)
     assert err.value.placed == 0
@@ -143,7 +143,7 @@ def test_commit_replay_rejects_frozen_layout_violating_rules():
         S.commit_distractor_layout(lay, cfg=cfg, recorder=bad, obstacles=[], cube_half_size=H)
 
 
-# ── 停放点与抬走—放回 ─────────────────────────────────────────────────────────
+# -- park points and lift away -- put back ---------------------------------------------------------
 
 
 def test_park_points_are_disjoint_grid_per_group():
@@ -152,7 +152,7 @@ def test_park_points_are_disjoint_grid_per_group():
     x0, y0, z0 = S.XHARD_PARK_ORIGIN
     pitch = S.XHARD_PARK_PITCH_M
     assert pts[(S.XHARD_PARK_GROUPS[0], 0)] == (x0, y0, z0)
-    assert pts[(S.XHARD_PARK_GROUPS[0], 16)] == (x0, y0 + pitch, z0)  # 第二行
+    assert pts[(S.XHARD_PARK_GROUPS[0], 16)] == (x0, y0 + pitch, z0)  # second row
     with pytest.raises(ValueError):
         S.xhard_park_point("nope", 0)
     with pytest.raises(ValueError):
@@ -160,7 +160,7 @@ def test_park_points_are_disjoint_grid_per_group():
 
 
 def test_lift_and_park_timeline():
-    """窗口 [10, 20)：首次进入记原位，落回步 = 10 + (20−10)//2 = 15 放回原位，其余步停在停放点；窗口外不动。"""
+    """Window [10, 20): record the original position on first entry, put back at step = 10 + (20-10)//2 = 15, park at the park point on other steps; no motion outside the window."""
     actor = O.FakeActor("bin", sapien.Pose(p=[0.1, 0.2, 0.05]), "dynamic", [])
     env = type("E", (), {})()
     park = S.xhard_park_point("bin", 3)

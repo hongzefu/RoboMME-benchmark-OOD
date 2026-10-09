@@ -60,10 +60,10 @@ def process_segmentation(
     current_subgoal_segment_filled = existing_subgoal_filled
     no_object_flag = False
 
-    # V6 审查修复 F4（K5，只对打了 ``_robomme_refresh_on_move_px`` 标的目标 actor 生效）：
-    # 子目标未切换、缓存中心已存在、且任一目标当前分割中心相对缓存的切比雪夫距离超过阈值时，
-    # 按「切换」路径整体重算中心并重新填充文本（交换后的容器不再沿用旧坐标）。
-    # 未打标的 actor 一律不进这段，原三档与其他环境逐字不变；目标不可见（缺分割）时不刷新（遮挡回填不在本轮范围）。
+    # V6 review fix F4 (K5; only applies to target actors tagged with ``_robomme_refresh_on_move_px``):
+    # when the subgoal has not switched, a cached center exists, and any target's current segmentation center is farther than the threshold (Chebyshev distance) from the cache,
+    # recompute all centers and refill the text along the "switch" path (swapped containers no longer reuse stale coordinates).
+    # Untagged actors never enter this block, so the original three tiers and other envs are byte-identical; targets that are invisible (no segmentation) are not refreshed (occlusion backfill is out of scope this round).
     refresh_on_move = False
     if current_subgoal_segment == previous_subgoal_segment and existing_points and active_segments:
         thresholds = [getattr(target, "_robomme_refresh_on_move_px", 0) or 0 for target in active_segments]

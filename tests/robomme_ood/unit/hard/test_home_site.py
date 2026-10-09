@@ -1,5 +1,5 @@
-"""VPB／VPO 演示落点工具（``utils/xhard_home_site.py``）：演示计划守卫、放置序列占台守卫、放回掩码、
-goal_site 区域落点网格与贪心选点。手写小表做输入。"""
+"""VPB/VPO demo drop-site tools (``utils/xhard_home_site.py``): demo plan guard, placement-sequence stand-occupancy guard, put-back mask,
+goal_site region drop grid and greedy site selection. Inputs are small hand-written tables."""
 from __future__ import annotations
 
 import math
@@ -36,12 +36,12 @@ def test_place_sequence_moves_cube_between_targets():
 
 
 def test_two_cubes_on_one_target_rejected():
-    with pytest.raises(SceneGenerationError, match="两块同台"):
+    with pytest.raises(SceneGenerationError, match="two cubes on one stand"):
         H.validate_place_sequence([(0, 1), (1, 1)], 3)
 
 
 def test_placing_onto_own_target_is_idle_and_rejected():
-    with pytest.raises(SceneGenerationError, match="原地空转"):
+    with pytest.raises(SceneGenerationError, match="idle in place"):
         H.validate_place_sequence([(0, 1), (0, 1)], 3)
 
 
@@ -63,7 +63,7 @@ def test_returned_mask_by_policy():
         H.returned_mask("whatever", 2)
 
 
-# ── goal_drop_candidates／plan_goal_drop_xy ─────────────────────────────────────
+# -- goal_drop_candidates / plan_goal_drop_xy -------------------------------------
 
 
 def test_candidates_sorted_by_distance_then_xy():
@@ -71,13 +71,13 @@ def test_candidates_sorted_by_distance_then_xy():
     assert len(c) == 25 and c[0] == (0.0, 0.0)
     d = [math.hypot(x, y) for x, y in c]
     assert d == sorted(d)
-    ring1 = c[1:5]  # 四个距离 0.01 的点按 (x, y) 字典序
+    ring1 = c[1:5]  # the four points at distance 0.01, in (x, y) lexicographic order
     assert ring1 == sorted(ring1)
 
 
 def test_plan_takes_centre_when_free_and_respects_clearance():
     assert H.plan_goal_drop_xy((0.1, 0.2), 1, []) == [(0.1, 0.2)]
-    # 中心被方块占着：第一个落点必须离方块至少 cube 间隙
+    # center occupied by a cube: the first drop site must be at least the cube gap away from the cube
     chosen = H.plan_goal_drop_xy((0.0, 0.0), 2, [("cube", (0.0, 0.0))])
     gap = H.GOAL_DROP_CLEARANCE
     for x, y in chosen:
