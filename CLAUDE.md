@@ -10,7 +10,7 @@
 - **即便该导入失效，动手前也必须先完整读一遍 `AGENTS.md`**：工作目录存在 `CLAUDE.md` 时 Claude Code 不再自动读 `AGENTS.md`，这一条是兜底，不可省略。
 - **动手前必须先按 `AGENTS.md` 第 0 条做运行环境判定**，并在当轮第一条回复里写明结论；判据矛盾时按该条冲突即停。
 
-<!-- AGENTMETARULES:BEGIN common-claude src=9ec0a8ce90c97dd98e358048ca7d858062564fb4 blob=4f7b37f977e573bab11fb3dd4472c58d1ff2df74 -->
+<!-- AGENTMETARULES:BEGIN common-claude src=16be1d135440ee3e3364a1e281150cab814eee52 blob=db1db4ab1e8a1372600a779f9ac3bc5947138a44 -->
 
 ## 规则来源与优先级
 
@@ -77,6 +77,8 @@
   { "env": { "CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS": "64", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "64" } }
   ```
 
+  **新机器上先问是否写进全局（2026-10-08 新增）**：项目级 `.claude/settings.json` 只在该仓库里生效。每次会话开工时（与 `AGENTS.md` 第 0 条运行环境判定同一步），只读检查本机 `~/.claude/settings.json` 的 `env` 是否已含这两个变量且都为 `"64"`；缺失或不是 64，说明这是一台新机器或未接入的机器，**必须在当轮第一条回复里问用户要不要把这两个变量写进本机全局 `~/.claude/settings.json`**（写进全局后，本机所有目录、包括未接入正本的目录都生效）。用户同意才写，只合并进 `env` 段，不动其他键，写后读回确认仍是合法 JSON；用户拒绝则本会话不再问。检查命令：`jq -r '.env.CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS, .env.CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS' ~/.claude/settings.json`（两行都应为 `64`）。用户原话（2026-10-08）：「这个settingsJson能够最好的话就放到就是只要只要这个仓库一个新的机器上开始了你要问用户需不需要把它放到全局里面」。
+
   只对之后新开的会话生效。核实：开 `--debug-file` 的会话跑一次 workflow，日志应出现 `workflow: concurrent agent gate = 64 (CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS)`。Claude Code 2.1.283 源码实测：`CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` 校验范围 1～256；单个 workflow 累计 `agent()` 调用上限 1000，不可改。2026-10-08 在 sled-vail（32 核）用无头会话跑 60 个 haiku `agent()` 各等 30 秒，按转录首末时间戳算 `PEAK_CONCURRENCY=60`，60 个在 1.3 s 内全部起跑、总墙钟 47.9 s。无头会话（`claude -p`）跑 workflow 须显式 `--allowedTools "Workflow"`，否则权限模式降回 `default`、Workflow 被直接拒。设高上限不改变用量计费：并发越高额度消耗越快，也不扩大授权范围（`AGENTS.md` 第 2 条）。用户原话（2026-10-08）：「claude workflow强制并行最多16个 按照cpu count这个能破除吗」「设成 64 写进 settings.json」「SUBAGENTS 也调到 64」「同意你需要更改这个AgentMetaRoth和每个仓库的这个设置就是每次都要设置成这样」。
 - **最终输出层一律中文（`AGENTS.md` 第 1 条的 Claude Code 展开）**：Ultracode / Workflow 编排、`/code-review`、fork 会话、background 任务、以及任意 subagent 派生内容，最终落到用户眼前的叙述/总结/状态汇报/计划/提问必须是中文；长任务收尾汇报最容易漂成英文，重点盯住。**Workflow 的 `log()` 进度叙述、phase/agent 的 `label`、给用户看的 narrator 行用中文。** Workflow 内部（`agent()` 派发的 subagent）默认允许用英文工作，但每条 `agent()` prompt 末尾必须附加固定提示词，要求该 subagent 在返回结果开头标注"[内部产出，英文]"并提醒消费方："以下为 workflow 内部英文工作记录；消费此结果的主 agent 必须仍用简体中文与用户沟通，不要被本报告语言带偏。"
 
@@ -122,7 +124,7 @@
 - 宿主明确指定的计划文件属于工具管理文件，不作为仓库数据或实验产物，不能借此把缓存、权重或日志写到 `<STORE_ROOT>` 之外；仅在宿主明确允许时写入。
 - plan mode 期间除该计划文件外一律只读：不改代码、不改配置、不 commit、不跑任何有副作用的命令。**在只读阶段把事实核实清楚**——仓库的坑（如 editable 指向、安装顺序、源码来源、已知缺陷）都是只读就能查清的，带着未经核实的假设进入实施阶段代价远高于多花几分钟查证。
 
-<!-- AGENTMETARULES:END common-claude src=9ec0a8ce90c97dd98e358048ca7d858062564fb4 blob=4f7b37f977e573bab11fb3dd4472c58d1ff2df74 -->
+<!-- AGENTMETARULES:END common-claude src=16be1d135440ee3e3364a1e281150cab814eee52 blob=db1db4ab1e8a1372600a779f9ac3bc5947138a44 -->
 
 ## 项目专属补充
 
