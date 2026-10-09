@@ -1,12 +1,12 @@
-"""PatternLock 与 RouteStick 原生三档真值表（C05、C07 路径与叉积）。
+"""PatternLock and RouteStick native three-tier truth tables (C05, C07 paths and cross products).
 
-两任务都用 stick：tcp 落到某个目标上方（水平距离阈值内、高度低于阈值）即「触到」该目标。
-演示段真实驱动：依次触到演示路径上的目标 → 复位（solve_strong_reset 会置 after_demo）→ 回到起点姿态（swing_qpos）。
-- PatternLock：在线段按同一顺序重走；起点必须在在线段被触到（复位回 swing_qpos 时 tcp 就在起点上方），
-  最后 len(路径) 个触到记录必须与路径逐项相同；触到路径外的按钮（非期望、非上一个）→ 失败；
-  在同一按钮上停留只记一次。
-- RouteStick：每一段除了落点正确，还要按演示方向绕行：在线轨迹各点相对「上一目标→本目标」有向线段的
-  叉积均值 > 0 为 clockwise、< 0 为 counterclockwise、= 0 为失败；方向不符、触错目标 → 失败，失败锁存。
+Both tasks use the stick: the tcp landing above a target (within the horizontal distance threshold and below the height threshold) "touches" that target.
+The demo segment is really driven: touch the targets on the demo path in turn -> reset (solve_strong_reset sets after_demo) -> return to the start pose (swing_qpos).
+- PatternLock: retrace the same order in the online segment; the start must be touched in the online segment (when reset back to swing_qpos the tcp is right above the start),
+  and the last len(path) touch records must equal the path item by item; touching a button off the path (not expected, not the previous one) -> failure;
+  lingering on the same button records it only once.
+- RouteStick: besides landing correctly, each segment must detour in the demonstrated direction: the mean cross product of online trajectory points relative to the directed segment "previous target -> this target"
+  > 0 is clockwise, < 0 counterclockwise, = 0 failure; wrong direction or touching the wrong target -> failure, and failure latches.
 """
 from __future__ import annotations
 
@@ -32,17 +32,17 @@ def _drive_demo(ep, home_on_start=True):
     env = ep.env
     path = env.selected_buttons
     _touch(ep, path[0])
-    env.swing_qpos = env.agent.robot.qpos.clone()  # solve_swingonto(record_swing_qpos=True) 记下起点姿态
+    env.swing_qpos = env.agent.robot.qpos.clone()  # solve_swingonto(record_swing_qpos=True) records the start pose
     for t in path[1:]:
         _touch(ep, t)
     ep.tcp_to(0.0, 0.0, HIGH_Z)
-    env.after_demo = True  # solve_strong_reset 置位
+    env.after_demo = True  # set by solve_strong_reset
     guard = 0
     while ep.task_index < ep.first_online_index() - 1:
         ep.step()
         guard += 1
         assert guard < 50
-    if home_on_start:  # 复位回 swing_qpos：tcp 回到起点上方
+    if home_on_start:  # reset back to swing_qpos: tcp returns above the start
         x, y, _ = path[0].xyz
         ep.tcp_to(x, y, TOUCH_Z)
     ep.step()
@@ -67,7 +67,7 @@ def test_pl_retrace_succeeds(pl, diff):
     _drive_demo(ep)
     for t in env.selected_buttons[1:]:
         _touch(ep, t)
-        ep.step()  # 停留一步：同一按钮不重复记录
+        ep.step()  # linger one step: the same button is not recorded twice
     assert ep.success and not ep.fail
     assert [a.name for a in env.achieved_list] == [s.name for s in env.selected_buttons]
 
@@ -90,12 +90,12 @@ def test_pl_skipping_a_node_fails(pl):
             break
     env = ep.env
     _drive_demo(ep)
-    _touch(ep, env.selected_buttons[2])  # 跳过 selected[1]
+    _touch(ep, env.selected_buttons[2])  # skip selected[1]
     assert ep.fail and not ep.success
 
 
 def test_pl_suffix_only_is_not_a_match(pl):
-    """在线段没触到起点（只重走后缀）：子任务都完成，但最近记录与路径不等 → 失败。"""
+    """The start is not touched in the online segment (only the suffix is retraced): all subtasks complete, but the recent records differ from the path -> failure."""
     ep = pl.make("easy", seed=9)
     env = ep.env
     _drive_demo(ep, home_on_start=False)
@@ -110,7 +110,7 @@ def test_pl_demo_touches_are_not_recorded(pl):
     path = env.selected_buttons
     for t in path:
         _touch(ep, t)
-    assert env.achieved_list == []  # after_demo 之前不记录
+    assert env.achieved_list == []  # nothing recorded before after_demo
 
 
 # --------------------------------------------------------------------------- RouteStick
@@ -123,7 +123,7 @@ def rs():
 
 
 def _detour(ep, prev, curr, sign, steps=3):
-    """沿 prev→curr 的有向线段走，偏到左法向 sign 一侧（高处，不触碰任何目标），最后落到 curr。"""
+    """Walk along the directed segment prev->curr, offset to the sign side of the left normal (high, touching no target), and finally land on curr."""
     p, c = prev.xyz[:2], curr.xyz[:2]
     line = c - p
     normal = np.array([-line[1], line[0]]) / np.linalg.norm(line)
@@ -135,7 +135,7 @@ def _detour(ep, prev, curr, sign, steps=3):
 
 
 def _sign(direction):
-    return 1.0 if direction == "clockwise" else -1.0  # 左法向一侧叉积为正 → clockwise
+    return 1.0 if direction == "clockwise" else -1.0  # positive cross product on the left-normal side -> clockwise
 
 
 @pytest.mark.parametrize("diff", DIFFS)
@@ -143,7 +143,7 @@ def test_rs_follow_route_with_directions_succeeds(rs, diff):
     ep = rs.make(diff, seed=10)
     env = ep.env
     path = env.selected_buttons
-    assert all(env.buttons_grid.index(b) in (0, 2, 4, 6, 8) for b in path)  # 只走凸起的 5 个目标
+    assert all(env.buttons_grid.index(b) in (0, 2, 4, 6, 8) for b in path)  # only the 5 raised targets are walked
     assert len(env.swing_directions) == len(path) - 1
     for name, d in zip([t["name"] for t in env.task_list if not t["demonstration"]], env.swing_directions):
         assert name.endswith(d)
@@ -164,7 +164,7 @@ def test_rs_wrong_direction_fails_and_latches(rs, diff):
     ep.step()
     assert ep.fail and not ep.success
     ep.step(3)
-    assert ep.fail  # 失败锁存
+    assert ep.fail  # failure latches
 
 
 def test_rs_straight_line_is_on_the_line_and_fails(rs):
@@ -189,7 +189,7 @@ def test_rs_touching_unexpected_raised_target_fails(rs):
 
 
 def test_rs_direction_fail_degenerate_inputs(rs):
-    """direction_fail 的退化输入：无轨迹、零长线段 → 判失败（返回 False 并置 failureflag）。"""
+    """Degenerate inputs of direction_fail: no trajectory, zero-length segment -> failure (returns False and sets failureflag)."""
     ep = rs.make("easy", seed=10)
     env = ep.env
     a, b = env.buttons_grid[0], env.buttons_grid[2]

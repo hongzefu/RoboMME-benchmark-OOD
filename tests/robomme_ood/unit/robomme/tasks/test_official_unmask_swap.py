@@ -1,10 +1,10 @@
-"""VideoUnmaskSwap 与 ButtonUnmaskSwap 原生三档真值表（C05、C06 场景运动）。
+"""VideoUnmaskSwap and ButtonUnmaskSwap native three-tier truth tables (C05, C06 scene motion).
 
-- 交换动画用真实 ``swap_flat_two_lane``（替身 actor 只提供 pose/set_pose）：每次交换结束时两只容器恰好互换位置，
-  其余容器原地不动；所有交换结束后容器位置是初始位置的一个排列。
-- 判定按「容器身份」而不是「原来的位置」：跟着被遮挡的那只容器走才算对；拿起现在占着原位置的另一只 → 失败。
-- ButtonUnmaskSwap：两个按钮任意顺序各按一次（按过的从列表里移除）；同一按钮按两次不推进；
-  同一步两个按钮同时按下 → 第一个子任务一次性吃掉两个按钮，第二个子任务永远无法完成（官方现状，登记 conditional）。
+- the swap animation uses the real ``swap_flat_two_lane`` (actor doubles only provide pose/set_pose): at the end of each swap the two containers have exactly exchanged positions,
+  the other containers stay put; after all swaps the container positions are a permutation of the initial positions.
+- verdicts are by "container identity", not "original position": only following the container that hides the cube is correct; picking up the other one now occupying the original position -> failure.
+- ButtonUnmaskSwap: each of the two buttons pressed once in any order (pressed ones are removed from the list); pressing the same button twice does not advance;
+  both buttons pressed on the same step -> the first subtask consumes both buttons at once and the second can never complete (current official behavior, registered conditional).
 """
 from __future__ import annotations
 
@@ -23,20 +23,20 @@ def _xy(a):
 
 
 def _run_until(ep, pre_elapsed):
-    """单步推进直到「下一步开始时的 elapsed」== pre_elapsed。"""
+    """Step one at a time until "elapsed at the start of the next step" == pre_elapsed."""
     while int(ep.env.elapsed_steps) < pre_elapsed:
         ep.step()
 
 
 def _demo_done_vus(ep):
-    """跑完演示段（静止观看到最后一次交换结束）；再多走到 elapsed > 交换结束步，
-    让最后一次交换在「下一步开头」的定位落地后，在线动作才不被它覆盖。"""
+    """Run through the demo segment (watching still until the last swap ends); then step further until elapsed > swap end step,
+    so that the last swap's positioning "at the start of the next step" lands and online actions are not overwritten by it."""
     guard = 0
     while ep.task_index < 1:
         ep.step()
         guard += 1
         assert guard < 600
-    assert int(ep.env.elapsed_steps) >= _swap_end(ep.env)  # 切换时点精确值见 test_vus_still_demo_one_step_before_swap_end
+    assert int(ep.env.elapsed_steps) >= _swap_end(ep.env)  # exact switch timing see test_vus_still_demo_one_step_before_swap_end
     _run_until(ep, _swap_end(ep.env) + 1)
 
 
@@ -73,7 +73,7 @@ def test_vus_swap_mechanics(vus, diff):
     start1, end1 = int(env.swap_schedule[0][2]), int(env.swap_schedule[0][3])
     _run_until(ep, start1)
     snap = {id(b): _xy(b) for b in env.spawned_bins}
-    for b in env.spawned_bins:  # 揭示动画结束后都回到原位
+    for b in env.spawned_bins:  # all back in place after the reveal animation ends
         np.testing.assert_allclose(snap[id(b)], origin[id(b)], atol=1e-6)
     _run_until(ep, end1 + 1)
     a, b = env.swap_schedule[0][0], env.swap_schedule[0][1]
@@ -87,7 +87,7 @@ def test_vus_swap_mechanics(vus, diff):
     _demo_done_vus(ep)
     final = sorted(map(tuple, np.round([_xy(o) for o in env.spawned_bins], 5)))
     initial = sorted(map(tuple, np.round(list(origin.values()), 5)))
-    # 交换只是排列（连续交换的端点捕获有亚毫米级漂移，容器间距 >= 0.1 m，1 mm 容差足以区分）
+    # swaps are only a permutation (endpoint capture of consecutive swaps drifts sub-millimeter; container spacing >= 0.1 m, so a 1 mm tolerance suffices)
     np.testing.assert_allclose(final, initial, atol=1e-3)
 
 
@@ -103,7 +103,7 @@ def test_vus_follow_identity_succeeds(vus, diff):
 
 
 def test_vus_original_position_is_wrong():
-    """找一个目标容器被交换走的布局：拿起现在占着它原位置的那只 → 失败。"""
+    """Find a layout where the target container was swapped away: picking up the one now occupying its original position -> failure."""
     with OfficialWorld("VideoUnmaskSwap") as world:
         for seed in range(40):
             ep = world.make("hard", seed=seed)
@@ -115,7 +115,7 @@ def test_vus_original_position_is_wrong():
             if impostor is not target:
                 break
         else:
-            pytest.fail("40 个 seed 内目标容器都没被交换走")
+            pytest.fail("the target container was never swapped away within 40 seeds")
         ep.grasp(impostor, z=BIN_UP)
         ep.step()
         assert ep.fail and not ep.success
@@ -127,7 +127,7 @@ def test_vus_empty_distractor_container_fails(vus, diff):
     env = ep.env
     assert len(env.spawned_bins) == 4
     empty = [b for b in env.spawned_bins if all(b is not s for s in env.selected_bins)]
-    assert len(empty) == 1  # 4 只容器只藏 3 个方块
+    assert len(empty) == 1  # 4 containers hide only 3 cubes
     _demo_done_vus(ep)
     ep.grasp(empty[0], z=BIN_UP)
     ep.step()
@@ -148,7 +148,7 @@ def test_vus_still_demo_one_step_before_swap_end(vus):
     ep = vus.make("easy", seed=4)
     env = ep.env
     _run_until(ep, _swap_end(env) - 1)
-    assert ep.task_index == 0  # 最后一次交换结束前仍是演示段
+    assert ep.task_index == 0  # still in the demo segment before the last swap ends
     ep.step()
     assert ep.task_index == 1
 
@@ -162,7 +162,7 @@ def bus():
         yield w
 
 
-REVEAL_END = T.REVEAL_END_STEP + 1  # 越过揭示动画窗口
+REVEAL_END = T.REVEAL_END_STEP + 1  # past the reveal animation window
 
 
 def _press_both(ep, env, order=("button_left", "button_right")):
@@ -196,7 +196,7 @@ def test_bus_same_button_twice_does_not_advance(bus):
 
 
 def test_bus_both_buttons_same_step_blocks_second_subgoal(bus):
-    """官方现状：同一步两个按钮同时按下，第一个子任务把两个按钮都从列表移除，第二个子任务永远不完成。"""
+    """Current official behavior: both buttons pressed on the same step, the first subtask removes both from the list and the second subtask never completes."""
     ep = bus.make("easy", seed=4)
     env = ep.env
     ep.step(REVEAL_END)
@@ -224,8 +224,8 @@ def test_bus_one_button_then_pick_is_not_success(bus):
 
 
 def test_bus_button_list_only_restored_by_rebuild(bus):
-    """按钮列表在 _load_scene 里建、_initialize_episode 不重置：只重跑 _initialize_episode 时列表残留（官方现状）；
-    基准每局重新 gym.make（重跑 _load_scene），新一局两个按钮都在。"""
+    """The button list is built in _load_scene and not reset by _initialize_episode: rerunning only _initialize_episode leaves the list stale (current official behavior);
+    the benchmark re-runs gym.make per episode (rerunning _load_scene), so both buttons are present in a new episode."""
     ep = bus.make("easy", seed=4)
     env = ep.env
     ep.step(REVEAL_END)

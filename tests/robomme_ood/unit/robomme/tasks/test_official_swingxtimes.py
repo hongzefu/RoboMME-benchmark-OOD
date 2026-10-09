@@ -1,9 +1,9 @@
-"""SwingXtimes 原生三档真值表（C05）：拾起 → 右→左 往返 N 轮 → 放下 → 按钮。
+"""SwingXtimes native three-tier truth table (C05): pick up -> swing right->left N rounds -> put down -> button.
 
-判定要点（期望由任务定义与手写事件序列得出）：
-- 「到达目标上方」= 水平距离 <= T.SWING_ENTER_XY 且高度 < T.SWING_ENTER_Z；
-- 每次「进入」右／左目标各记一次摆动，停留不重复计（离开阈值 T.SWING_EXIT_XY 的迟滞）；摆动总数 > 2N 即失败；
-- 左右反序不推进子任务；按钮前未放下、或拾干扰块 → 失败。
+Key verdicts (expectations from the task definition and hand-written event sequences):
+- "above the target" = horizontal distance <= T.SWING_ENTER_XY and height < T.SWING_ENTER_Z;
+- each "entry" into the right/left target counts one swing, lingering is not recounted (hysteresis of the exit threshold T.SWING_EXIT_XY); total swings > 2N fails;
+- reversed left/right order does not advance the subtask; not putting down before the button, or picking a distractor cube -> failure.
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def _finish(ep, env):
 def test_n_round_trips_then_putdown_and_button_succeeds(world, diff):
     ep = world.make(diff, seed=5)
     env = ep.env
-    assert env.target_right.xyz[1] < env.target_left.xyz[1]  # 「右」是 y 较小的那个
+    assert env.target_right.xyz[1] < env.target_left.xyz[1]  # "right" is the one with smaller y
     n = env.num_repeats
     if n > 1:
         assert any(f"{['', 'one', 'two', 'three'][n]} times" in g for g in goal_text(env))
@@ -72,10 +72,10 @@ def test_left_before_right_does_not_advance_and_overflows(world, diff):
     ep.grasp(env.target_cube)
     ep.step()
     idx = ep.task_index
-    _over(ep, env, env.target_left)  # 反序：先到左
+    _over(ep, env, env.target_left)  # reversed: left first
     assert ep.task_index == idx and not ep.fail
     _away(ep, env)
-    _full_rounds(ep, env, env.num_repeats)  # 之后再照常做满 N 轮：总摆动 2N+1
+    _full_rounds(ep, env, env.num_repeats)  # then complete N rounds as usual: total swings 2N+1
     assert env.swing_count == 2 * env.num_repeats + 1
     assert env.swing_over_limit
     ep.step()
@@ -91,10 +91,10 @@ def test_dwelling_counts_once(world, diff):
     for _ in range(5):
         _over(ep, env, env.target_right)
     assert env.swing_count == 1
-    # 超出进入阈值、仍在离开阈值内晃动：仍算停留
+    # beyond the entry threshold but wobbling within the exit threshold: still counts as lingering
     _over(ep, env, env.target_right, dx=T.SWING_EXIT_XY - T.EPS)
     assert env.swing_count == 1
-    # 真正离开再回来：再计一次
+    # really leaving and coming back: counted again
     _away(ep, env)
     _over(ep, env, env.target_right)
     assert env.swing_count == 2
@@ -121,7 +121,7 @@ def test_button_without_putdown_fails(world, diff):
     ep.grasp(env.target_cube)
     ep.step()
     _full_rounds(ep, env, env.num_repeats)
-    ep.press(env.button)  # 仍在「放下」子任务，按钮是失败条件
+    ep.press(env.button)  # still in the "put down" subtask; the button is a failure condition
     ep.step()
     assert ep.fail and not ep.success
 

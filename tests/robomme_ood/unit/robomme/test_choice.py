@@ -1,11 +1,11 @@
-"""官方多选动作的映射（C07 投影与最近、C09 multi_choice 包装）。
+"""Mapping of official multiple-choice actions (C07 projection and nearest, C09 multi_choice wrapper).
 
-- choice_action_mapping：世界点 → 像素投影（手算针孔模型）、越界／相机背后 → None、外参取反兜底；
-  按像素最近与按 3D 最近选目标；嵌套候选去重；非有限输入 → None；
-- oracle_action_matcher：label 精确匹配、动作文本 → label；
-- OraclePlannerDemonstrationWrapper：命令里 point 是 [y, x]，交给选择器前换成 [x, y] 并取整；
-  label 去空白、转小写后精确匹配；未匹配 → 空批；需要目标却没给 point 或匹配不到 → ValueError；
-  选中后真实走「逐步收集 → 两次 evaluate → 输出」流程（求解函数换成调用 planner.env.step 的替身）。
+- choice_action_mapping: world point -> pixel projection (hand-computed pinhole model), out of bounds/behind camera -> None, inverted-extrinsics fallback;
+  target selection by nearest pixel and nearest 3D; nested candidates deduplicated; non-finite input -> None;
+- oracle_action_matcher: exact label match, action text -> label;
+- OraclePlannerDemonstrationWrapper: point in the command is [y, x], converted to [x, y] and rounded before the selector;
+  label stripped and lowercased then matched exactly; no match -> empty batch; target required but no point given or no match -> ValueError;
+  once selected, really runs the "collect step by step -> evaluate twice -> output" flow (solver replaced by a double calling planner.env.step).
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ SHAPE = (100, 120)  # (H, W)
 
 
 class _Actor:
-    """可哈希的替身 actor（真实 actor 按对象身份哈希）。"""
+    """Hashable actor double (real actors hash by object identity)."""
 
     def __init__(self, name, xyz):
         self.name = name
@@ -42,15 +42,15 @@ def _actor(name, xyz):
     return _Actor(name, xyz)
 
 
-# --------------------------------------------------------------------------- 投影
+# --------------------------------------------------------------------------- Projection
 
 
 @pytest.mark.parametrize("xyz, pixel", [
-    ((0.1, 0.2, 1.0), [60, 60]),        # x = 100·0.1/1 + 50，y = 100·0.2/1 + 40
-    ((0.0, 0.0, 2.0), [50, 40]),        # 主点
+    ((0.1, 0.2, 1.0), [60, 60]),        # x = 100*0.1/1 + 50, y = 100*0.2/1 + 40
+    ((0.0, 0.0, 2.0), [50, 40]),        # principal point
     ((-0.25, -0.2, 1.0), [25, 20]),
-    ((0.69, 0.0, 1.0), [119, 40]),      # 最右一列 x = 119（宽 120）
-    ((-0.5, -0.4, 1.0), [0, 0]),        # 左上角
+    ((0.69, 0.0, 1.0), [119, 40]),      # rightmost column x = 119 (width 120)
+    ((-0.5, -0.4, 1.0), [0, 0]),        # top-left corner
 ])
 def test_projection_handcomputed(xyz, pixel):
     assert cam.project_world_to_pixel(xyz, K, E_ID, SHAPE) == pixel
@@ -62,8 +62,8 @@ def test_projection_rejects_behind_outside_nonfinite(xyz):
 
 
 def test_projection_falls_back_to_inverted_extrinsic():
-    e = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, -2]]  # 当作 world→camera 时点在相机背后（z = −1）
-    assert cam.project_world_to_pixel((0, 0, 1), K, e, SHAPE) == [50, 40]  # 取逆后 z = 3
+    e = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, -2]]  # taken as world->camera the point is behind the camera (z = -1)
+    assert cam.project_world_to_pixel((0, 0, 1), K, e, SHAPE) == [50, 40]  # after inversion z = 3
 
 
 @pytest.mark.parametrize("bad", [dict(intrinsic_cv=[1, 2]), dict(extrinsic_cv=[1] * 11), dict(image_shape=(0, 10)),
@@ -74,7 +74,7 @@ def test_projection_rejects_bad_camera(bad):
     assert cam.project_world_to_pixel(**args) is None
 
 
-# --------------------------------------------------------------------------- 选择
+# --------------------------------------------------------------------------- Selection
 
 
 def test_select_by_pixel_nearest_and_dedup():
@@ -86,7 +86,7 @@ def test_select_by_pixel_nearest_and_dedup():
     assert res["match_distance"] == pytest.approx(np.hypot(2, 1))
     assert res["selection_mode"] == "nearest_pixel_projection"
     assert cam.select_target_with_pixel([a, b], [51, 40], K, E_ID, SHAPE)["obj"] is b
-    assert cam.select_target_with_pixel([c], [50, 40], K, E_ID, SHAPE) is None   # 唯一候选投影不了
+    assert cam.select_target_with_pixel([c], [50, 40], K, E_ID, SHAPE) is None   # the only candidate cannot be projected
     assert cam.select_target_with_pixel([a], [np.nan, 1], K, E_ID, SHAPE) is None
     assert cam.select_target_with_pixel([], [1, 1], K, E_ID, SHAPE) is None
 
@@ -101,7 +101,7 @@ def test_select_by_position_nearest():
     assert cam.select_target_with_position([a], [0, 0]) is None
 
 
-# --------------------------------------------------------------------------- 标签
+# --------------------------------------------------------------------------- Labels
 
 
 def test_exact_label_and_action_text_mapping():
@@ -116,14 +116,14 @@ def test_exact_label_and_action_text_mapping():
     assert map_action_text_to_option_label(3, options) is None
 
 
-# --------------------------------------------------------------------------- OraclePlanner 命令解析
+# --------------------------------------------------------------------------- OraclePlanner command parsing
 
 
 OPTS = [{"label": "a"}, {"label": "b", "available": []}]
 
 
 @pytest.mark.parametrize("cmd, expected", [
-    ({"choice": " A ", "point": [10.4, 20.6]}, (0, [21, 10])),   # [y, x] → [x, y]，取整
+    ({"choice": " A ", "point": [10.4, 20.6]}, (0, [21, 10])),   # [y, x] -> [x, y], rounded
     ({"choice": "b", "point": (3, 4)}, (1, [4, 3])),
     ({"choice": "b"}, (1, None)),
     ({"choice": "b", "point": [1]}, (1, None)),
@@ -146,7 +146,7 @@ def _oracle(monkeypatch):
     made = as_made(inner)
     made.reset()
     w = OraclePlannerDemonstrationWrapper(made, env_id="PickXtimes", gui_render=False)
-    w.planner = SimpleNamespace(env=made)  # reset 才建真规划器；这里直接给收集用的替身
+    w.planner = SimpleNamespace(env=made)  # the real planner is built only on reset; give the collection double directly here
     return w, inner, evals
 
 
@@ -162,7 +162,7 @@ def test_oracle_target_option_requires_matching_point(monkeypatch):
     with pytest.raises(ValueError, match="requires"):
         w.step({"choice": "a"})
     with pytest.raises(ValueError, match="could not match"):
-        w.step({"choice": "a", "point": [1, 1]})  # 没有相机缓存 → 投影不了
+        w.step({"choice": "a", "point": [1, 1]})  # no camera cache -> cannot project
     assert inner.step_calls == 0
 
 
@@ -179,5 +179,5 @@ def test_oracle_executes_selected_option(monkeypatch):
     obs, r, term, trunc, info = w.step({"choice": "b"})
     assert seen == [inner.target] and inner.step_calls == 2
     assert all(len(v) == 2 for v in obs.values())
-    assert evals == [False, True]  # 先普通 evaluate，再 solve_complete_eval=True
+    assert evals == [False, True]  # normal evaluate first, then solve_complete_eval=True
     assert "available_multi_choices" in info

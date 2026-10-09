@@ -1,19 +1,19 @@
-"""包内规格取值的测试侧判定器（只用标准库 json 读 ``specs.jsonl``，不依赖私有评估仓的工具）。
+"""Test-side checkers for packaged spec values (read ``specs.jsonl`` with stdlib json only, no dependency on the private evaluation repo's tools).
 
-旧仓 ``scripts/parity/hard_regression.py``（``fd0017d6``）的 ``delivery-set``／``tier-values``／``movecube-layout``
-三个子命令随私有评估仓走；它们对**包内数据本身**的断言在本仓仍须有人守护，所以把判据逐条搬到这里，数值与
-口径和该工具一致：
+The ``delivery-set``/``tier-values``/``movecube-layout`` subcommands of the old repo's ``scripts/parity/hard_regression.py`` (``fd0017d6``)
+moved to the private evaluation repo; their assertions about **the packaged data itself** still need a guard in this repo, so the criteria are moved here one by one, with values and
+basis identical to that tool:
 
-- :func:`tier_dims`：从交付行 ``spec`` 读本局实际取值（字段与 ``hard_regression.tier_dims`` 相同）；
-- :func:`delivery_set_check`：逐格数交付行（selected 且 ``rollout.status == "ok"``）与格表相等、格表外无交付、
-  selected 而未成功为 0、交付行执行步不超上限；同任务跨档 seed 两两不交；布局独立（header ``layout_rule``、
-  ``layout_parent`` 全空、跨档交付行浮点位置叶子不逐位相等、PatternLock 路径无 ≥ 9 节点的共同前缀）；
-- :func:`movecube_layout_check`：MoveCube 每局 demo／execution 两段 × 方块、goal、抓杆点三点用源码
-  ``MoveCube._in_region_u`` 判在 V9 区域内，至少一点落在旧 V8 区域外，段内 region 与源码及 V9 三个数一致；
-  运动方式取最后一次 ``_initialize_episode`` 的 ``way_idx`` 计数。
+- :func:`tier_dims`: read the episode's actual values from the delivered row's ``spec`` (fields identical to ``hard_regression.tier_dims``);
+- :func:`delivery_set_check`: per-cell delivered row count (selected and ``rollout.status == "ok"``) equals the cell table, no delivery outside the table,
+  selected-but-failed is 0, delivered rows do not exceed the execution-step cap; same-task seeds pairwise disjoint across tiers; layouts independent (header ``layout_rule``,
+  ``layout_parent`` all null, float position leaves of delivered rows not bitwise equal across tiers, no PatternLock path common prefix of >= 9 nodes);
+- :func:`movecube_layout_check`: for each MoveCube episode, demo/execution segments x the cube, goal and peg grasp point are checked with the source
+  ``MoveCube._in_region_u`` to lie in the V9 region, at least one point outside the old V8 region, and the in-segment region consistent with the source and the three V9 numbers;
+  motion modes counted from ``way_idx`` of the last ``_initialize_episode``.
 
-本模块不写业务常量（格表、区域、配额、上限一律由调用方从 ``test_constants`` 传入）；``hard_regression`` 自身
-的结构常量（位置子树、路径前缀阈值、段名与点名）照抄。不是测试文件，不被收集。
+This module writes no business constants (cell table, region, quota and caps are always passed in by the caller from ``test_constants``); ``hard_regression``'s own
+structural constants (position subtrees, path prefix threshold, segment and point names) are copied verbatim. Not a test file; not collected.
 """
 from __future__ import annotations
 
@@ -22,37 +22,37 @@ import json
 from pathlib import Path
 from typing import Any
 
-# ---------------------------------------------------------------- 读取
+# ---------------------------------------------------------------- Reading
 
 
 def read_tier(root: Path, tier: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """``<root>/<tier>/specs.jsonl`` → (header, rows)；标准库 json 逐行读，不经被测的读取函数。"""
+    """``<root>/<tier>/specs.jsonl`` -> (header, rows); read line by line with stdlib json, not via the reader under test."""
     records = [json.loads(line) for line in (Path(root) / tier / "specs.jsonl").read_text(encoding="utf-8").splitlines()
                if line.strip()]
     if not records or records[0].get("record") != "header":
-        raise ValueError(f"{root}/{tier}/specs.jsonl：空文件或首行不是 header")
+        raise ValueError(f"{root}/{tier}/specs.jsonl: empty file or first line is not a header")
     return records[0], records[1:]
 
 
 def delivered(row: dict[str, Any]) -> bool:
-    """交付行：selected 且 rollout.status == "ok"（与 hard_specs.delivered 同口径，测试侧独立写）。"""
+    """Delivered rows: selected and rollout.status == "ok" (same basis as hard_specs.delivered, written independently on the test side)."""
     return bool(row.get("selected")) and (row.get("rollout") or {}).get("status") == "ok"
 
 
-# ---------------------------------------------------------------- 档位取值
+# ---------------------------------------------------------------- Tier values
 
 
 def _actual_int(value: Any, where: str) -> int:
-    """取实际整数：``{actual|placed: n}`` 取实际值；否则须为非负整数。"""
+    """Take the actual integer: ``{actual|placed: n}`` takes the actual value; otherwise must be a non-negative integer."""
     if isinstance(value, dict):
         value = value.get("actual", value.get("placed"))
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-        raise ValueError(f"{where} 不是非负整数：{value!r}")
+        raise ValueError(f"{where} is not a non-negative integer: {value!r}")
     return value
 
 
 def tier_dims(task: str, spec: dict[str, Any]) -> dict[str, int]:
-    """从 /4 行 ``spec`` 读本局实际取值（字段逐项照 ``hard_regression.tier_dims``）。"""
+    """Read the episode's actual values from a /4 row's ``spec`` (fields follow ``hard_regression.tier_dims`` item by item)."""
     objects, actions = spec.get("objects") or {}, spec.get("actions") or {}
     where = f"{task}.spec"
     if task in ("PickXtimes", "SwingXtimes"):
@@ -91,20 +91,20 @@ def tier_dims(task: str, spec: dict[str, Any]) -> dict[str, int]:
     if task == "PatternLock":
         nodes = actions["path_nodes"]
         if not isinstance(nodes, list):
-            raise ValueError(f"{where}.actions.path_nodes 不是列表")
+            raise ValueError(f"{where}.actions.path_nodes is not a list")
         return {"nodes": len(nodes)}
-    raise KeyError(f"取值表不含任务 {task}")
+    raise KeyError(f"value table has no task {task}")
 
 
 def value_ok(got: Any, want: Any) -> bool:
-    """定值逐值相等；``(lo, hi)`` 为闭区间。"""
+    """Fixed values compared for equality; ``(lo, hi)`` is a closed interval."""
     if isinstance(want, tuple):
         return isinstance(got, int) and not isinstance(got, bool) and want[0] <= got <= want[1]
     return got == want
 
 
 def row_mismatches(rows: list[dict[str, Any]], tier: str, table: dict[str, dict[str, dict[str, Any]]]) -> list[str]:
-    """交付行逐局实际取值与表比；读取失败与键集合不符同样记入。返回不符清单（空 = 全对）。"""
+    """Compare each delivered episode's actual values to the table; read failures and key-set mismatches are recorded too. Returns the mismatch list (empty = all correct)."""
     out = []
     for row in rows:
         if row.get("task") not in table or not delivered(row):
@@ -113,7 +113,7 @@ def row_mismatches(rows: list[dict[str, Any]], tier: str, table: dict[str, dict[
         try:
             got = tier_dims(row["task"], row.get("spec") or {})
         except (KeyError, TypeError, ValueError) as exc:
-            out.append(f"{label}:读取失败 {exc}")
+            out.append(f"{label}:read failed {exc}")
             continue
         want = table[row["task"]][tier]
         wrong = {dim: (got.get(dim), value) for dim, value in want.items() if not value_ok(got.get(dim), value)}
@@ -123,7 +123,7 @@ def row_mismatches(rows: list[dict[str, Any]], tier: str, table: dict[str, dict[
 
 
 def tier_values_check(root: Path, tiers: tuple[str, ...], table: dict[str, dict[str, dict[str, Any]]]) -> dict[str, Any]:
-    """``tier-values`` 的等价判定：表内每格逐局比，``mismatches`` = 不符局数 + 无行的格数；缺档文件另计。"""
+    """Equivalent check of ``tier-values``: compare per episode for every cell in the table; ``mismatches`` = mismatched episodes + cells with no rows; missing tier files counted separately."""
     mismatches, rows_checked, missing_files = [], 0, []
     seen_cells: set[tuple[str, str]] = set()
     for tier in tiers:
@@ -136,15 +136,15 @@ def tier_values_check(root: Path, tiers: tuple[str, ...], table: dict[str, dict[
         seen_cells |= {(r["task"], tier) for r in chosen}
         mismatches += row_mismatches(chosen, tier, table)
     want_cells = {(task, tier) for task, by_tier in table.items() for tier in by_tier if tier in tiers}
-    empty = sorted(f"{t}/{tier}:无行" for t, tier in want_cells - seen_cells if tier not in missing_files)
+    empty = sorted(f"{t}/{tier}:no rows" for t, tier in want_cells - seen_cells if tier not in missing_files)
     return {"mismatches": mismatches + empty, "rows": rows_checked, "missing_files": missing_files}
 
 
-# ---------------------------------------------------------------- 交付集、seed 隔离、布局独立
+# ---------------------------------------------------------------- Delivery set, seed isolation, layout independence
 
-#: 位置类子树（照抄 hard_regression.POSITION_SUBTREES）
+#: Position subtrees (copied from hard_regression.POSITION_SUBTREES)
 POSITION_SUBTREES = ("layout", "initializations", "actions.path_nodes", "actions.nodes", "objects.distractors.bins")
-#: PatternLock 图案节点路径；两条路径共同前缀至少这么长才算照抄
+#: PatternLock pattern node paths; two paths count as copied only if their common prefix is at least this long
 PATH_NODES = "actions.path_nodes"
 PATH_NODES_MIN_PREFIX = 9
 
@@ -184,8 +184,8 @@ def _has_float(value: Any) -> bool:
 
 
 def layout_overlap(items: list[tuple[str, dict[str, Any], bool]]) -> dict[str, Any]:
-    """同一任务跨档位置照抄检测（口径照抄 hard_regression.layout_overlap）：剔除在全部规格行里出现 ≥ 2 次且处处
-    相同的恒定叶子；不同档交付行共有的浮点叶子任一逐位相等，或 PatternLock 路径有 ≥ 9 节点的共同前缀，记一对。"""
+    """Same-task cross-tier position copy detection (basis copied from hard_regression.layout_overlap): drop constant leaves that occur >= 2 times in all spec rows and are identical
+    everywhere; a pair is recorded if any float leaf shared by delivered rows of different tiers is bitwise equal, or PatternLock paths share a common prefix of >= 9 nodes."""
     leaves = [(tier, row, is_delivered, position_leaves(row.get("spec") or {})) for tier, row, is_delivered in items]
     seen: dict[str, set[str]] = collections.defaultdict(set)
     count: collections.Counter = collections.Counter()
@@ -222,7 +222,7 @@ def layout_overlap(items: list[tuple[str, dict[str, Any], bool]]) -> dict[str, A
 
 def delivery_set_check(root: Path, tiers: tuple[str, ...], cells: dict[tuple[str, str], int], *, exec_cap: int,
                        layout_rule: dict[str, Any]) -> dict[str, Any]:
-    """``delivery-set`` 三行判定的等价计数（不含 ``load_specs_root`` 校验，那一项由 test_packaged_specs 覆盖）。"""
+    """Equivalent counts for the three verdict lines of ``delivery-set`` (excluding ``load_specs_root`` validation, which test_packaged_specs covers)."""
     files: dict[str, tuple[dict[str, Any], list[dict[str, Any]]]] = {}
     missing_files = []
     for tier in tiers:
@@ -272,14 +272,14 @@ def delivery_set_check(root: Path, tiers: tuple[str, ...], cells: dict[tuple[str
             "layout_detail": detail}
 
 
-# ---------------------------------------------------------------- MoveCube 新区域与运动方式
+# ---------------------------------------------------------------- MoveCube new region and motion modes
 
 MOVECUBE_SEGMENTS = ("demo", "execution")
 MOVECUBE_POINT_NAMES = ("cube", "goal", "grasp")
 
 
 def movecube_way(spec: dict[str, Any]) -> int | None:
-    """录像局的运动方式：最后一次 ``_initialize_episode`` 的 ``way_idx``（照抄 ``_freeze._movecube_way``）。"""
+    """Motion mode of the recorded episode: ``way_idx`` of the last ``_initialize_episode`` (copied from ``_freeze._movecube_way``)."""
     inits = spec.get("initializations") if isinstance(spec, dict) else None
     if not isinstance(inits, dict) or not inits:
         return None
@@ -289,7 +289,7 @@ def movecube_way(spec: dict[str, Any]) -> int | None:
 
 
 def movecube_points(spec: dict[str, Any], seg: str, module) -> dict[str, Any]:
-    """一段的三个落点与该段规格 region（经源码 ``_xhard4_region`` 整理）；杆长由 ``peg_axis_extent_m`` 反算并复核。"""
+    """The three landing points of a segment and that segment's spec region (normalized via the source ``_xhard4_region``); peg length is back-computed from ``peg_axis_extent_m`` and re-checked."""
     import numpy as np
 
     layout = spec["layout"][seg]
@@ -298,7 +298,7 @@ def movecube_points(spec: dict[str, Any], seg: str, module) -> dict[str, Any]:
     extent = tuple(float(v) for v in region_cfg["peg_axis_extent_m"])
     length = 2.0 * extent[1]
     if not np.allclose(module._peg_axis_extent(length), extent, rtol=0.0, atol=1e-12):
-        raise ValueError(f"{seg}.peg_axis_extent_m {extent} 与 _peg_axis_extent({length}) 不符")
+        raise ValueError(f"{seg}.peg_axis_extent_m {extent} does not match _peg_axis_extent({length})")
     base_y, root_x, root_y = (float(v) for v in layout["peg_offsets"])
     root = module._peg_root_xy(base_y, root_x, root_y)
     grasp, _, _ = module._peg_geometry(root, float(layout["peg_yaw"]), length, extent)
@@ -310,8 +310,8 @@ def movecube_points(spec: dict[str, Any], seg: str, module) -> dict[str, Any]:
 
 def movecube_layout_check(rows: list[dict[str, Any]], *, module, v9_region: dict[str, Any],
                           v8_region: dict[str, Any]) -> dict[str, Any]:
-    """逐局两段三点 → in_region／outside_old／region_mismatch／坏行，并按运动方式计数（照抄
-    ``hard_regression.movecube_layout_check``）。是否 PASS 由调用方对照钉值判断。"""
+    """Two segments x three points per episode -> in_region/outside_old/region_mismatch/bad rows, counted per motion mode (copied from
+    ``hard_regression.movecube_layout_check``). Whether it PASSes is judged by the caller against the pins."""
     source_cfg = module.MoveCube.config_xhard4["region"]
     in_region = outside_old = points = region_mismatch = 0
     bad_rows: list[str] = []
@@ -321,7 +321,7 @@ def movecube_layout_check(rows: list[dict[str, Any]], *, module, v9_region: dict
         label = f"{row.get('task')}/c{row.get('candidate')}/seed{row.get('seed')}"
         try:
             segs = {seg: movecube_points(row["spec"], seg, module) for seg in MOVECUBE_SEGMENTS}
-        except Exception as exc:  # noqa: BLE001 缺字段、类型不对、源码校验拒绝 → 坏行
+        except Exception as exc:  # noqa: BLE001 missing field, wrong type, source validation rejection -> bad row
             bad_rows.append(f"{label}: {type(exc).__name__}: {exc}"[:300])
             continue
         ways[movecube_way(row["spec"])] += 1

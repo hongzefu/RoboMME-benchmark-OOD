@@ -1,15 +1,15 @@
-"""L1 契约：``robomme_ood`` 的 ``BenchmarkEnvBuilder(dataset="ood")`` 对 800 局逐局交给 ``gym.make`` 的参数。
+"""L1 contract: the arguments ``robomme_ood``'s ``BenchmarkEnvBuilder(dataset="ood")`` passes to ``gym.make`` for each of the 800 episodes.
 
-手段：把 ``gym.make`` 换成「记录位置参数与 kwargs 后抛哨兵异常」的替身，逐局调真实的 ``make_env_for_episode``，
-不建任何仿真场景。期望由标准库 json 直接读包内规格得出：档序 xhard1→xhard5 主序、档内交付行（selected 且
-rollout ok）按 candidate 升序拼接成 episode 0..49（hard_builder 模块文档写明的契约）。
+Technique: replace ``gym.make`` with a double that "records positional args and kwargs then raises a sentinel", and call the real ``make_env_for_episode`` per episode,
+without building any simulation scene. Expectations come from reading the packaged specs directly with stdlib json: tier order xhard1->xhard5 as the major order, delivered rows within a tier (selected and
+rollout ok) concatenated in ascending candidate order as episodes 0..49 (the contract stated in the hard_builder module docstring).
 
-- 16 任务 × 50 局 = 800，逐局 kwargs = runtime 四项 + seed + difficulty（档名）+ sampling_config
-  （header 该任务）+ native_episode_spec（该行 spec），恰好这些键；ood 不含 xhard0；
-- 不传 ``dataset`` 即 ood；只认 ``ood``／``hard-verify`` 两个数据集，官方 ``train``／``test``／``val``、档位名
-  （如 ``xhard1``）、改名前旧名与拼写变体一律 ``ValueError``；构造函数没有 ``specs_root`` 形参（规格根只读包内）；
-- 规格根整根校验（空根、旧 schema、改行不重签）直接对 ``hard_specs.load_specs_root`` 测——builder 已不接受外部根。
-  hard-verify 的逐局参数见 ``test_builder_hard0.py``。
+- 16 tasks x 50 episodes = 800; per-episode kwargs = four runtime items + seed + difficulty (tier name) + sampling_config
+  (that task's header entry) + native_episode_spec (that row's spec), exactly these keys; ood contains no xhard0;
+- omitting ``dataset`` means ood; only the two datasets ``ood``/``hard-verify`` are accepted; official ``train``/``test``/``val``, tier names
+  (e.g. ``xhard1``), pre-rename legacy names and spelling variants all raise ``ValueError``; the constructor has no ``specs_root`` parameter (the spec root is packaged only);
+- whole spec-root validation (empty root, old schema, edited row without re-signing) is tested directly against ``hard_specs.load_specs_root`` -- the builder no longer accepts external roots.
+  Per-episode arguments of hard-verify are in ``test_builder_hard0.py``.
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ EXPECTED_KEYS = {*RUNTIME, "seed", "difficulty", "sampling_config", "native_epis
 
 
 class Sentinel(Exception):
-    """替身 gym.make 抛出的哨兵：证明构建在 gym.make 处被拦下，没有起仿真。"""
+    """Sentinel raised by the gym.make double: proves construction was stopped at gym.make without starting simulation."""
 
 
 @pytest.fixture
@@ -64,7 +64,7 @@ def builder_cls():
 
 
 def expected_rows(root: Path = ROOT) -> dict[str, list[tuple[str, dict, dict]]]:
-    """{task: [(tier, header, row), ...]}：独立读规格文件，按档序与 candidate 升序排好。"""
+    """{task: [(tier, header, row), ...]}: read the spec files independently, sorted by tier order and ascending candidate."""
     out: dict[str, list] = {task: [] for task in TASKS}
     for tier in NEW_TIERS:
         path = root / tier / "specs.jsonl"
@@ -113,7 +113,7 @@ def test_builder_800_every_episode(recorder):
 
 
 def _poison(obj) -> int:
-    """原地改坏嵌套结构：每个 dict 加一个标记键、每个数值叶子改成 -999；返回改动处数（证明真改到了东西）。"""
+    """Corrupt a nested structure in place: add a marker key to every dict and set every numeric leaf to -999; return the number of edits (proving something was actually changed)."""
     changed = 0
     if isinstance(obj, dict):
         for key, value in list(obj.items()):
@@ -135,10 +135,10 @@ def _poison(obj) -> int:
 
 
 def test_known_defect_builder_kwargs_aliased_to_builder_state(recorder):
-    """锁定现状（已知缺陷，登记 docs/1002-pending-decisions.md D5，2026-10-04 主会话裁决本轮不修）：
-    make_env_for_episode 把 builder 内部 lru_cache 里的 sampling_config 与 row["spec"] 原对象直接交给 gym.make，
-    调用方原地改动第一次拿到的 kwargs 会污染第二次构建（规格侧环境内 SpecRecorder 会 deepcopy，sampling_config 无此保护）。
-    正确行为应当是：每次交出副本，第二次拿到的仍等于独立读出的规格值。修复时把本用例的断言反转为 `again == expected`。"""
+    """Lock in current behavior (known defect, registered as D5 in docs/1002-pending-decisions.md; main session decided on 2026-10-04 not to fix it this round):
+    make_env_for_episode hands the original sampling_config and row["spec"] objects from the builder's internal lru_cache straight to gym.make,
+    so a caller mutating the kwargs of the first build in place pollutes the second build (the spec-side SpecRecorder in the env deepcopies, sampling_config has no such protection).
+    Correct behavior: hand out a copy each time, so the second build still equals the independently read spec values. When fixing, invert this test's assertion to `again == expected`."""
     builder = builder_cls()(env_id="StopCube", dataset="ood")
     tier, header, row = expected_rows()["StopCube"][0]
     expected = newvalue_kwargs(tier, header, row, "StopCube")
@@ -150,20 +150,20 @@ def test_known_defect_builder_kwargs_aliased_to_builder_state(recorder):
             assert _poison(first[key]) > 1
         assert first["sampling_config"] != expected["sampling_config"]
         _, again = capture(builder, 0, recorder)
-        # 必须在复原之前判断：共用时 again 与 first 是同一对象，finally 的原地复原会把它一起洗掉
+        # must be decided before restoring: when shared, again and first are the same object and the in-place restore in finally would wash it out too
         aliased = {key: "__poisoned__" in again[key] for key in keys}
     finally:
-        # 规格读取有进程级缓存（hard_builder 的 lru_cache）：共用对象时改坏的是缓存本身，必须原地复原，
-        # 否则同进程后面的用例会读到 -999（顶层对象身份不变，内容换回独立读出的副本）
+        # spec reading has a process-level cache (hard_builder's lru_cache): when objects are shared the cache itself is corrupted and must be restored in place,
+        # otherwise later tests in the same process would read -999 (top-level object identity unchanged, contents swapped back to an independently read copy)
         for key in keys:
             first[key].clear()
             first[key].update(json.loads(json.dumps(expected[key])))
-    # 现状：两项都共用（改坏的标记出现在第二次构建的 kwargs 里）；任何一项被修成交出副本，本断言即失败，提醒同步反转。
+    # current behavior: both are shared (the corruption marker shows up in the second build's kwargs); if either is fixed to hand out a copy, this assertion fails as a reminder to invert it.
     assert aliased == {"sampling_config": True, "native_episode_spec": True}
 
 
 def test_default_dataset_is_ood_without_xhard0(recorder):
-    """不传 ``dataset`` 构造即 ood：局数、逐局参数与显式 ``dataset="ood"`` 相同，且没有一局是 xhard0。"""
+    """Constructing without ``dataset`` means ood: episode count and per-episode arguments equal an explicit ``dataset="ood"``, and no episode is xhard0."""
     import inspect
 
     cls = builder_cls()
@@ -175,7 +175,7 @@ def test_default_dataset_is_ood_without_xhard0(recorder):
         assert builder.get_episode_num() == PER_TASK
         tiers = {builder.resolve_episode(e)[1] for e in range(PER_TASK)}
         assert XHARD0 not in tiers and tiers <= set(NEW_TIERS)
-    # 抽一任务逐局比 kwargs，证明缺省构造就是 ood 本身
+    # compare kwargs per episode for one task, proving the default construction is ood itself
     builder = cls(env_id="StopCube")
     for episode, (tier, header, row) in enumerate(expected["StopCube"]):
         _, kwargs = capture(builder, episode, recorder)
@@ -183,7 +183,7 @@ def test_default_dataset_is_ood_without_xhard0(recorder):
 
 
 def test_two_datasets_episode_totals():
-    """两数据集局数乘式：hard-verify 16 任务 × 12 局 = 192，ood 16 任务 × 50 局 = 800；ood 逐任务等于交付格表行和。"""
+    """Episode-count products for both datasets: hard-verify 16 tasks x 12 = 192, ood 16 tasks x 50 = 800; ood per task equals the row sum of the delivery cell table."""
     cls = builder_cls()
     totals = {dataset: 0 for dataset in DATASETS}
     for task in TASKS:
@@ -195,7 +195,7 @@ def test_two_datasets_episode_totals():
 
 
 def test_no_specs_root_parameter():
-    """构造函数没有 ``specs_root`` 形参（H1 裁剪）：传入即 ``TypeError``，两数据集都一样；``resolve_identity`` 不带该键。"""
+    """The constructor has no ``specs_root`` parameter (H1 trim): passing it raises ``TypeError`` for both datasets; ``resolve_identity`` has no such key."""
     import inspect
 
     cls = builder_cls()
@@ -208,7 +208,7 @@ def test_no_specs_root_parameter():
 
 def test_rejections(tmp_path):
     cls = builder_cls()
-    # 官方三个 split 与档位名：本构建器一律拒绝（要官方行为请用官方 robomme 的构建器）
+    # the three official splits and tier names: always rejected by this builder (use the official robomme builder for official behavior)
     for dataset in ("train", "test", "val", "xhard1"):
         with pytest.raises(ValueError):
             cls(env_id="StopCube", dataset=dataset)
@@ -218,7 +218,7 @@ def test_rejections(tmp_path):
         cls(env_id="StopCube", dataset="ood", action_space="torque")
     with pytest.raises(ValueError):
         cls(env_id="NotATask", dataset="ood")
-    # hard-verify：接受（每任务恰 12 局 xhard0）；拼写变体、改名前的旧名、元数据覆盖、未知任务一律拒绝
+    # hard-verify: accepted (exactly 12 xhard0 episodes per task); spelling variants, pre-rename legacy names, metadata overrides and unknown tasks are all rejected
     assert cls(env_id="StopCube", dataset="hard-verify").get_episode_num() == XHARD0_PER_TASK
     assert len(LEGACY_DATASET_NAMES) == 2
     for wrong in ("hard_verify", "hard-verify0", "xhard0", "Hard-Verify", "OOD", *LEGACY_DATASET_NAMES):
@@ -230,7 +230,7 @@ def test_rejections(tmp_path):
         cls(env_id="NotATask", dataset="hard-verify")
 
 
-# ── 规格根整根校验（builder 只读包内根；校验函数本身对 tmp 副本测）────────────
+# -- Whole spec-root validation (the builder reads only the packaged root; the validator itself is tested on tmp copies) ------------
 
 
 def partial_root(tmp_path: Path, tiers=("xhard5",)) -> Path:
@@ -252,7 +252,7 @@ def _load(root: Path):
 
 
 def test_specs_root_validation_rejections(tmp_path):
-    """局部根（只含 xhard5）原样可读；空根、档文件不是 /4、改了一行不重签，整根校验都拒绝。"""
+    """A partial root (only xhard5) is readable as-is; an empty root, a tier file that is not /4, and one row edited without re-signing are all rejected by whole-root validation."""
     from robomme_ood.env_record_wrapper import hard_specs
 
     assert tuple(_load(partial_root(tmp_path / "ok"))) == ("xhard5",)
@@ -260,7 +260,7 @@ def test_specs_root_validation_rejections(tmp_path):
     empty.mkdir()
     with pytest.raises(hard_specs.SpecsError):
         _load(empty)
-    # 档文件不是 /4
+    # tier file is not /4
     old = tmp_path / "old"
     (old / "xhard5").mkdir(parents=True)
     lines = (ROOT / "xhard5" / "specs.jsonl").read_text(encoding="utf-8").splitlines()
@@ -269,7 +269,7 @@ def test_specs_root_validation_rejections(tmp_path):
     (old / "xhard5" / "specs.jsonl").write_text("\n".join([json.dumps(header), *lines[1:]]) + "\n", encoding="utf-8")
     with pytest.raises(hard_specs.SpecsError):
         _load(old)
-    # 改了一行不重签：整根校验拒绝
+    # one row edited without re-signing: whole-root validation rejects
     bad = partial_root(tmp_path / "bad")
     lines = (bad / "xhard5" / "specs.jsonl").read_text(encoding="utf-8").splitlines()
     row = json.loads(lines[1])

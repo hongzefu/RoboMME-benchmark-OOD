@@ -1,12 +1,12 @@
-"""L1 契约：唯一一份 V9 档位取值表（v8 方案第一部分表 1，V9 沿用），同时对三处核对：
+"""L1 contract: the single V9 tier value table (v8 plan part one table 1, reused by V9), checked against three places at once:
 
-1. 进程内各任务 ``native_blocks(cls)`` 给出的 ``decision``（按档位的新值取值）；
-2. 包内各档 header 的 ``sampling_config[task]``（逐字等于 1 的 ``{"decision", "native"}``，并按表取值）；
-3. 包内逐行规格：交付行 ``spec`` 里本局的实际取值（经测试侧读取函数 ``packaged_checks.tier_dims``，字段与旧仓
-   ``scripts/parity/hard_regression.py::tier_dims`` 逐项相同；该工具随私有评估仓，本仓自带等价判定）。
-表里定值写成整数，区间写成 ``(lo, hi)`` 闭区间（RouteStick 的段数、PatternLock 的节点数）。
-MoveCube、InsertPeg 不计取值维度（MoveCube 的区域与运动方式由 ``test_regression_on_packaged`` 的 movecube-layout 守）。
-本表是测试侧独立写下的期望，不读 ``hard_regression.V8_TIER_TABLE``。
+1. the in-process ``decision`` (per-tier new values) returned by each task's ``native_blocks(cls)``;
+2. ``sampling_config[task]`` in each packaged tier header (verbatim equal to 1's ``{"decision", "native"}``, and valued per the table);
+3. the packaged per-row specs: the episode's actual values in delivered rows' ``spec`` (via the test-side reader ``packaged_checks.tier_dims``, fields identical item by item to the old repo's
+   ``scripts/parity/hard_regression.py::tier_dims``; that tool lives in the private evaluation repo, so this repo carries an equivalent check).
+Fixed values in the table are integers, intervals are ``(lo, hi)`` closed intervals (RouteStick segment count, PatternLock node count).
+MoveCube and InsertPeg have no value dimensions (MoveCube's region and motion modes are guarded by movecube-layout in ``test_regression_on_packaged``).
+This table is an expectation written independently on the test side; it does not read ``hard_regression.V8_TIER_TABLE``.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from tests.robomme_ood.contract.test_constants import NEW_TIERS, V9_CELLS, XHARD
 
 ROOT = REPO / "src" / "robomme_ood" / "env_metadata" / "ood"
 
-#: {task: {tier: {维度: 定值 或 (lo, hi)}}}，只含交付格
+#: {task: {tier: {dimension: fixed value or (lo, hi)}}}, delivery cells only
 TABLE = {
     "PickXtimes": {"xhard1": {"times": 6, "distractors": 1}, "xhard2": {"times": 7, "distractors": 2},
                    "xhard3": {"times": 8, "distractors": 3}},
@@ -53,7 +53,7 @@ TABLE = {
 
 
 def _fixed(pair) -> int | tuple[int, int]:
-    """配置里的 ``[a, b]`` 闭区间 → a == b 时为定值 a，否则 (a, b)。"""
+    """A ``[a, b]`` closed interval in the config -> fixed value a when a == b, otherwise (a, b)."""
     lo, hi = pair
     return lo if lo == hi else (lo, hi)
 
@@ -62,7 +62,7 @@ def _vpb_placements(cfg) -> int:
     return importlib.import_module("robomme_ood.robomme_env.VideoPlaceButton").vpb_target_placement_count(cfg)
 
 
-#: 从 decision 块读某档取值的访问器（只做字段读取与区间归一，不复刻采样逻辑）
+#: Accessors reading a tier's value from the decision block (field reading and interval normalization only; sampling logic is not re-implemented)
 DECISION_READERS = {
     "PickXtimes": lambda d, t: {"times": _fixed(d["number_range"][t]), "distractors": len(d[t]["distractor"]["colors"])},
     "SwingXtimes": lambda d, t: {"rounds": _fixed(d["number_range"][t]), "distractors": len(d[t]["distractor"]["colors"])},
@@ -108,7 +108,7 @@ def headers():
 
 
 def test_table_covers_exactly_valued_delivery_cells():
-    """表 = V9 交付格去掉只在 xhard4 交付、不计取值的两个任务（41 格）。"""
+    """Table = V9 delivery cells minus the two tasks delivered only in xhard4 with no value dimensions (41 cells)."""
     assert set(VALUED_CELLS) == {key for key in V9_CELLS if key[0] not in XHARD4_ONLY}
     assert set(DECISION_READERS) == set(TABLE)
 
@@ -139,7 +139,7 @@ def test_packaged_rows_match_table(tier):
 
 
 def test_row_mismatches_negative():
-    """判定器负例：把一局 PickXtimes 的次数改成表外值、RouteStick 段数改出区间、删掉一个取值字段，都被抓到。"""
+    """Checker negatives: changing one PickXtimes episode's count to a value outside the table, moving a RouteStick segment count out of its interval, and deleting a value field are all caught."""
     lines = (ROOT / "xhard1" / "specs.jsonl").read_text(encoding="utf-8").splitlines()
     rows = [json.loads(line) for line in lines[1:]]
     pick = next(r for r in rows if r["task"] == "PickXtimes" and r["selected"])
@@ -155,7 +155,7 @@ def test_row_mismatches_negative():
 
 
 def test_decision_reader_negative():
-    """判定器负例：decision 块里改一档的取值，读出的结果不再等于表。"""
+    """Checker negatives: changing one tier's value in the decision block makes the read result differ from the table."""
     decision, _ = native_blocks("StopCube")
     decision["xhard3"]["stop_time_range"]["low"] += 1
     assert DECISION_READERS["StopCube"](decision, "xhard3") != TABLE["StopCube"]["xhard3"]

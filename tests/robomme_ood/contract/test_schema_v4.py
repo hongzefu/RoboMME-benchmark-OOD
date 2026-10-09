@@ -1,13 +1,13 @@
-"""L1 契约：``hard-specs/4`` 校验器（``hard_specs.validate_specs``／``load_specs``／``load_specs_root``）的负例。
+"""L1 contract: negatives for the ``hard-specs/4`` validators (``hard_specs.validate_specs``/``load_specs``/``load_specs_root``).
 
-基底是包内真实的 xhard5 规格（26 行，其中 20 行 selected）。每个负例在内存副本上改一处，分两类：
+The base is the real packaged xhard5 spec (26 rows, 20 of them selected). Each negative changes one thing in an in-memory copy, in two classes:
 
-- 不重签：篡改签或结果段，两个身份散列或规格散列必须对不上；
-- 重签后语义错：用生产签名函数把 ``sampling_config_sha256``／``identity_sha256``／``delivery_sha256`` 全部重算，
-  散列都自洽，只剩语义错误（档位、runtime、seed 规则、执行步上限、布局规则、配额、越界、F-6 类型……），
-  校验器仍须拒绝。
+- without re-signing: tamper with the signature or result segment; the two identity hashes or the spec hash must fail to match;
+- semantic error after re-signing: recompute ``sampling_config_sha256``/``identity_sha256``/``delivery_sha256`` with the production signing functions,
+  so all hashes are self-consistent and only the semantic error remains (tier, runtime, seed rule, execution-step cap, layout rule, quota, out of range, F-6 types, ...);
+  the validator must still reject.
 
-另有跨档 seed 相交：只有改了按档偏移才造得出来，进程内 monkeypatch 偏移表后造两档同 seed 的根，整根读取须拒绝。
+Also cross-tier seed intersection: it can only be produced by changing the per-tier offsets; monkeypatch the offset table in process to build a root with two tiers sharing seeds, and whole-root reading must reject.
 """
 from __future__ import annotations
 
@@ -61,16 +61,16 @@ def test_base_and_resigned_base_pass(hs, base):
     hs.validate_specs(resign(hs, header, rows), rows)
 
 
-# ── 不重签的篡改 ─────────────────────────────────────────────────────────
+# -- Tampering without re-signing ---------------------------------------------------------
 
 TAMPER = {
-    "行_seed_加1": lambda h, rs: selected(rs).__setitem__("seed", selected(rs)["seed"] + 1),
-    "行_spec_改值": lambda h, rs: selected(rs)["spec"]["layout"].__setitem__("button_xy", [0.0, 0.0]),
-    "spec_改值且只重算行散列": None,  # 单独实现：规格散列自洽、identity 不符
-    "结果段_h5_sha_改": lambda h, rs: selected(rs)["rollout"].__setitem__("h5_sha256", "0" * 64),
-    "selected_翻转": lambda h, rs: spare(rs).__setitem__("selected", True),
+    "row_seed_plus_1": lambda h, rs: selected(rs).__setitem__("seed", selected(rs)["seed"] + 1),
+    "row_spec_changed": lambda h, rs: selected(rs)["spec"]["layout"].__setitem__("button_xy", [0.0, 0.0]),
+    "spec_changed_row_hash_recomputed_only": None,  # implemented separately: spec hash self-consistent, identity mismatches
+    "result_h5_sha_changed": lambda h, rs: selected(rs)["rollout"].__setitem__("h5_sha256", "0" * 64),
+    "selected_flipped": lambda h, rs: spare(rs).__setitem__("selected", True),
     "header_exec_cap": lambda h, rs: h.__setitem__("exec_cap", EXEC_CAP - 100),
-    "sampling_config_改值": lambda h, rs: h["sampling_config"]["StopCube"]["decision"].__setitem__("extra", 1),
+    "sampling_config_changed": lambda h, rs: h["sampling_config"]["StopCube"]["decision"].__setitem__("extra", 1),
 }
 
 
@@ -87,7 +87,7 @@ def test_tamper_without_resign_rejected(hs, base, name):
         hs.validate_specs(header, rows)
 
 
-# ── 重签后的语义错 ───────────────────────────────────────────────────────
+# -- Semantic errors after re-signing -----------------------------------------------------
 
 
 def _row_episode_out_of_range(hs, h, rs):
@@ -99,7 +99,7 @@ def _row_episode_out_of_range(hs, h, rs):
 
 def _row_seed_formula(hs, h, rs):
     row = spare(rs)
-    row["seed"] += 1  # 公式不再成立（重签后也不成立）
+    row["seed"] += 1  # formula no longer holds (not even after re-signing)
 
 
 def _quota_over_table(hs, h, rs):
@@ -111,43 +111,43 @@ def _quota_over_table(hs, h, rs):
 
 
 SEMANTIC = {
-    "档位_不认识": lambda hs, h, rs: h.__setitem__("difficulty", "xhard6"),
-    "runtime_改": lambda hs, h, rs: h["runtime"].__setitem__("control_mode", "pd_ee_delta_pose"),
-    "seed_rule_偏移_改": lambda hs, h, rs: h["seed_rule"].__setitem__("offset", h["seed_rule"]["offset"] + 1),
-    "exec_cap_改": lambda hs, h, rs: h.__setitem__("exec_cap", EXEC_CAP + 1),
-    "exec_cap_布尔": lambda hs, h, rs: h.__setitem__("exec_cap", True),
-    "layout_rule_改": lambda hs, h, rs: h.__setitem__("layout_rule", {"mode": "derived"}),
-    "tasks_重复": lambda hs, h, rs: h.__setitem__("tasks", h["tasks"] + h["tasks"][:1]),
-    "配额_超格表": _quota_over_table,
-    "select_rule_长度不符": lambda hs, h, rs: h["select_rule"]["StopCube"].pop(),
-    "per_env_不符": lambda hs, h, rs: h["per_env"].__setitem__("StopCube", h["per_env"]["StopCube"] + 1),
-    "selected_超配额": lambda hs, h, rs: spare(rs).__setitem__("selected", True),
-    "行档位不符": lambda hs, h, rs: spare(rs).__setitem__("tier", "xhard4"),
-    "layout_parent_非空": lambda hs, h, rs: spare(rs).__setitem__("layout_parent", "xhard4/0"),
-    "spec_kind_改": None,  # 单独实现（需同步行散列）
-    "candidate_不等于_episode": lambda hs, h, rs: spare(rs).__setitem__("candidate", spare(rs)["candidate"] + 1000),
-    "episode_越界": _row_episode_out_of_range,
-    "seed_不合公式": _row_seed_formula,
-    "rollout_status_非法": lambda hs, h, rs: selected(rs)["rollout"].__setitem__("status", "maybe"),
-    "布尔位_非布尔": lambda hs, h, rs: spare(rs).__setitem__("tried", 0),
-    "行多一个键": lambda hs, h, rs: spare(rs).__setitem__("note", "x"),
-    "header_缺键": lambda hs, h, rs: h.pop("draw_stats"),
-    "行重复": lambda hs, h, rs: rs.append(copy.deepcopy(spare(rs))),
-    # F-6：candidate／attempt／seed 为布尔或浮点
-    "F6_candidate_布尔": None,
-    "F6_attempt_浮点": lambda hs, h, rs: spare(rs).__setitem__("attempt", spare(rs)["attempt"] + 0.5),
-    "F6_seed_浮点": lambda hs, h, rs: spare(rs).__setitem__("seed", float(spare(rs)["seed"])),
+    "tier_unknown": lambda hs, h, rs: h.__setitem__("difficulty", "xhard6"),
+    "runtime_changed": lambda hs, h, rs: h["runtime"].__setitem__("control_mode", "pd_ee_delta_pose"),
+    "seed_rule_offset_changed": lambda hs, h, rs: h["seed_rule"].__setitem__("offset", h["seed_rule"]["offset"] + 1),
+    "exec_cap_changed": lambda hs, h, rs: h.__setitem__("exec_cap", EXEC_CAP + 1),
+    "exec_cap_bool": lambda hs, h, rs: h.__setitem__("exec_cap", True),
+    "layout_rule_changed": lambda hs, h, rs: h.__setitem__("layout_rule", {"mode": "derived"}),
+    "tasks_duplicated": lambda hs, h, rs: h.__setitem__("tasks", h["tasks"] + h["tasks"][:1]),
+    "quota_over_cell_table": _quota_over_table,
+    "select_rule_length_mismatch": lambda hs, h, rs: h["select_rule"]["StopCube"].pop(),
+    "per_env_mismatch": lambda hs, h, rs: h["per_env"].__setitem__("StopCube", h["per_env"]["StopCube"] + 1),
+    "selected_over_quota": lambda hs, h, rs: spare(rs).__setitem__("selected", True),
+    "row_tier_mismatch": lambda hs, h, rs: spare(rs).__setitem__("tier", "xhard4"),
+    "layout_parent_non_null": lambda hs, h, rs: spare(rs).__setitem__("layout_parent", "xhard4/0"),
+    "spec_kind_changed": None,  # implemented separately (row hash must be updated too)
+    "candidate_not_equal_episode": lambda hs, h, rs: spare(rs).__setitem__("candidate", spare(rs)["candidate"] + 1000),
+    "episode_out_of_range": _row_episode_out_of_range,
+    "seed_violates_formula": _row_seed_formula,
+    "rollout_status_invalid": lambda hs, h, rs: selected(rs)["rollout"].__setitem__("status", "maybe"),
+    "bool_flag_not_bool": lambda hs, h, rs: spare(rs).__setitem__("tried", 0),
+    "row_extra_key": lambda hs, h, rs: spare(rs).__setitem__("note", "x"),
+    "header_missing_key": lambda hs, h, rs: h.pop("draw_stats"),
+    "row_duplicated": lambda hs, h, rs: rs.append(copy.deepcopy(spare(rs))),
+    # F-6: candidate/attempt/seed is a bool or float
+    "F6_candidate_bool": None,
+    "F6_attempt_float": lambda hs, h, rs: spare(rs).__setitem__("attempt", spare(rs)["attempt"] + 0.5),
+    "F6_seed_float": lambda hs, h, rs: spare(rs).__setitem__("seed", float(spare(rs)["seed"])),
 }
 
 
 def _apply_semantic(hs, name, header, rows):
-    if name == "spec_kind_改":
+    if name == "spec_kind_changed":
         row = spare(rows)
         row["spec"]["spec_kind"] = "native-newvalue/1"
         row["spec_sha256"] = hs.spec_sha256(row["spec"])
-    elif name == "F6_candidate_布尔":
+    elif name == "F6_candidate_bool":
         row = next(r for r in rows if r["candidate"] == 1)
-        row["candidate"] = True  # True == 1：只有类型检查能挡住
+        row["candidate"] = True  # True == 1: only a type check can catch it
     else:
         SEMANTIC[name](hs, header, rows)
 
@@ -159,22 +159,22 @@ def test_semantic_error_after_resign_rejected(hs, base, name):
     try:
         header = resign(hs, header, rows)
     except (KeyError, TypeError, ValueError):
-        pytest.fail(f"{name}：签名函数本身不应失败（夹具写错）")
+        pytest.fail(f"{name}: the signing function itself must not fail (fixture bug)")
     with pytest.raises(hs.SpecsError):
         hs.validate_specs(header, rows)
 
 
-@pytest.mark.parametrize("name", ["F6_candidate_布尔", "F6_attempt_浮点", "F6_seed_浮点"])
+@pytest.mark.parametrize("name", ["F6_candidate_bool", "F6_attempt_float", "F6_seed_float"])
 def test_f6_rejected_with_type_message(hs, base, name):
     header, rows = copy.deepcopy(base)
     _apply_semantic(hs, name, header, rows)
     header = resign(hs, header, rows)
-    with pytest.raises(hs.SpecsError, match="整数"):
+    with pytest.raises(hs.SpecsError, match="integer"):
         hs.validate_specs(header, rows)
 
 
 def test_load_specs_file_level_rejections(hs, base, tmp_path):
-    """文件层：空文件、重复字段、旧 schema 都拒绝。"""
+    """File level: empty file, duplicate fields and old schema are all rejected."""
     empty = tmp_path / "empty.jsonl"
     empty.write_text("", encoding="utf-8")
     with pytest.raises(hs.SpecsError):
@@ -193,7 +193,7 @@ def test_load_specs_file_level_rejections(hs, base, tmp_path):
         hs.load_specs(old, check_fingerprint=False)
 
 
-# ── 跨档 seed 相交 ───────────────────────────────────────────────────────
+# -- Cross-tier seed intersection ---------------------------------------------------------
 
 
 def _root_with(tmp_path: Path, tiers) -> Path:
@@ -208,8 +208,8 @@ def test_cross_tier_seed_intersection_rejected(hs, tmp_path, monkeypatch):
     tiers = ("xhard4", "xhard5")
     cells = {key: n for key, n in V9_CELLS.items() if key[1] in tiers}
     root = _root_with(tmp_path, tiers)
-    hs.load_specs_root(root, cells, check_fingerprint=False)  # 正例：原样两档可读
-    # 把 xhard5 的偏移改成 xhard4 的，并按新规则重写 xhard5 的 seed 与签名（文件自身仍合法）
+    hs.load_specs_root(root, cells, check_fingerprint=False)  # positive: the two tiers are readable as-is
+    # change xhard5's offset to xhard4's, and rewrite xhard5's seeds and signatures under the new rule (the file itself stays valid)
     monkeypatch.setitem(hs.TIER_SEED_OFFSETS["v8"], "xhard5", hs.TIER_SEED_OFFSETS["v8"]["xhard4"])
     path = root / "xhard5" / "specs.jsonl"
     records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
@@ -220,7 +220,7 @@ def test_cross_tier_seed_intersection_rejected(hs, tmp_path, monkeypatch):
     header = resign(hs, header, rows)
     hs.validate_specs(header, rows)
     path.write_text("".join(json.dumps(r) + "\n" for r in [header, *rows]), encoding="utf-8")
-    with pytest.raises(hs.SpecsError, match="相交"):
+    with pytest.raises(hs.SpecsError, match="intersect"):
         hs.load_specs_root(root, cells, check_fingerprint=False)
 
 
@@ -230,12 +230,12 @@ def test_load_specs_root_cell_table_rejections(hs, tmp_path):
     hs.load_specs_root(root, cells, check_fingerprint=False)
     with pytest.raises(hs.SpecsError):
         hs.load_specs_root(root, {}, check_fingerprint=False)
-    with pytest.raises(hs.SpecsError):  # 格表外的格
+    with pytest.raises(hs.SpecsError):  # cell outside the cell table
         hs.load_specs_root(root, {("PickXtimes", "xhard5"): 1}, check_fingerprint=False)
-    with pytest.raises(hs.SpecsError):  # 局数不等于 selected 数
+    with pytest.raises(hs.SpecsError):  # episode count differs from selected count
         hs.load_specs_root(root, {k: n - 1 for k, n in cells.items()}, check_fingerprint=False)
-    with pytest.raises(hs.SpecsError):  # 缺档文件
+    with pytest.raises(hs.SpecsError):  # missing tier file
         hs.load_specs_root(root, {**cells, ("StopCube", "xhard4"): V9_CELLS[("StopCube", "xhard4")]},
                            check_fingerprint=False)
-    with pytest.raises(hs.SpecsError):  # 局数为布尔
+    with pytest.raises(hs.SpecsError):  # episode count is a bool
         hs.load_specs_root(root, {k: True for k in cells}, check_fingerprint=False)

@@ -1,10 +1,10 @@
-"""VideoRepick 原生三档真值表（C05、C06）：演示里拾放过的那一块，交换后仍按身份再拾放 N 次，最后按按钮。
+"""VideoRepick native three-tier truth table (C05, C06): the cube picked and placed in the demo is picked and placed N more times by identity after swaps, then the button is pressed.
 
-演示段整段用真实 evaluate/step 驱动：演示拾起 → 放下 →（easy/medium）静止 20 步 → 交换（真实 swap_flat_two_lane）
-→ 复位检查；hard 档无交换。期望：
-- 在线段 N 次「拾起同一块 → 放下」后按按钮 → 成功；演示里那一次不计入 N；
-- 拿起别的方块（包括交换后占着它原位置的那一块）→ 失败；
-- 拾放子任务期间按钮：在计时窗口 T.REPICK_BUTTON_WINDOW 内按下 → 失败；窗口开始前按下不判失败（官方现状）。
+The whole demo segment is driven by the real evaluate/step: demo pick up -> put down -> (easy/medium) still 20 steps -> swap (real swap_flat_two_lane)
+-> reset check; hard has no swap. Expectations:
+- in the online segment, N times "pick up the same cube -> put down" then press the button -> success; the one in the demo does not count toward N;
+- picking another cube (including the one now occupying its original position after swaps) -> failure;
+- pressing the button during the pick-and-place subtask: within the timing window T.REPICK_BUTTON_WINDOW -> failure; before the window starts it does not fail (current official behavior).
 """
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def _drive_demo(ep):
         ep.step()
         guard += 1
         assert guard < 1000
-    ep.step()  # 越过最后一次交换在下一步开头的定位
+    ep.step()  # past the positioning of the last swap at the start of the next step
     return drop_xy
 
 
@@ -76,8 +76,8 @@ def test_swap_happens_and_involves_target(world, diff):
     assert env.swap_times >= 1
     _drive_demo(ep)
     a, b = env.swap_schedule[0][0], env.swap_schedule[0][1]
-    assert a is env.target_cube_1 and b is not None and b is not a  # 第一对交换总含目标块
-    # 多次交换后目标块可能被换回原处，所以「被换走」只在下一条用例里按布局挑选
+    assert a is env.target_cube_1 and b is not None and b is not a  # the first swap pair always includes the target cube
+    # after several swaps the target cube may be swapped back, so "swapped away" is picked by layout only in the next test
 
 
 @pytest.mark.parametrize("diff", ("easy", "medium"))
@@ -90,7 +90,7 @@ def test_cube_at_original_position_is_wrong(world, diff):
         if impostor is not env.target_cube_1:
             break
     else:
-        pytest.fail("40 个 seed 内目标块都没被换走")
+        pytest.fail("the target cube was never swapped away within 40 seeds")
     ep.grasp(impostor)
     ep.step()
     assert ep.fail and not ep.success
@@ -98,7 +98,7 @@ def test_cube_at_original_position_is_wrong(world, diff):
 
 @pytest.mark.parametrize("diff", DIFFS)
 def test_demo_pick_not_counted(world, diff):
-    """只做 N−1 次在线拾放：计时窗口内按按钮 → 失败（演示那一次不算）。"""
+    """Only N-1 online pick-and-place cycles: pressing the button within the timing window -> failure (the demo one does not count)."""
     ep = world.make(diff, seed=6)
     env = ep.env
     _drive_demo(ep)
@@ -137,5 +137,5 @@ def test_hard_has_no_swap_and_15_cubes(world):
     ep = world.make("hard", seed=6)
     env = ep.env
     assert env.swap_times == 0
-    assert len(env.spawned_cubes) == 15  # 5 轮 × 3 色
+    assert len(env.spawned_cubes) == 15  # 5 rounds x 3 colors
     assert [t.get("specialflag") for t in env.task_list].count("swap") == 0

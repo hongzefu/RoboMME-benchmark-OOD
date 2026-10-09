@@ -1,21 +1,21 @@
-"""ood 四档规格（``env_metadata/ood/xhardN/specs.jsonl``）的读取、封套校验与回注绑定摘要。
+"""Reading, envelope validation and re-injection binding summary for the ood four-tier specs (``env_metadata/ood/xhardN/specs.jsonl``).
 
-由旧仓对拍设施里的 V4 规格读写模块下沉而来（0927 计划第二部分 §1.2）；抽签与冻结属于旧仓的生成链路，
-不随本包发布。本模块只放读取与校验规格要用的纯函数，不导入仿真。
+Moved down from the V4 spec read/write module of the old repo's parity tooling (0927 plan part two §1.2); drawing and freezing belong to
+the old repo's generation pipeline and are not shipped with this package. This module only holds pure functions needed to read and validate specs; it does not import the simulator.
 
-jsonl 一行分「签」与「结果」两段（0927 计划第一部分 §5.3；现行唯一格式 ``schema="hard-specs/4"``）：
+Each jsonl row has two segments, "signature" and "result" (0927 plan part one §5.3; the only current format is ``schema="hard-specs/4"``):
 
-* 签：``task tier candidate episode seed attempt spec spec_sha256 layout_parent``——第一阶段封存，``identity_sha256`` 覆盖；
-* 结果：``selected tried initial_selected rollout``——第二阶段回写，不进 ``identity_sha256``。
+* signature: ``task tier candidate episode seed attempt spec spec_sha256 layout_parent`` -- sealed in stage one, covered by ``identity_sha256``;
+* result: ``selected tried initial_selected rollout`` -- written back in stage two, not part of ``identity_sha256``.
 
-``delivery_sha256`` 另盖「哪几局是正式交付」：排序后的
-``(task, tier, candidate, seed, spec_sha256, rollout.h5_sha256)``，只取 ``selected`` 且 ``rollout.status=="ok"`` 的行。
+``delivery_sha256`` additionally seals "which episodes are the formal delivery": the sorted
+``(task, tier, candidate, seed, spec_sha256, rollout.h5_sha256)``, taking only rows that are ``selected`` and have ``rollout.status=="ok"``.
 
-``ood`` 永远只含新值五档 xhard1～xhard5（16 任务 × 50 局 = 800）；xhard0（官方 test 的 hard 12 局）
-只在 ``hard-verify`` 里出现（16 任务 × 12 局 = 192），不再前置到 ``ood``。
+``ood`` always contains only the five new-value tiers xhard1-xhard5 (16 tasks x 50 episodes = 800); xhard0 (the 12 hard episodes of the official test split)
+appears only in ``hard-verify`` (16 tasks x 12 episodes = 192) and is no longer prepended to ``ood``.
 
-``seed_for``、``V8_SEED_OFFSETS``、``identity_sha256``、``delivery_sha256`` 是校验依赖：``load_specs`` 读包内规格时
-要按它们重算 seed 公式与两个身份散列，故保留（不是生成入口）。
+``seed_for``, ``V8_SEED_OFFSETS``, ``identity_sha256`` and ``delivery_sha256`` are validation dependencies: ``load_specs`` recomputes the seed formula
+and both identity hashes from them when reading the packaged specs, so they are kept (they are not generation entry points).
 """
 
 from __future__ import annotations
@@ -28,62 +28,62 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-#: 现行唯一规格格式（v8 方案第二部分 §2.2 第 2 条，R6）：header 带 ``layout_rule``、``exec_cap``，
-#: ``delivery_per_cell``、``select_rule``、``per_env`` 为逐任务字典；行带 ``layout_parent``（恒为 null）。
-#: 旧格式 /2（V5～V6 单档）与 /3（V7 母布局派生）的读写校验已于维护计划阶段 1b（W4）删除。
+#: The only current spec format (v8 plan part two §2.2 item 2, R6): the header carries ``layout_rule`` and ``exec_cap``;
+#: ``delivery_per_cell``, ``select_rule`` and ``per_env`` are per-task dicts; rows carry ``layout_parent`` (always null).
+#: Read/validate support for the old formats /2 (V5-V6 single tier) and /3 (V7 parent-layout derivation) was removed in maintenance plan stage 1b (W4).
 SCHEMA = "hard-specs/4"
-#: 新值档（不含 xhard0）。v8 阶段 3b 换包起为五档 xhard1～xhard5（原 ``V8_TIERS`` 同值，已并入本常量）。
-#: EXPECTED_CELLS、packaged_specs_path、builder、/4 校验与规格根读取等依赖它。
+#: New-value tiers (excluding xhard0). Since v8 stage 3b repackaging these are the five tiers xhard1-xhard5 (same value as the former ``V8_TIERS``, now merged into this constant).
+#: EXPECTED_CELLS, packaged_specs_path, the builder, /4 validation and spec-root reading depend on it.
 TIERS = ("xhard1", "xhard2", "xhard3", "xhard4", "xhard5")
-#: builder 档序：xhard0（官方 test 的 hard 子集，原生分支、不回注）在最前，其后新值五档（共六项）。
+#: Builder tier order: xhard0 (hard subset of the official test split, native branch, no re-injection) first, followed by the five new-value tiers (six entries in total).
 XHARD0 = "xhard0"
 BUILDER_TIERS = (XHARD0, *TIERS)
-#: xhard0 每任务 12 局＝官方 test 元数据 difficulty=="hard" 的原 episode 3,7,…,47（只作核对值，筛选按 difficulty）
+#: 12 xhard0 episodes per task = the original episodes 3,7,...,47 with difficulty=="hard" in the official test metadata (reference value only; filtering is by difficulty)
 XHARD0_PER_TASK = 12
 XHARD0_EPISODES = tuple(range(3, 48, 4))
-#: 历史 V4/V5 单档名。seed 规则 v5 已删除；旧仓对拍设施的 train 拆分运行器在 jobs 不带 seed_rule 时
-#: 仍以它为期望难度（V9／xhard0 生成的 jobs 均带 seed_rule 或走官方元数据分支，不经该缺省），故保留常量。
+#: Legacy V4/V5 single-tier name. The v5 seed rule is removed; the train-split runner in the old repo's parity tooling still uses it as the expected
+#: difficulty when jobs carry no seed_rule (V9/xhard0 generation jobs all carry seed_rule or take the official-metadata branch and never hit that default), so the constant is kept.
 DIFFICULTY = "xhard"
-#: 回注绑定：只记录不回注的观测值（SpecRecorder.record）允许的浮点差（用户 U-13 方案甲，红线 R22，不做参数）。
+#: Re-injection binding: allowed float difference for record-only observations (SpecRecorder.record) (user U-13 option A, red line R22, not a parameter).
 RECORDED_FLOAT_TOL = 1e-5
 
-# runtime 四项与 gym.make 参数逐字相同（builder 起环境时逐字比对，render_mode 放行）
+# The four runtime items match the gym.make arguments verbatim (the builder compares them verbatim when creating the env; render_mode is exempt)
 RUNTIME = {
     "obs_mode": "rgb+depth+segmentation",
     "control_mode": "pd_joint_pos",
     "render_mode": "rgb_array",
     "reward_mode": "dense",
 }
-# seed = offset + env_code × env_block + episode × 100 + attempt；env_code 是任务在 16 任务规范序里的 1-indexed 位置
+# seed = offset + env_code x env_block + episode x 100 + attempt; env_code is the task's 1-indexed position in the 16-task canonical order
 SEED_RULE = {"offset": 4_000_000, "env_block": 100_000, "episode_stride": 100,
              "formula": "offset + env_code*env_block + episode*100 + attempt"}
-#: V8 按档 seed 偏移（v8 方案第二部分 §2.2 第 3 条，R9）：各档布局独立抽，档与档 seed 两两不交。
-#: 每档最大增量 16×100000 + 999×100 + 99 < 1.7e6，小于步长 2e6；最低 16e6 不碰 V5（4e6 起）、
-#: 旧 V6 段（6e6～13.7e6）与 V7／探针段（14e6～15.7e6）。
+#: V8 per-tier seed offsets (v8 plan part two §2.2 item 3, R9): each tier draws its layouts independently, and tier seeds are pairwise disjoint.
+#: Max increment per tier 16x100000 + 999x100 + 99 < 1.7e6, below the stride 2e6; the lowest 16e6 avoids V5 (from 4e6),
+#: the old V6 segment (6e6-13.7e6) and the V7/probe segment (14e6-15.7e6).
 V8_SEED_OFFSETS = {"xhard1": 16_000_000, "xhard2": 18_000_000, "xhard3": 20_000_000,
                    "xhard4": 22_000_000, "xhard5": 24_000_000}
-#: 按档偏移的规则族：profile → {tier: offset}。现行只有 v8（V9 沿用）；v5、v6、v7 规则族已删除。
-#: 按档偏移的规则族只认本族登记的档位；新登记的偏移须与历史段（4e6、6e6～15.7e6）及已登记的族互不重叠。
+#: Per-tier offset rule families: profile -> {tier: offset}. Currently only v8 (reused by V9); the v5, v6 and v7 families are removed.
+#: A per-tier offset family only accepts the tiers registered in that family; newly registered offsets must not overlap the historical segments (4e6, 6e6-15.7e6) or any registered family.
 TIER_SEED_OFFSETS: dict[str, dict[str, int]] = {"v8": V8_SEED_OFFSETS}
 SEED_PROFILES = tuple(TIER_SEED_OFFSETS)
 MAX_ATTEMPTS = 100
-#: 16 任务规范序（与旧仓生成链路 seed 公式模块里的 ``ALL_TASKS`` 逐字相同；env_code 取它的 1-indexed 位置）
+#: 16-task canonical order (verbatim identical to ``ALL_TASKS`` in the old repo's generation-pipeline seed-formula module; env_code is its 1-indexed position)
 ALL_TASKS = (
     "PickXtimes", "StopCube", "SwingXtimes", "BinFill", "VideoUnmaskSwap", "VideoUnmask",
     "ButtonUnmaskSwap", "ButtonUnmask", "VideoRepick", "VideoPlaceButton", "VideoPlaceOrder",
     "PickHighlight", "InsertPeg", "MoveCube", "PatternLock", "RouteStick",
 )
-#: 只在 xhard4 交付的任务（v8 阶段 3b 起：StopCube 拆成五档定值后离开，只剩 InsertPeg、MoveCube）
+#: Tasks delivered only in xhard4 (since v8 stage 3b: StopCube left after being split into five fixed-value tiers, leaving only InsertPeg and MoveCube)
 XHARD4_ONLY = ("InsertPeg", "MoveCube")
 
-# ── 执行步上限（v8 方案阶段 2 新增，V9 沿用；维护计划 R 块去掉名字里的 V8 前缀）──
-#: 抽样与交付的执行步上限：执行步（不含演示帧）> 1600 的候选记 exec_over_cap 并递补；/4 header ``exec_cap`` 必须等于它
+# -- Execution-step cap (added in v8 plan stage 2, reused by V9; maintenance plan block R dropped the V8 prefix from the name) --
+#: Execution-step cap for sampling and delivery: candidates with execution steps (excluding demo frames) > 1600 are marked exec_over_cap and backfilled; the /4 header ``exec_cap`` must equal it
 EXEC_CAP = 1600
 
 
 def _v9_cells() -> dict[tuple[str, str], int]:
-    """v9 方案第一部分表 2 的 43 个新值格（档集合与 V8 相同）：每任务 50 局，在该任务 V8 交付的档里平分，
-    分不均时前面的档多 1 局（17／17／16、13／13／12／12），不含 xhard0。"""
+    """The 43 new-value cells of v9 plan part one table 2 (same tier set as V8): 50 episodes per task, split evenly across the tiers the task is delivered in under V8;
+    when uneven, earlier tiers get 1 more (17/17/16, 13/13/12/12); excludes xhard0."""
     cells: dict[tuple[str, str], int] = {}
     for task in ("PickXtimes", "RouteStick", "PatternLock"):
         for tier, n in zip(("xhard1", "xhard2", "xhard3"), (17, 17, 16)):
@@ -103,29 +103,29 @@ def _v9_cells() -> dict[tuple[str, str], int]:
     return cells
 
 
-#: v9 交付格表（v9 方案第一部分表 2）：43 格、合计 800、每任务 50（格集合与已删除的 V8 1070 局表相同，只有局数不同）
+#: v9 delivery cell table (v9 plan part one table 2): 43 cells, total 800, 50 per task (same cell set as the removed V8 1070-episode table; only counts differ)
 V9_CELLS: dict[tuple[str, str], int] = _v9_cells()
 V9_PER_TASK = 50
-assert len(V9_CELLS) == 43 and sum(V9_CELLS.values()) == 800, "V9_CELLS 须为表 2 的 43 格、合计 800"
-assert all(task in ALL_TASKS and tier in TIERS for task, tier in V9_CELLS), "V9_CELLS 含未知任务或档位"
+assert len(V9_CELLS) == 43 and sum(V9_CELLS.values()) == 800, "V9_CELLS must be the 43 cells of table 2 totalling 800"
+assert all(task in ALL_TASKS and tier in TIERS for task, tier in V9_CELLS), "V9_CELLS contains an unknown task or tier"
 assert all(sum(n for (t, _), n in V9_CELLS.items() if t == task) == V9_PER_TASK for task in ALL_TASKS), \
-    "V9_CELLS 每任务须恰为 50 局"
-#: 交付格表 {(task, tier): 正式交付局数}（builder 按它断言每格行数，表外格恰好 0 行、表内格恰好等于表值）。
-#: v9 阶段 3b 换包（env_metadata/ood/ 换为 V9 规格）与本行切到 V9_CELLS 在同一提交完成（v9 方案 R7），表与包始终一致。
+    "V9_CELLS must have exactly 50 episodes per task"
+#: Delivery cell table {(task, tier): formal delivery count} (the builder asserts row counts per cell from it: cells outside have exactly 0 rows, cells inside exactly the table value).
+#: v9 stage 3b repackaging (env_metadata/ood/ switched to V9 specs) and switching this line to V9_CELLS landed in the same commit (v9 plan R7), so table and package always agree.
 EXPECTED_CELLS: dict[tuple[str, str], int] = V9_CELLS
-#: 已登记的完整交付格表（按版本）。``resolve_cell_table`` 按顺序 EXPECTED_CELLS → 本表各项找第一张能覆盖
-#: 给定子表的表，作为单文件配额上限（``_validate_specs``）与 ``load_specs_root`` 的格配额上限。
-#: V8 的 1070 局表已于维护计划阶段 1b（W4）删除，只剩 v9。
+#: Registered complete delivery cell tables (by version). ``resolve_cell_table`` searches EXPECTED_CELLS -> the entries of this table in order for the first one covering
+#: the given sub-table, used as the per-file quota cap (``_validate_specs``) and the cell quota cap of ``load_specs_root``.
+#: The V8 1070-episode table was removed in maintenance plan stage 1b (W4); only v9 remains.
 CELL_TABLES: dict[str, dict[tuple[str, str], int]] = {"v9": V9_CELLS}
 
 
 def xhard4_only_tasks(cells: dict[tuple[str, str], int]) -> set[str]:
-    """格表里只在 xhard4 出现的任务集合（XHARD4_ONLY 对参数格表的核对口径）。"""
+    """Set of tasks that appear only in xhard4 in a cell table (the check basis for XHARD4_ONLY against a parameter cell table)."""
     return {task for task in ALL_TASKS if {t for name, t in cells if name == task} == {"xhard4"}}
 
 
 assert all(xhard4_only_tasks(table) == set(XHARD4_ONLY) for table in (EXPECTED_CELLS, *CELL_TABLES.values())), \
-    "XHARD4_ONLY 须恰为交付格表（EXPECTED_CELLS、V9_CELLS 各自）里只在 xhard4 出现的任务"
+    "XHARD4_ONLY must be exactly the tasks appearing only in xhard4 in each delivery cell table (EXPECTED_CELLS, V9_CELLS)"
 
 
 def _fits(cells: dict[tuple[str, str], int], table: dict[tuple[str, str], int]) -> bool:
@@ -133,9 +133,9 @@ def _fits(cells: dict[tuple[str, str], int], table: dict[tuple[str, str], int]) 
 
 
 def resolve_cell_table(cells: dict[tuple[str, str], int]) -> dict[tuple[str, str], int]:
-    """给定（子）格表 → 用作配额上限的完整交付格表：按 ``EXPECTED_CELLS``、``CELL_TABLES`` 各项的顺序取第一张
-    「含全部格且逐格局数 ≤ 表值」的表；都不覆盖时返回 ``EXPECTED_CELLS``（由调用方的逐项核对报出具体哪格超）。
-    显式传入格表时不经本函数。"""
+    """Given (sub-)cell table -> complete delivery cell table used as quota cap: take the first table, in the order ``EXPECTED_CELLS`` then ``CELL_TABLES``,
+    that "contains all cells with per-cell counts <= table values"; if none covers it, return ``EXPECTED_CELLS`` (the caller's per-item check reports which cell exceeds).
+    Not used when a cell table is passed explicitly."""
     for table in (EXPECTED_CELLS, *CELL_TABLES.values()):
         if _fits(cells, table):
             return table
@@ -143,8 +143,8 @@ def resolve_cell_table(cells: dict[tuple[str, str], int]) -> dict[tuple[str, str
 
 
 def header_cell_table(header: dict[str, Any]) -> dict[tuple[str, str], int] | None:
-    """/4 header 自带的逐任务配额 → ``resolve_cell_table`` 取配额上限格表（供不知道格表的单文件读取方用，如
-    ``_rollout`` 回写复核）；非 /4 或配额形态不对返回 None（交给 ``validate_specs`` 报具体错）。"""
+    """Per-task quotas carried by a /4 header -> ``resolve_cell_table`` picks the quota-cap cell table (for single-file readers that do not know the cell table, e.g.
+    ``_rollout`` write-back re-check); returns None for non-/4 or malformed quotas (``validate_specs`` reports the specific error)."""
     if not isinstance(header, dict) or header.get("schema") != SCHEMA:
         return None
     quota = header.get("delivery_per_cell")
@@ -152,31 +152,31 @@ def header_cell_table(header: dict[str, Any]) -> dict[tuple[str, str], int] | No
         return None
     return resolve_cell_table({(task, header.get("difficulty")): n for task, n in quota.items()})
 
-# 签：进 identity_sha256 的 header 键与行键
+# Signature: header keys and row keys that go into identity_sha256
 IDENTITY_HEADER_KEYS = ("schema", "difficulty", "tasks", "per_env", "runtime", "seed_rule", "select_rule",
                         "sampling_config_sha256", "recovery_rule", "identity_source")
 IDENTITY_ROW_KEYS = ("task", "tier", "candidate", "episode", "seed", "attempt", "spec_sha256")
 HEADER_REQUIRED = {"record", *IDENTITY_HEADER_KEYS, "sampling_config", "run_id", "draw_stats", "provenance",
                    "delivery_per_cell", "identity_sha256", "delivery_sha256"}
-#: 迁移来源专有键（从旧快照迁移时写；重新抽签生成的文件可以没有）
+#: Migration-source-only keys (written when migrating from an old snapshot; freshly drawn files may lack them)
 HEADER_OPTIONAL = {"drafts_sha256", "legacy_identity_sha256", "source_files", "eval_identities_sha256",
                    "dedup_dropped", "demo_frames_out_of_band", "notes"}
 ROW_KEYS = {"record", *IDENTITY_ROW_KEYS, "spec", "selected", "tried", "initial_selected", "rollout"}
 ROLLOUT_STATUSES = ("ok", "failed")
-#: 身份键按 schema 分表（键表一经发布即冻结，已封存文件的 identity_sha256 逐字不变）；
-#: /4 = 基础键 + header ``layout_rule``、``exec_cap``、``delivery_per_cell`` + 行 ``layout_parent``
-#: （逐任务配额与执行步上限进签，改了不重签必失败）。/2、/3 的键表已随旧格式删除。
+#: Identity keys tabled per schema (a key table is frozen once published, so identity_sha256 of sealed files stays byte-identical);
+#: /4 = base keys + header ``layout_rule``, ``exec_cap``, ``delivery_per_cell`` + row ``layout_parent``
+#: (per-task quotas and the execution-step cap are signed; changing them without re-signing must fail). The /2 and /3 key tables were removed with the old formats.
 IDENTITY_KEYS_BY_SCHEMA = {
     SCHEMA: (IDENTITY_HEADER_KEYS + ("layout_rule", "exec_cap", "delivery_per_cell"),
                 IDENTITY_ROW_KEYS + ("layout_parent",)),
 }
-#: /4 唯一合法的布局规则：各档布局独立抽，不派生
+#: The only valid layout rule for /4: each tier draws layouts independently, no derivation
 LAYOUT_RULE = {"mode": "independent"}
 
 
 def _schema_keys(schema: str) -> tuple[tuple[str, ...], tuple[str, ...], set[str], set[str]]:
     if schema not in IDENTITY_KEYS_BY_SCHEMA:
-        raise SpecsError(f"specs 版本不符：{schema}")
+        raise SpecsError(f"specs version mismatch: {schema}")
     header_keys, row_keys = IDENTITY_KEYS_BY_SCHEMA[schema]
     header_required = (HEADER_REQUIRED - set(IDENTITY_HEADER_KEYS)) | set(header_keys)
     row_required = (ROW_KEYS - set(IDENTITY_ROW_KEYS)) | set(row_keys)
@@ -184,10 +184,10 @@ def _schema_keys(schema: str) -> tuple[tuple[str, ...], tuple[str, ...], set[str
 
 
 class SpecsError(ValueError):
-    """规格文件缺失、被篡改、来源不符或字段集合不符。"""
+    """Spec file missing, tampered with, wrong provenance, or field set mismatch."""
 
 
-# ── 基础函数 ─────────────────────────────────────────────────────────────
+# -- Basic functions -------------------------------------------------------------
 
 
 def canonical_json(value: Any) -> str:
@@ -204,19 +204,19 @@ def spec_sha256(spec: dict[str, Any]) -> str:
 
 def env_code(task: str) -> int:
     if task not in ALL_TASKS:
-        raise SpecsError(f"未知环境名：{task}")
+        raise SpecsError(f"unknown env name: {task}")
     return ALL_TASKS.index(task) + 1
 
 
 def seed_rule_for(difficulty: str, profile: str) -> dict[str, Any]:
-    """按档位与规则族给出 seed 规则：只认 ``TIER_SEED_OFFSETS`` 登记的规则族（现行 v8），按档偏移、只用本族登记的
-    档位校验。v5（历史 xhard 单档）、v6、v7（四档同 offset）规则族已删除。"""
+    """Return the seed rule for a tier and rule family: only families registered in ``TIER_SEED_OFFSETS`` (currently v8) are accepted, offset per tier, validated against
+    the tiers registered in that family. The v5 (legacy single xhard tier), v6 and v7 (same offset for four tiers) families are removed."""
     if profile not in TIER_SEED_OFFSETS:
-        known = "／".join(TIER_SEED_OFFSETS)
-        raise SpecsError(f"{difficulty} 只支持 seed 规则 {known}（收到 {profile!r}）")
+        known = "/".join(TIER_SEED_OFFSETS)
+        raise SpecsError(f"{difficulty} only supports seed rule {known} (got {profile!r})")
     offsets = TIER_SEED_OFFSETS[profile]
     if difficulty not in offsets:
-        raise SpecsError(f"seed 规则 {profile} 未登记档位 {difficulty!r}，只支持 {tuple(offsets)}")
+        raise SpecsError(f"seed rule {profile} has no registered tier {difficulty!r}; only supports {tuple(offsets)}")
     return {**SEED_RULE, "offset": offsets[difficulty]}
 
 
@@ -233,12 +233,12 @@ def _known_seed_rule(difficulty: str, rule: dict[str, Any]) -> bool:
 def seed_for(task: str, episode: int, attempt: int, rule: dict[str, Any] | None = None) -> int:
     rule = SEED_RULE if rule is None else rule
     if not 0 <= int(attempt) < MAX_ATTEMPTS:
-        raise SpecsError(f"attempt 必须落在 [0, {MAX_ATTEMPTS})，当前为 {attempt}")
+        raise SpecsError(f"attempt must be in [0, {MAX_ATTEMPTS}), got {attempt}")
     return int(rule["offset"]) + env_code(task) * int(rule["env_block"]) + int(episode) * 100 + int(attempt)
 
 
 def identity_sha256(header: dict[str, Any], rows: list[dict[str, Any]]) -> str:
-    """只盖签：header 规格键 + 每行签键；provenance、draw_stats、run_id 与结果段都不进。键集合按 header 的 schema 取。"""
+    """Seal the signature only: header spec keys + per-row signature keys; provenance, draw_stats, run_id and the result segment are excluded. Key set chosen by the header schema."""
     header_keys, row_keys, _, _ = _schema_keys(header.get("schema"))
     ordered = sorted(rows, key=lambda r: (r["task"], int(r["candidate"])))
     return digest({
@@ -261,7 +261,7 @@ def delivery_sha256(rows: list[dict[str, Any]]) -> str:
     return digest([list(item) for item in items])
 
 
-# ── 源码指纹（只进 provenance，不进 identity；不符只警告）───────────────────
+# -- Source fingerprint (provenance only, not identity; mismatch only warns) ---------------
 
 
 def _package_root(name: str) -> Path:
@@ -269,12 +269,12 @@ def _package_root(name: str) -> Path:
 
     spec = importlib.util.find_spec(name)
     if spec is None or not spec.submodule_search_locations:
-        raise SpecsError(f"找不到包 {name}")
+        raise SpecsError(f"package not found: {name}")
     return Path(list(spec.submodule_search_locations)[0])
 
 
 def hard_fingerprint() -> str:
-    """``robomme_ood`` 全部 .py 的相对路径与 sha256 的总散列。"""
+    """Aggregate hash of relative paths and sha256 of all ``robomme_ood`` .py files."""
     root = Path(__file__).resolve().parents[1]
     files = {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
              for p in sorted(root.rglob("*.py")) if "__pycache__" not in p.parts}
@@ -282,7 +282,7 @@ def hard_fingerprint() -> str:
 
 
 def base_fingerprint() -> str:
-    """借用的官方 shim 目标文件的总散列（按 UPSTREAM.json 清单读当前安装的 robomme）。"""
+    """Aggregate hash of the borrowed official shim target files (reads the currently installed robomme per the UPSTREAM.json manifest)."""
     manifest = json.loads((Path(__file__).resolve().parents[1] / "UPSTREAM.json").read_text(encoding="utf-8"))
     robomme_root = _package_root("robomme")
     files = {}
@@ -293,14 +293,14 @@ def base_fingerprint() -> str:
     return digest(files)
 
 
-# ── 读写 ───────────────────────────────────────────────────────────────
+# -- Read/write ---------------------------------------------------------------
 
 
 def _unique_object(pairs):
     result = {}
     for key, value in pairs:
         if key in result:
-            raise SpecsError(f"JSON 存在重复字段：{key}")
+            raise SpecsError(f"duplicate JSON field: {key}")
         result[key] = value
     return result
 
@@ -309,14 +309,14 @@ def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
     with Path(path).open(encoding="utf-8") as stream:
         records = [json.loads(line, object_pairs_hook=_unique_object) for line in stream if line.strip()]
     if not records:
-        raise SpecsError(f"{path} 为空")
+        raise SpecsError(f"{path} is empty")
     return records
 
 
 def _exact_keys(value: dict[str, Any], required: set[str], label: str, optional: set[str] = frozenset()) -> None:
     missing, extra = required - value.keys(), value.keys() - required - optional
     if missing or extra:
-        raise SpecsError(f"{label} 字段集合不符：缺少 {sorted(missing)}，多出 {sorted(extra)}")
+        raise SpecsError(f"{label} field set mismatch: missing {sorted(missing)}, extra {sorted(extra)}")
 
 
 def _is_int(value: Any) -> bool:
@@ -325,128 +325,128 @@ def _is_int(value: Any) -> bool:
 
 def _validate_specs(header: dict[str, Any], rows: list[dict[str, Any]],
                        expected_cells: dict[tuple[str, str], int] | None = None) -> None:
-    """``hard-specs/4`` 单文件校验（v8 方案第二部分 §2.2 第 2 条）。``expected_cells`` 是作配额上限的完整交付格表，
-    缺省 ``EXPECTED_CELLS``（v9 方案 §2.1：格表参数贯通 load_specs → validate_specs → 本函数）：
+    """``hard-specs/4`` single-file validation (v8 plan part two §2.2 item 2). ``expected_cells`` is the complete delivery cell table used as quota cap,
+    defaulting to ``EXPECTED_CELLS`` (v9 plan §2.1: the cell table parameter is threaded load_specs -> validate_specs -> this function):
 
-    * header：字段集合；``difficulty ∈ TIERS``；runtime；``seed_rule == seed_rule_for(tier, "v8")``；
-      ``exec_cap == EXEC_CAP``；``layout_rule == {"mode": "independent"}``；``tasks`` 不重复且每个 (task, tier)
-      都在格表里；``select_rule`` 为 ``{task: [不重复非负整数]}``、``per_env`` 为 ``{task: 候选数（非负整数）}``、
-      ``delivery_per_cell`` 为 ``{task: 正整数}``，三者键集合都等于 ``tasks``；逐任务配额自洽：
-      ``delivery_per_cell[task] ≤ 格表[(task, tier)]``、``len(select_rule[task]) == delivery_per_cell[task]``、
-      ``per_env[task] ==`` 本文件该任务行数、``select_rule[task]`` 每个索引 ``< per_env[task]``；内嵌 sampling_config 散列自洽；
-    * 行：字段集合；``candidate``／``attempt``／``seed`` 为整数且不是布尔（F-6）；``layout_parent is None``、
-      ``spec.spec_kind == "native-newvalue/2"``；``candidate == episode`` 且
-      ``0 ≤ episode < env_block // episode_stride``；档位、规格散列、seed 公式、布尔位、rollout.status；
-      逐任务 selected 行数 ≤ ``delivery_per_cell[task]``；
-    * 两个身份散列（签含 exec_cap、delivery_per_cell、seed_rule，改任一项不重签即失败）。
+    * header: field set; ``difficulty in TIERS``; runtime; ``seed_rule == seed_rule_for(tier, "v8")``;
+      ``exec_cap == EXEC_CAP``; ``layout_rule == {"mode": "independent"}``; ``tasks`` has no duplicates and every (task, tier)
+      is in the cell table; ``select_rule`` is ``{task: [distinct non-negative ints]}``, ``per_env`` is ``{task: candidate count (non-negative int)}``,
+      ``delivery_per_cell`` is ``{task: positive int}``, all three with key set equal to ``tasks``; per-task quotas self-consistent:
+      ``delivery_per_cell[task] <= cell_table[(task, tier)]``, ``len(select_rule[task]) == delivery_per_cell[task]``,
+      ``per_env[task] ==`` row count of that task in this file, every index of ``select_rule[task]`` ``< per_env[task]``; embedded sampling_config hash self-consistent;
+    * rows: field set; ``candidate``/``attempt``/``seed`` are integers and not bools (F-6); ``layout_parent is None``,
+      ``spec.spec_kind == "native-newvalue/2"``; ``candidate == episode`` and
+      ``0 <= episode < env_block // episode_stride``; tier, spec hash, seed formula, boolean flags, rollout.status;
+      per-task selected row count <= ``delivery_per_cell[task]``;
+    * both identity hashes (the signature includes exec_cap, delivery_per_cell and seed_rule; changing any without re-signing fails).
     """
     table = EXPECTED_CELLS if expected_cells is None else expected_cells
     _, _, header_required, row_required = _schema_keys(SCHEMA)
     _exact_keys(header, header_required, "specs header", HEADER_OPTIONAL)
     if header["record"] != "header":
-        raise SpecsError(f"specs 版本不符：{SCHEMA}")
+        raise SpecsError(f"specs version mismatch: {SCHEMA}")
     tier = header["difficulty"]
     if tier not in TIERS or header["runtime"] != RUNTIME:
-        raise SpecsError(f"hard-specs/4 档位或 runtime 不符：{tier!r}")
+        raise SpecsError(f"hard-specs/4 tier or runtime mismatch: {tier!r}")
     if header["seed_rule"] != seed_rule_for(tier, "v8"):
-        raise SpecsError(f"hard-specs/4 只接受 v8 按档 seed 规则（{tier}）")
+        raise SpecsError(f"hard-specs/4 only accepts the v8 per-tier seed rule ({tier})")
     if not _is_int(header["exec_cap"]) or header["exec_cap"] != EXEC_CAP:
-        raise SpecsError(f"hard-specs/4 的 exec_cap 必须为 {EXEC_CAP}：{header['exec_cap']!r}")
+        raise SpecsError(f"hard-specs/4 exec_cap must be {EXEC_CAP}: {header['exec_cap']!r}")
     if header["layout_rule"] != LAYOUT_RULE:
-        raise SpecsError(f"hard-specs/4 的 layout_rule 必须为 {LAYOUT_RULE}：{header['layout_rule']!r}")
+        raise SpecsError(f"hard-specs/4 layout_rule must be {LAYOUT_RULE}: {header['layout_rule']!r}")
     tasks = header["tasks"]
     if not isinstance(tasks, list) or len(set(tasks)) != len(tasks):
-        raise SpecsError(f"hard-specs/4 的 tasks 必须是不重复列表：{tasks!r}")
+        raise SpecsError(f"hard-specs/4 tasks must be a list without duplicates: {tasks!r}")
     stray = [task for task in tasks if (task, tier) not in table]
     if stray:
-        raise SpecsError(f"hard-specs/4 的任务不在 {tier} 交付格内：{stray}")
+        raise SpecsError(f"hard-specs/4 tasks not in the {tier} delivery cells: {stray}")
     for name in ("select_rule", "per_env", "delivery_per_cell"):
         value = header[name]
         if not isinstance(value, dict) or set(value) != set(tasks):
-            raise SpecsError(f"hard-specs/4 的 {name} 必须是键集合等于 tasks 的逐任务字典：{value!r}")
+            raise SpecsError(f"hard-specs/4 {name} must be a per-task dict whose key set equals tasks: {value!r}")
     for task in tasks:
         indices = header["select_rule"][task]
         if not isinstance(indices, list) or not all(_is_int(i) and i >= 0 for i in indices) \
                 or len(set(indices)) != len(indices):
-            raise SpecsError(f"hard-specs/4 的 select_rule[{task}] 必须是不重复非负整数列表：{indices!r}")
+            raise SpecsError(f"hard-specs/4 select_rule[{task}] must be a list of distinct non-negative integers: {indices!r}")
         if not _is_int(header["per_env"][task]) or header["per_env"][task] < 0:
-            raise SpecsError(f"hard-specs/4 的 per_env[{task}] 必须是非负整数：{header['per_env'][task]!r}")
+            raise SpecsError(f"hard-specs/4 per_env[{task}] must be a non-negative integer: {header['per_env'][task]!r}")
         quota = header["delivery_per_cell"][task]
         if not _is_int(quota) or quota <= 0:
-            raise SpecsError(f"hard-specs/4 的 delivery_per_cell[{task}] 必须是正整数：{quota!r}")
+            raise SpecsError(f"hard-specs/4 delivery_per_cell[{task}] must be a positive integer: {quota!r}")
         if quota > table[(task, tier)]:
-            raise SpecsError(f"hard-specs/4 的 delivery_per_cell[{task}]={quota} 超过表 2 格配额 "
-                             f"{table[(task, tier)]}（{tier}）")
+            raise SpecsError(f"hard-specs/4 delivery_per_cell[{task}]={quota} exceeds the table 2 cell quota "
+                             f"{table[(task, tier)]} ({tier})")
         if len(indices) != quota:
-            raise SpecsError(f"hard-specs/4 的 select_rule[{task}] 长度 {len(indices)} ≠ delivery_per_cell {quota}")
+            raise SpecsError(f"hard-specs/4 select_rule[{task}] length {len(indices)} != delivery_per_cell {quota}")
         n_rows = sum(1 for row in rows if row.get("task") == task)
         if header["per_env"][task] != n_rows:
-            raise SpecsError(f"hard-specs/4 的 per_env[{task}]={header['per_env'][task]} ≠ 本文件该任务行数 {n_rows}")
+            raise SpecsError(f"hard-specs/4 per_env[{task}]={header['per_env'][task]} != row count of this task in the file {n_rows}")
         if any(i >= header["per_env"][task] for i in indices):
-            raise SpecsError(f"hard-specs/4 的 select_rule[{task}] 有索引越过 per_env={header['per_env'][task]}："
+            raise SpecsError(f"hard-specs/4 select_rule[{task}] has an index beyond per_env={header['per_env'][task]}: "
                              f"{indices!r}")
     if header["sampling_config_sha256"] != digest(header["sampling_config"]):
-        raise SpecsError("内嵌 sampling_config 散列不自洽")
+        raise SpecsError("embedded sampling_config hash is not self-consistent")
     max_episode = SEED_RULE["env_block"] // SEED_RULE["episode_stride"]
     seen, selected_count = set(), {}
     for row in rows:
-        _exact_keys(row, row_required, "specs 行")
-        # F-6：candidate／attempt／seed 必须是真整数（排除 bool 与浮点），否则 True==1、int(0.5)==0、
-        # 16000000.0==16000000 会让后面的相等比较与 seed 公式误判通过
+        _exact_keys(row, row_required, "specs row")
+        # F-6: candidate/attempt/seed must be true integers (excluding bool and float), otherwise True==1, int(0.5)==0 and
+        # 16000000.0==16000000 would let the later equality checks and the seed formula pass by mistake
         bad_types = {name: row[name] for name in ("candidate", "attempt", "seed") if not _is_int(row[name])}
         if bad_types:
-            raise SpecsError(f"hard-specs/4 行 candidate／attempt／seed 必须是整数（不得为布尔或浮点）："
+            raise SpecsError(f"hard-specs/4 row candidate/attempt/seed must be integer (not bool or float): "
                              f"{row.get('task')} {bad_types!r}")
         key = (row["task"], int(row["candidate"]))
         if row["record"] != "spec" or key in seen or row["task"] not in tasks:
-            raise SpecsError(f"重复或额外的规格行：{key}")
+            raise SpecsError(f"duplicate or extra spec row: {key}")
         seen.add(key)
-        # /4 行 candidate 即抽签 episode（与 _freeze 写法一致），episode 不得越过 env_block，否则跨任务 seed 会撞段
+        # /4 row candidate is the drawn episode (same as how _freeze writes it); episode must not exceed env_block, otherwise cross-task seeds collide
         if not _is_int(row["episode"]) or not 0 <= row["episode"] < max_episode:
-            raise SpecsError(f"hard-specs/4 行 episode 必须落在 [0, {max_episode})：{key} {row['episode']!r}")
+            raise SpecsError(f"hard-specs/4 row episode must be in [0, {max_episode}): {key} {row['episode']!r}")
         if row["candidate"] != row["episode"]:
-            raise SpecsError(f"hard-specs/4 行 candidate 必须等于 episode：{key} {row['episode']!r}")
+            raise SpecsError(f"hard-specs/4 row candidate must equal episode: {key} {row['episode']!r}")
         if row["tier"] != tier:
-            raise SpecsError(f"规格行档位与 header 不符：{key}")
+            raise SpecsError(f"spec row tier does not match header: {key}")
         if row["layout_parent"] is not None or (row.get("spec") or {}).get("spec_kind") != "native-newvalue/2":
-            raise SpecsError(f"hard-specs/4 行 layout_parent 必须为 null、规格为 native-newvalue/2：{key}")
+            raise SpecsError(f"hard-specs/4 row layout_parent must be null and spec must be native-newvalue/2: {key}")
         if row["spec_sha256"] != spec_sha256(row["spec"]):
-            raise SpecsError(f"规格散列不符：{key}")
+            raise SpecsError(f"spec hash mismatch: {key}")
         if row["seed"] != seed_for(row["task"], row["episode"], row["attempt"], header["seed_rule"]):
-            raise SpecsError(f"seed 与公式不符：{key}")
+            raise SpecsError(f"seed does not match formula: {key}")
         for flag in ("selected", "tried", "initial_selected"):
             if type(row[flag]) is not bool:
-                raise SpecsError(f"{flag} 必须是布尔：{key}")
+                raise SpecsError(f"{flag} must be a bool: {key}")
         rollout = row["rollout"]
         if rollout is not None and rollout.get("status") not in ROLLOUT_STATUSES:
-            raise SpecsError(f"rollout.status 非法：{key}")
+            raise SpecsError(f"invalid rollout.status: {key}")
         if row["selected"]:
             selected_count[row["task"]] = selected_count.get(row["task"], 0) + 1
     over = {task: n for task, n in selected_count.items() if n > header["delivery_per_cell"][task]}
     if over:
-        raise SpecsError(f"逐任务 selected 行数超过 delivery_per_cell：{over}")
+        raise SpecsError(f"per-task selected row count exceeds delivery_per_cell: {over}")
     if identity_sha256(header, rows) != header["identity_sha256"]:
-        raise SpecsError("identity_sha256 不符（签或来源被改过）")
+        raise SpecsError("identity_sha256 mismatch (signature or provenance was modified)")
     if delivery_sha256(rows) != header["delivery_sha256"]:
-        raise SpecsError("delivery_sha256 不符（正式交付集合被改过）")
+        raise SpecsError("delivery_sha256 mismatch (formal delivery set was modified)")
 
 
 def validate_specs(header: dict[str, Any], rows: list[dict[str, Any]], *,
                    expected_cells: dict[tuple[str, str], int] | None = None) -> None:
-    """封套校验：只认 ``hard-specs/4``，走 ``_validate_specs``（``expected_cells`` 作配额上限，缺省
-    ``EXPECTED_CELLS``）；其余 schema（含已删除的 /2、/3）一律以「specs 版本不符」拒绝。"""
+    """Envelope validation: only ``hard-specs/4`` is accepted, via ``_validate_specs`` (``expected_cells`` as quota cap, default
+    ``EXPECTED_CELLS``); any other schema (including the removed /2 and /3) is rejected with "specs version mismatch"."""
     schema = header.get("schema")
     if schema != SCHEMA:
-        raise SpecsError(f"specs 版本不符：{schema}")
+        raise SpecsError(f"specs version mismatch: {schema}")
     _validate_specs(header, rows, EXPECTED_CELLS if expected_cells is None else expected_cells)
 
 
 def load_specs(path: str | Path, *, expected_cells: dict[tuple[str, str], int] | None = None,
                check_fingerprint: bool = True):
-    """唯一读取入口：返回 ``(header, rows)``（rows 为全部规格行，调用方按 ``delivered`` 取正式局）。
+    """The only read entry: returns ``(header, rows)`` (rows are all spec rows; callers take formal episodes via ``delivered``).
 
-    ``expected_cells``：/4 文件的配额上限格表，缺省 ``EXPECTED_CELLS``。
-    源码指纹（``provenance``）与当前环境不符只 ``warnings.warn``，不拒绝（0927 计划 §3.4）。
+    ``expected_cells``: quota-cap cell table for /4 files, default ``EXPECTED_CELLS``.
+    A source fingerprint (``provenance``) mismatch with the current environment only triggers ``warnings.warn``, not rejection (0927 plan §3.4).
     """
     records = read_jsonl(path)
     header, rows = records[0], records[1:]
@@ -455,49 +455,49 @@ def load_specs(path: str | Path, *, expected_cells: dict[tuple[str, str], int] |
         provenance = header.get("provenance") or {}
         try:
             current = {"hard_fingerprint": hard_fingerprint(), "base_fingerprint": base_fingerprint()}
-        except Exception as exc:  # noqa: BLE001 指纹只作佐证
-            warnings.warn(f"无法计算源码指纹：{exc}")
+        except Exception as exc:  # noqa: BLE001 fingerprint is supporting evidence only
+            warnings.warn(f"cannot compute source fingerprint: {exc}")
             current = {}
         for key, value in current.items():
             if provenance.get(key) not in (None, value):
-                warnings.warn(f"{path}：{key} 与当前源码不符（只警告，不拒绝）")
+                warnings.warn(f"{path}: {key} does not match current source (warning only, not rejected)")
     return copy.deepcopy(header), copy.deepcopy(rows)
 
 
 def load_specs_root(root: str | Path, expected_cells: dict[tuple[str, str], int], *,
                   cell_table: dict[tuple[str, str], int] | None = None,
                   check_fingerprint: bool = True) -> dict[str, tuple[dict[str, Any], list[dict[str, Any]]]]:
-    """读 v8／v9 规格根（``<root>/<tier>/specs.jsonl``，``hard-specs/4``），只校验调用方给定的格表。
+    """Read a v8/v9 spec root (``<root>/<tier>/specs.jsonl``, ``hard-specs/4``), validating only the cell table given by the caller.
 
-    ``expected_cells``：``{(task, tier): 局数}``，键必须是完整交付格表键的子集、值为正整数（值可小于表值，
-    如冒烟每格 1 局）。完整根传 ``V9_CELLS``、冒烟传冒烟表、分片传该片子集。
-    ``cell_table``：作配额上限的完整交付格表；缺省按 ``resolve_cell_table(expected_cells)`` 取（EXPECTED_CELLS →
-    CELL_TABLES 第一张能覆盖的表），并原样传给逐份 ``load_specs``。只读 ``expected_cells``
-    涉及的档位文件（其他档的文件即使存在也不读），逐份走 ``load_specs``（/4 校验），另查：
+    ``expected_cells``: ``{(task, tier): episode count}``; keys must be a subset of the complete delivery cell table keys, values positive integers (values may be below table values,
+    e.g. 1 episode per cell for smoke). Full root passes ``V9_CELLS``, smoke passes a smoke table, a shard passes its subset.
+    ``cell_table``: complete delivery cell table used as quota cap; defaults to ``resolve_cell_table(expected_cells)`` (EXPECTED_CELLS ->
+    first covering table in CELL_TABLES), and is passed unchanged to each ``load_specs``. Only reads tier files
+    involved in ``expected_cells`` (other tiers' files are not read even if present); each goes through ``load_specs`` (/4 validation), plus:
 
-    * 每份 ``schema == "hard-specs/4"``、``difficulty`` 等于目录档名；
-    * 每份 header ``tasks`` 的集合等于 ``expected_cells`` 在该档的任务集合；
-    * ``expected_cells[key] ≤ cell_table[key]``；
-    * 每格 header ``delivery_per_cell[task]`` 等于 ``expected_cells`` 的值；
-    * 每格 ``selected`` 行数等于 ``expected_cells`` 的值（相等，不是 ≤）。只数 ``selected``，不看 rollout 结果；
-      正式交付（``delivered``：selected 且 rollout ok）的逐格核对由 builder 构造 ``ood`` 时逐格断言；
-    * 同任务跨档 seed 两两不交（比全部规格行，不只 selected）。
+    * each file has ``schema == "hard-specs/4"`` and ``difficulty`` equal to the directory tier name;
+    * each header's ``tasks`` set equals the task set of ``expected_cells`` for that tier;
+    * ``expected_cells[key] <= cell_table[key]``;
+    * each cell's header ``delivery_per_cell[task]`` equals the ``expected_cells`` value;
+    * each cell's ``selected`` row count equals the ``expected_cells`` value (equal, not <=). Counts ``selected`` only, ignores rollout results;
+      per-cell checking of formal delivery (``delivered``: selected and rollout ok) is asserted per cell by the builder when constructing ``ood``;
+    * seeds of the same task are pairwise disjoint across tiers (comparing all spec rows, not just selected).
 
-    返回 ``{tier: (header, rows)}``：键只含涉及的档位、按 ``TIERS`` 顺序；
-    rows 为该档全部规格行（调用方按 ``selected`` 或 ``delivered`` 取）。任一不符抛 ``SpecsError``。
+    Returns ``{tier: (header, rows)}``: keys contain only the involved tiers, in ``TIERS`` order;
+    rows are all spec rows of that tier (callers take ``selected`` or ``delivered``). Any mismatch raises ``SpecsError``.
     """
     if not isinstance(expected_cells, dict) or not expected_cells:
-        raise SpecsError("expected_cells 必须是非空 {(task, tier): 局数} 字典")
+        raise SpecsError("expected_cells must be a non-empty {(task, tier): episode count} dict")
     table = resolve_cell_table(expected_cells) if cell_table is None else cell_table
     stray = sorted(key for key in expected_cells if key not in table)
     if stray:
-        raise SpecsError(f"expected_cells 含交付格表（V9_CELLS）之外的格：{stray}")
+        raise SpecsError(f"expected_cells contains cells outside the delivery cell table (V9_CELLS): {stray}")
     bad = {key: n for key, n in expected_cells.items() if not _is_int(n) or n <= 0}
     if bad:
-        raise SpecsError(f"expected_cells 的局数必须是正整数：{bad}")
+        raise SpecsError(f"expected_cells episode counts must be positive integers: {bad}")
     over = {key: n for key, n in expected_cells.items() if n > table[key]}
     if over:
-        raise SpecsError(f"expected_cells 的局数超过表 2 格配额：{over}")
+        raise SpecsError(f"expected_cells episode counts exceed the table 2 cell quota: {over}")
     out: dict[str, tuple[dict[str, Any], list[dict[str, Any]]]] = {}
     for tier in TIERS:
         want = {task for task, t in expected_cells if t == tier}
@@ -505,21 +505,21 @@ def load_specs_root(root: str | Path, expected_cells: dict[tuple[str, str], int]
             continue
         path = Path(root) / tier / "specs.jsonl"
         if not path.is_file():
-            raise SpecsError(f"v8 规格根缺少 {path}")
+            raise SpecsError(f"v8 spec root is missing {path}")
         header, rows = load_specs(path, expected_cells=table, check_fingerprint=check_fingerprint)
         if header["schema"] != SCHEMA or header["difficulty"] != tier:
-            raise SpecsError(f"{path}：schema 须为 {SCHEMA}、档位须为 {tier}"
-                             f"（实为 {header['schema']}／{header['difficulty']}）")
+            raise SpecsError(f"{path}: schema must be {SCHEMA} and tier must be {tier}"
+                             f" (got {header['schema']}/{header['difficulty']})")
         got_tasks = set(header["tasks"])
         if got_tasks != want:
-            raise SpecsError(f"{tier} 任务集合不符：缺少 {sorted(want - got_tasks)}，多出 {sorted(got_tasks - want)}")
+            raise SpecsError(f"{tier} task set mismatch: missing {sorted(want - got_tasks)}, extra {sorted(got_tasks - want)}")
         for task in sorted(want):
             if header["delivery_per_cell"][task] != expected_cells[(task, tier)]:
                 raise SpecsError(f"{task}/{tier} delivery_per_cell={header['delivery_per_cell'][task]} ≠ "
-                                 f"期望 {expected_cells[(task, tier)]}")
+                                 f"expected {expected_cells[(task, tier)]}")
             got = sum(1 for row in rows if row["task"] == task and row["selected"])
             if got != expected_cells[(task, tier)]:
-                raise SpecsError(f"{task}/{tier} selected 行数 {got} ≠ 期望 {expected_cells[(task, tier)]}")
+                raise SpecsError(f"{task}/{tier} selected row count {got} != expected {expected_cells[(task, tier)]}")
         out[tier] = (header, rows)
     seeds: dict[str, dict[str, set[int]]] = {}
     for tier, (_, rows) in out.items():
@@ -531,19 +531,19 @@ def load_specs_root(root: str | Path, expected_cells: dict[tuple[str, str], int]
             for b in names[i + 1:]:
                 common = by_tier[a] & by_tier[b]
                 if common:
-                    raise SpecsError(f"{task} 在 {a} 与 {b} 的 seed 相交：{sorted(common)[:5]}")
+                    raise SpecsError(f"{task} seeds intersect between {a} and {b}: {sorted(common)[:5]}")
     return out
 
 
-#: 包内规格根：``env_metadata/ood/xhard{1..5}/specs.jsonl``（按 TIERS）。builder 只读它，不接受外部规格根。
+#: Packaged spec root: ``env_metadata/ood/xhard{1..5}/specs.jsonl`` (by TIERS). The builder reads only this and accepts no external spec root.
 PACKAGED_SPECS_ROOT = Path(__file__).resolve().parents[1] / "env_metadata" / "ood"
 _ANNOUNCED_ROOTS: set[str] = set()
 
 
 def specs_root(override: str | Path | None = None) -> Path:
-    """规格根：显式参数 > 包内（不读环境变量）。非包内时打印一次 ``SPECS_ROOT=``。
+    """Spec root: explicit argument > packaged (environment variables are not read). Prints ``SPECS_ROOT=`` once when not packaged.
 
-    ``override`` 形参保留给直接读取单个规格根的调用方（如测试夹具），builder 一律走包内根。"""
+    The ``override`` parameter is kept for callers that read a single spec root directly (e.g. test fixtures); the builder always uses the packaged root."""
     root = Path(override).resolve() if override is not None else PACKAGED_SPECS_ROOT
     if root != PACKAGED_SPECS_ROOT and str(root) not in _ANNOUNCED_ROOTS:
         _ANNOUNCED_ROOTS.add(str(root))
@@ -553,15 +553,15 @@ def specs_root(override: str | Path | None = None) -> Path:
 
 def packaged_specs_path(tier: str, root: str | Path | None = None) -> Path:
     if tier not in TIERS:
-        raise SpecsError(f"未知档位 {tier!r}")
+        raise SpecsError(f"unknown tier {tier!r}")
     return specs_root(root) / tier / "specs.jsonl"
 
 
-# ── 回注绑定摘要（策略仓库唯一调用的函数；0927 计划 §4.2、R22）───────────────
+# -- Re-injection binding summary (the only function called by the policy repo; 0927 plan §4.2, R22) ---------------
 
 
 def _max_abs_diff(a: Any, b: Any) -> float:
-    """两棵值树的最大绝对差；结构或非数值不同返回 inf。"""
+    """Max absolute difference between two value trees; returns inf if structures or non-numeric values differ."""
     if isinstance(a, bool) or isinstance(b, bool):
         return 0.0 if a == b else math.inf
     if isinstance(a, (int, float)) and isinstance(b, (int, float)):
@@ -578,11 +578,11 @@ def _max_abs_diff(a: Any, b: Any) -> float:
 
 
 def spec_binding(env) -> dict[str, Any]:
-    """读 ``env.unwrapped._spec``（``SpecRecorder``），返回回注绑定摘要；必须在 ``reset()`` 之后调用。
+    """Read ``env.unwrapped._spec`` (``SpecRecorder``) and return the re-injection binding summary; must be called after ``reset()``.
 
-    - ``injected_mismatch``：回注点（``value()``，trace ``source="spec"``）上的不等条数，外加记录点差 > 1e-5 的条数；
-    - ``recorded_drift``：只记录不回注的观测点（``record()``，trace ``source="record"``）上差 ≤ ``RECORDED_FLOAT_TOL`` 的条数；
-    - ``unused``：规格里有、本局没被 ``value()``／``record()`` 访问的取值点数。
+    - ``injected_mismatch``: number of unequal entries at injection points (``value()``, trace ``source="spec"``), plus recorded points with difference > 1e-5;
+    - ``recorded_drift``: number of entries at record-only observation points (``record()``, trace ``source="record"``) with difference <= ``RECORDED_FLOAT_TOL``;
+    - ``unused``: number of value points present in the spec but not accessed via ``value()``/``record()`` in this episode.
     """
     recorder = getattr(getattr(env, "unwrapped", env), "_spec", None)
     if recorder is None:
@@ -602,9 +602,9 @@ def spec_binding(env) -> dict[str, Any]:
     consumed = set(recorder.consumed_paths())
     unused = [p for p in recorder.leaf_paths() if not any(p == c or p.startswith(c + ".") for c in consumed)]
     frozen = getattr(recorder, "_frozen", None)
-    # layered／layout_hit／layout_paths_expected／layout_overridden／layout_drift 五键原服务 V7 分层回注（已于维护计划
-    # 阶段 1b 删除）。SpecRecorder 不再带这些属性，下面的 getattr 恒取缺省值（False／0／None），与删除前非分层局的输出逐字
-    # 相同；键名保留是为了不改变摘要形态（策略仓库与 hard_regression reset-replay 读这些键）。
+    # The five keys layered/layout_hit/layout_paths_expected/layout_overridden/layout_drift originally served V7 layered re-injection (removed in maintenance plan
+    # stage 1b). SpecRecorder no longer has these attributes, so the getattr below always returns the default (False/0/None), byte-identical to the
+    # pre-removal output for non-layered episodes; the key names are kept so the summary shape does not change (the policy repo and hard_regression reset-replay read these keys).
     layered_hit = getattr(recorder, "_layered_hit", None)
     if layered_hit is not None:
         layout_hit = len({item["path"] for item in recorder.trace if item.get("path") in layered_hit})

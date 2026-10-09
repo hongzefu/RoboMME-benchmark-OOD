@@ -1,7 +1,7 @@
-"""BinFill 原生三档真值表（C05）：按目标语言逐色放入指定数量的方块，再按按钮。
+"""BinFill native three-tier truth table (C05): put the specified number of cubes of each color into the bin per the goal language, then press the button.
 
-期望：每种颜色放入数量恰好等于目标数（目标语言里写明）→ 按钮成功；少一块就按、多放一块、放错颜色、
-提前按 → 失败。放入箱子的方块被移出场景（10, 10），之后不再被计数。
+Expectations: for every color the number put in equals the target count exactly (stated in the goal language) -> button success; pressing one short, putting one extra, wrong color,
+pressing early -> failure. Cubes put into the bin are moved out of the scene (10, 10) and are not counted afterwards.
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from tests.robomme_ood.unit.robomme import official_thresholds as T
 TASK = "BinFill"
 DIFFS = ("easy", "medium", "hard")
 WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
-# 越过 dynamic 抬起动画窗口（最长 idx*100 步），让替身位置只由测试摆放
+# past the dynamic lift animation window (at most idx*100 steps), so double positions are set only by the test
 ONLINE_START = T.BINFILL_ONLINE_START
 
 
@@ -81,7 +81,7 @@ def test_cube_put_into_bin_is_removed_from_scene(world, diff):
     cube = _cubes(env, color)[0]
     _put_into_bin(ep, env, cube)
     np.testing.assert_allclose(cube.xyz, T.BINFILL_REMOVED_XYZ, atol=1e-6)
-    ep.step(3)  # 已移出的方块不再重复计数
+    ep.step(3)  # cubes already moved out are not counted again
     assert sum([env.red_cubes_in_bin, env.blue_cubes_in_bin, env.green_cubes_in_bin]) == 1
 
 
@@ -112,13 +112,13 @@ def test_extra_cube_after_exact_fails(world, diff):
     used = _fill_exact(ep, env)
     spare = next((c for c in env.all_cubes if c.xyz[0] < 5 and all(
         c is not x for col in used for x in _cubes(env, col)[:used[col]])), None)
-    assert spare is not None, "spawn 数 >= 目标数，至少多一块可放"
+    assert spare is not None, "spawn count >= target count, at least one extra cube can be placed"
     _put_into_bin(ep, env, spare)
     assert ep.fail and not ep.success
 
 
 def test_wrong_color_fails_at_button(world):
-    """medium/hard 才有多色；选一个目标色之外有块的颜色放入，计数不符 → 按钮失败。"""
+    """Only medium/hard have multiple colors; put in a cube of a color outside the target colors; count mismatch -> button failure."""
     for seed in range(40):
         ep = _start(world, "hard", seed=seed)
         env = ep.env
@@ -127,9 +127,9 @@ def test_wrong_color_fails_at_button(world):
         if wrong:
             break
     else:
-        pytest.fail("找不到有非目标色方块的布局")
+        pytest.fail("no layout found with cubes of a non-target color")
     seq = env.binfill_language_sequence
-    # 按序列的总数放，但第一块换成错色
+    # place the sequence's total count, but swap the first cube for a wrong color
     total = sum(n for _, n in seq)
     wrong_cube = _cubes(env, wrong[0])[0]
     _put_into_bin(ep, env, wrong_cube)
@@ -142,7 +142,7 @@ def test_wrong_color_fails_at_button(world):
             _put_into_bin(ep, env, _cubes(env, color)[used[color]])
             used[color] += 1
             placed += 1
-    assert not ep.fail  # 放的过程中不判失败（拾取子任务接受任意方块）
+    assert not ep.fail  # no failure while placing (the pick subtask accepts any cube)
     ep.press(env.button)
     ep.step()
     assert ep.fail and not ep.success
@@ -156,7 +156,7 @@ def test_early_button_fails(world, diff):
     assert ep.fail and not ep.success
     ep.unpress(ep.env.button)
     ep.step(2)
-    assert ep.fail  # 失败锁存
+    assert ep.fail  # failure latches
 
 
 def test_drop_outside_bin_does_not_count(world):
@@ -167,13 +167,13 @@ def test_drop_outside_bin_does_not_count(world):
     ep.grasp(cube)
     ep.step()
     bx, by, _ = env.board_with_hole.xyz
-    ep.release(cube, bx + T.DROP_ONTO_XY + T.EPS, by)  # 刚出放置阈值
+    ep.release(cube, bx + T.DROP_ONTO_XY + T.EPS, by)  # just outside the placement threshold
     ep.step()
     assert sum([env.red_cubes_in_bin, env.blue_cubes_in_bin, env.green_cubes_in_bin]) == 0
 
 
 def test_drop_with_closed_gripper_does_not_count(world):
-    """check_block_away_gripper：夹爪未张开（两指 <= T.GRIPPER_OPEN）时不计入箱子。"""
+    """check_block_away_gripper: not counted into the bin while the gripper is not open (both fingers <= T.GRIPPER_OPEN)."""
     ep = _start(world, "easy")
     env = ep.env
     color, _ = env.binfill_language_sequence[0]

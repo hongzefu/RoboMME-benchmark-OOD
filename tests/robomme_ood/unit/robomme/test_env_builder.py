@@ -1,7 +1,7 @@
-"""官方 BenchmarkEnvBuilder（C02 官方部分）：白名单、元数据解析、交给 gym.make 的参数、包装链与步数上限。
+"""Official BenchmarkEnvBuilder (C02 official part): whitelist, metadata resolution, arguments to gym.make, wrapper chain and step cap.
 
-gym.make 换成记录参数的替身（只换 episode_config_resolver 模块里的 ``gym`` 名字，进程内、不落盘），
-其余（DemonstrationWrapper 等四种包装层与 FailAwareWrapper）全是真实类。
+gym.make is replaced by an argument-recording double (only the ``gym`` name in the episode_config_resolver module, in process, nothing written to disk);
+everything else (the four wrapper layers such as DemonstrationWrapper, and FailAwareWrapper) are real classes.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from tests.robomme_ood.unit.robomme import official_thresholds as T
 
 ACTION_SPACES = ("joint_angle", "ee_pose", "waypoint", "multi_choice")
 SPLITS = ("train", "val", "test")
-# 独立期望：四种动作空间的包装链（外 → 内），来源：官方 doc/env_format.md 的动作空间说明与 README 动作类型
+# independent expectation: wrapper chain of the four action spaces (outer -> inner), source: action space notes in official doc/env_format.md and the README action types
 CHAINS = {
     "joint_angle": ["FailAwareWrapper", "DemonstrationWrapper", "OrderEnforcing", "FakeTaskEnv"],
     "ee_pose": ["FailAwareWrapper", "EndeffectorDemonstrationWrapper", "DemonstrationWrapper", "OrderEnforcing", "FakeTaskEnv"],
@@ -43,7 +43,7 @@ def _metadata_tasks(split):
     return {p.name[len("record_dataset_"):-len("_metadata.json")] for p in (ecr.DATASET_ROOT / split).glob("*.json")}
 
 
-# --------------------------------------------------------------------------- 白名单
+# --------------------------------------------------------------------------- Whitelist
 
 
 @pytest.mark.parametrize("dataset", ["ood", "TEST", "", "dev"])
@@ -63,12 +63,12 @@ def test_accepts_official_splits(split):
     assert BenchmarkEnvBuilder("PickXtimes", dataset=split).dataset == split
 
 
-# --------------------------------------------------------------------------- 任务列表
+# --------------------------------------------------------------------------- Task list
 
 
 def test_task_list_matches_metadata_files_and_is_a_copy():
     tasks = BenchmarkEnvBuilder.get_task_list()
-    assert len(tasks) == len(set(tasks))  # 个数由下面与三个 split 元数据文件名集合相等来钉
+    assert len(tasks) == len(set(tasks))  # the count is pinned below by equality with the file-name sets of the three split metadata
     for split in SPLITS:
         assert set(tasks) == _metadata_tasks(split), split
     tasks.append("Injected")
@@ -76,7 +76,7 @@ def test_task_list_matches_metadata_files_and_is_a_copy():
     assert BenchmarkEnvBuilder.get_task_list() == BenchmarkEnvBuilder.get_task_list()
 
 
-# --------------------------------------------------------------------------- 元数据解析
+# --------------------------------------------------------------------------- Metadata resolution
 
 
 def _write_meta(tmp_path, env_id, payload):
@@ -90,11 +90,11 @@ def test_metadata_resolution_rules(tmp_path):
         "env_id": "PickXtimes",
         "records": [
             {"task": "PickXtimes", "episode": 0, "seed": 7, "difficulty": "hard"},
-            {"episode": "1", "seed": "not-int", "difficulty": "easy"},   # 缺 task 用 env_id；seed 非法 → None
-            {"task": "PickXtimes", "episode": None, "seed": 9},           # 无 episode → 跳过
-            {"task": "PickXtimes", "episode": "x", "seed": 9},            # episode 非整数 → 跳过
-            {"task": "OtherTask", "episode": 2, "seed": 5},               # 别的任务
-            {"task": "PickXtimes", "episode": 3, "seed": "11"},           # 字符串数字 seed → 11
+            {"episode": "1", "seed": "not-int", "difficulty": "easy"},   # missing task uses env_id; invalid seed -> None
+            {"task": "PickXtimes", "episode": None, "seed": 9},           # no episode -> skipped
+            {"task": "PickXtimes", "episode": "x", "seed": 9},            # non-integer episode -> skipped
+            {"task": "OtherTask", "episode": 2, "seed": 5},               # another task
+            {"task": "PickXtimes", "episode": 3, "seed": "11"},           # numeric-string seed -> 11
         ],
     })
     b = BenchmarkEnvBuilder("PickXtimes", override_metadata_path=root)
@@ -103,7 +103,7 @@ def test_metadata_resolution_rules(tmp_path):
     assert b.resolve_episode(2) == (None, None)
     assert b.resolve_episode(3) == (11, None)
     assert b.resolve_episode(99) == (None, None)
-    assert b.get_episode_num() == 3  # 0、1、3
+    assert b.get_episode_num() == 3  # 0, 1, 3
 
 
 def test_missing_or_corrupt_metadata_is_empty(tmp_path):
@@ -116,7 +116,7 @@ def test_missing_or_corrupt_metadata_is_empty(tmp_path):
 
 @pytest.mark.parametrize("split", SPLITS)
 def test_real_metadata_episode0_seed(split):
-    """真实元数据：逐任务用 json 独立读第 0 局记录，与 resolve_episode 的结果相同。"""
+    """Real metadata: per task, read the episode-0 record independently with json; equals the result of resolve_episode."""
     for task in BenchmarkEnvBuilder.get_task_list():
         payload = json.loads((ecr.DATASET_ROOT / split / f"record_dataset_{task}_metadata.json").read_text())
         rec = next(r for r in payload["records"] if int(r["episode"]) == 0)
@@ -125,7 +125,7 @@ def test_real_metadata_episode0_seed(split):
         assert diff in ("easy", "medium", "hard")
 
 
-# --------------------------------------------------------------------------- 交给 gym.make 的参数与包装链
+# --------------------------------------------------------------------------- Arguments to gym.make and wrapper chain
 
 
 @pytest.mark.parametrize("space", ACTION_SPACES)
@@ -165,7 +165,7 @@ def test_max_steps_plus_two(tmp_path, gym_spy, builder_max, call_max, expected):
 
 
 def _flag_combos_18():
-    """全关、全开、8 个单开、8 个单关。"""
+    """All off, all on, 8 single-on, 8 single-off."""
     off = dict.fromkeys(FLAGS, False)
     on = dict.fromkeys(FLAGS, True)
     out = [off, on]
@@ -175,7 +175,7 @@ def _flag_combos_18():
 
 
 def _expected_flags(space, flags):
-    forced = space == "multi_choice"  # multi_choice 强制带前视相机内外参
+    forced = space == "multi_choice"  # multi_choice forces front-camera intrinsics/extrinsics
     exp = dict(flags)
     exp["include_front_camera_extrinsic"] = flags["include_front_camera_extrinsic"] or forced
     exp["include_front_camera_intrinsic"] = flags["include_front_camera_intrinsic"] or forced
@@ -192,7 +192,7 @@ def test_include_flags_passed_through_18(tmp_path, gym_spy, space, combo):
     assert {f: getattr(demo, f) for f in FLAGS} == _expected_flags(space, flags)
 
 
-# 四种动作空间 × 256 全组合（含输出键核对）在 test_obs_switches.py::test_switches_all_256_through_builder（slow）
+# four action spaces x all 256 combinations (including output key checks) are in test_obs_switches.py::test_switches_all_256_through_builder (slow)
 
 
 def test_override_metadata_path_wins_over_dataset(tmp_path):

@@ -1,10 +1,10 @@
-"""官方 vqa_options：16 任务的多选项（C07 选项与子目标绑定）。
+"""Official vqa_options: multiple-choice options of the 16 tasks (C07 options bound to subgoals).
 
-放在 tasks/ 下是为了用离线世界里真实建出来的任务实例（选项读的是任务实例上的物体列表）。期望：
-- 每个任务的选项动作文本按下表（独立期望，来源：官方 doc/env_format.md 的 multi_choice 说明与各任务目标语言）；
-  label 从 a 起连续；带 available 的选项引用任务实例上的那份物体列表（同一对象）；
-- 每个在线子目标的 choice_label 都能在选项动作里找到（录制时据此把子目标映射成选项 label）；
-- 选中需要目标的选项而没给目标 → ValueError；未知任务 → 空列表；求解函数分派到正确的规划函数与物体。
+Placed under tasks/ to use task instances really built in the offline world (options read the object lists on the task instance). Expectations:
+- each task's option action texts follow the table below (independent expectation, source: multi_choice notes in official doc/env_format.md and each task's goal language);
+  labels are contiguous from a; options with available reference that object list on the task instance (the same object);
+- every online subgoal's choice_label can be found among the option actions (recording maps subgoals to option labels this way);
+- selecting an option that needs a target without giving one -> ValueError; unknown task -> empty list; solvers dispatch to the right planning function and object.
 """
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ ACTIONS = {
     "RouteStick": [f"move to the nearest {s} target by circling around the stick {d}"
                    for d in ("clockwise", "counterclockwise") for s in ("left", "right")],
 }
-# 带 available 的选项及其应引用的实例属性
+# options with available and the instance attribute each should reference
 AVAILABLE = {
     "PickXtimes": {"a": "all_cubes"}, "SwingXtimes": {"a": "all_cubes"}, "BinFill": {"a": "all_cubes"},
     "VideoUnmaskSwap": {"a": "spawned_bins"}, "VideoUnmask": {"a": "spawned_bins"},

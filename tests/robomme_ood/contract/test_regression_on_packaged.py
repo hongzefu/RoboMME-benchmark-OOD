@@ -1,17 +1,17 @@
-"""L1 契约：对包内真实规格跑三项数据检查（交付集、档位取值、MoveCube 布局），各配负例。
+"""L1 contract: run three data checks on the real packaged specs (delivery set, tier values, MoveCube layout), each with negatives.
 
-旧仓这里调用 ``scripts/parity/hard_regression.py`` 的 ``delivery-set``／``tier-values``／``movecube-layout``
-子命令；该工具随私有评估仓走，本仓改用测试侧等价判定 ``packaged_checks``（只用标准库 json 读规格行，判据数值与
-``fd0017d6`` 的工具实现一致）。``step-headroom`` 需要逐局 h5 与交付清单，属工具行为，不在本仓。
+The old repo called the ``delivery-set``/``tier-values``/``movecube-layout`` subcommands of ``scripts/parity/hard_regression.py`` here;
+that tool moved to the private evaluation repo, so this repo uses the test-side equivalent checks in ``packaged_checks`` (reading spec rows with stdlib json only; criteria and values match
+the tool implementation at ``fd0017d6``). ``step-headroom`` needs per-episode h5 and the delivery manifest; it is tool behavior and not in this repo.
 
-- 交付集：V9 43 格逐格交付行（selected 且 rollout ok）数等于格表、格表外无交付、selected 而未成功为 0、
-  交付行执行步 ≤ ``EXEC_CAP``，合计 800 局；同任务跨档 seed 不交；布局独立（header ``layout_rule``、
-  ``layout_parent`` 全空、跨档交付行位置叶子不照抄）；
-- 档位取值：14 任务 41 格逐局取值等于 ``test_tier_table.TABLE``（行数 = 800 − MoveCube 50 − InsertPeg 50）；
-- MoveCube 布局：xhard4 50 局 × 2 段 × 3 物体 = 300 点全在 V9 区域内、至少一点在 V8 旧区域外、段内 region
-  与源码和 V9 三个数一致、运动方式 17／17／16。
+- delivery set: delivered rows (selected and rollout ok) per cell over the 43 V9 cells equal the cell table, no delivery outside the table, selected-but-failed is 0,
+  delivered rows' execution steps <= ``EXEC_CAP``, 800 episodes in total; same-task seeds disjoint across tiers; layouts independent (header ``layout_rule``,
+  ``layout_parent`` all null, position leaves of delivered rows not copied across tiers);
+- tier values: per-episode values over 14 tasks and 41 cells equal ``test_tier_table.TABLE`` (row count = 800 - MoveCube 50 - InsertPeg 50);
+- MoveCube layout: xhard4 50 episodes x 2 segments x 3 objects = 300 points all in the V9 region, at least one point outside the old V8 region, in-segment region
+  consistent with the source and the three V9 numbers, motion modes 17/17/16.
 
-负例都在 tmp 副本或内存副本上造一处错，对应计数必须变化。
+Negatives each introduce one error in a tmp copy or in-memory copy; the corresponding count must change.
 """
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def check(root: Path) -> dict:
     return delivery_set_check(root, NEW_TIERS, dict(V9_CELLS), exec_cap=EXEC_CAP, layout_rule=LAYOUT_RULE)
 
 
-# ── 交付集 ─────────────────────────────────────────────────────────────
+# -- Delivery set -------------------------------------------------------------
 
 
 def test_delivery_set_pass_on_packaged():
@@ -80,7 +80,7 @@ def test_delivery_set_pass_on_packaged():
 
 
 def test_delivery_set_fails_when_one_delivered_row_dropped(tmp_path):
-    """负例：xhard5 一个交付行改成 selected=False → 该格少一局、总数 799、cell_mismatch=1。"""
+    """Negative: one xhard5 delivered row set to selected=False -> that cell is short by one, total 799, cell_mismatch=1."""
     root = copy_root(tmp_path)
 
     def drop(header, rows):
@@ -99,8 +99,8 @@ def test_delivery_set_fails_on_missing_tier_file(tmp_path):
 
 
 def test_delivery_set_negatives_selected_not_ok_over_cap_seed_layout(tmp_path):
-    """负例：selected 而 rollout failed、交付行执行步超上限、跨档 seed 撞号、layout_parent 非空、跨档照抄一个浮点
-    位置叶子、header layout_rule 改掉，各自对应计数变为非零。"""
+    """Negatives: selected but rollout failed, delivered row execution steps over the cap, cross-tier seed collision, non-null layout_parent, one float
+    position leaf copied across tiers, header layout_rule changed; each makes the corresponding count non-zero."""
     root = copy_root(tmp_path)
     _, x2 = read_tier(root, "xhard2")
     stop_x2 = next(r for r in x2 if r["task"] == "StopCube" and delivered(r))
@@ -121,13 +121,13 @@ def test_delivery_set_negatives_selected_not_ok_over_cap_seed_layout(tmp_path):
     assert r["layout_equal_pairs"] >= 1, r
 
 
-# ── 档位取值 ───────────────────────────────────────────────────────────
+# -- Tier values -------------------------------------------------------------
 
 
 def test_tier_values_pass_on_packaged():
     r = tier_values_check(ROOT, NEW_TIERS, TABLE)
     assert r["mismatches"] == [] and r["missing_files"] == []
-    # 逐局核对的行数 = 交付格里有取值维度的局数（800 − MoveCube 50 − InsertPeg 50）
+    # rows checked per episode = episodes in delivery cells that have value dimensions (800 - MoveCube 50 - InsertPeg 50)
     assert r["rows"] == sum(n for (task, _), n in V9_CELLS.items() if task not in XHARD4_ONLY)
 
 
@@ -142,12 +142,12 @@ def test_tier_values_fail_on_changed_value(tmp_path):
     assert len(tier_values_check(root, NEW_TIERS, TABLE)["mismatches"]) == 1
 
 
-# ── MoveCube 布局 ──────────────────────────────────────────────────────
+# -- MoveCube layout --------------------------------------------------------
 
 
 @pytest.fixture(scope="module")
 def movecube_module():
-    # 包 __init__ 把同名类导出到 robomme_ood.robomme_env.MoveCube 属性上，按模块路径取模块本身
+    # the package __init__ exports the same-named class as the robomme_ood.robomme_env.MoveCube attribute; fetch the module itself by module path
     return importlib.import_module("robomme_ood.robomme_env.MoveCube")
 
 
@@ -171,7 +171,7 @@ def test_movecube_layout_pass_on_packaged(movecube_module):
 
 
 def test_movecube_layout_fail_on_point_outside_region(movecube_module):
-    """负例：一局 execution 段 goal 挪到远处 → 该点不在区域内（in_region 少 1）。"""
+    """Negative: move one episode's execution-segment goal far away -> that point is outside the region (in_region drops by 1)."""
     rows = json.loads(json.dumps(movecube_rows()))
     rows[0]["spec"]["layout"]["execution"]["goal_xy"] = [5.0, 5.0]
     r = run_movecube(rows, movecube_module)
@@ -179,8 +179,8 @@ def test_movecube_layout_fail_on_point_outside_region(movecube_module):
 
 
 def test_movecube_layout_negatives_region_way_bad_row(movecube_module):
-    """负例：段内 region 的 r_out 改掉 → region_mismatch；一局 way_idx 换方式 → 配额不等于 17/17/16；
-    删掉一局 peg_offsets → 坏行。"""
+    """Negatives: change r_out of an in-segment region -> region_mismatch; switch one episode's way_idx -> quota no longer 17/17/16;
+    delete one episode's peg_offsets -> bad row."""
     rows = json.loads(json.dumps(movecube_rows()))
     rows[0]["spec"]["layout"]["demo"]["region"]["r_out"] = MOVECUBE_REGION_V9["r_out"] + 0.01
     inits = rows[1]["spec"]["initializations"]

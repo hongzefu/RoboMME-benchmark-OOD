@@ -1,19 +1,19 @@
-"""四种动作空间 wrapper 的 step（C08.02）：joint_angle 直通、ee_pose、waypoint、multi_choice。
+"""step of the four action-space wrappers (C08.02): joint_angle passthrough, ee_pose, waypoint, multi_choice.
 
-每种动作空间都按真实链组装（外层动作 wrapper → 真实 DemonstrationWrapper → OrderEnforcing → CPU 替身任务环境），
-规划器／IK 一律换成 CPU spy。官方包与 hard 包各跑一遍：hard 包的 DemonstrationWrapper 与 OraclePlanner 是复制件，
-EndeffectorDemonstrationWrapper、MultiStepDemonstrationWrapper 是官方模块的 shim（见 src/robomme_ood/UPSTREAM.json）。
+Each action space is assembled as the real chain (outer action wrapper -> real DemonstrationWrapper -> OrderEnforcing -> CPU double task env),
+with planners/IK always replaced by CPU spies. Run once each for the official and hard packages: the hard package's DemonstrationWrapper and OraclePlanner are copies,
+EndeffectorDemonstrationWrapper and MultiStepDemonstrationWrapper are shims of the official modules (see src/robomme_ood/UPSTREAM.json).
 
-期望全部手写：
-- 返回契约：obs 是 dict-of-lists，每键长度 = 本次动作实际走过并被收集的底层步数；每帧前视 RGB 的像素值编码
-  它来自第几次底层 step（顺序可核）；关节 (7,)、末端 (6,) float64、夹爪 (2,)；reward 为 0 维 float32 张量，
-  terminated／truncated 为 0 维 bool 张量；info 为平铺 dict；
-- 输入：NumPy、Python 列表、CPU Tensor 三种输入都转成 float64 NumPy 交给内层；调用方的动作对象不被原地改写；
-- ee_pose：IK 输入 = 手算目标位姿与机器人当前 qpos，取第一组解的前 7 维 + 夹爪；规划器只建一次，arm／stick 构造参数不同
-  （IK 失败路径已在 tests/robomme_ood/unit/robomme/test_fail_paths.py，不重复）；
-- waypoint：交给 screw 的位姿 = 航点 + 手算四元数；移动帧在前、夹爪帧在后；夹爪只认精确的 ±1；
-- multi_choice：reset 建规划器与相机缓存；point=[y,x] 经真实针孔投影选最近候选并交给 solve；
-  screw→RRT* 重试钩子的次序与上限；solve 返回 -1 → RuntimeError。
+All expectations are hand-written:
+- return contract: obs is dict-of-lists, each key's length = the low-level steps actually taken and collected for this action; each frame's front RGB pixel value encodes
+  which low-level step it came from (order checkable); joints (7,), end effector (6,) float64, gripper (2,); reward a 0-d float32 tensor,
+  terminated/truncated 0-d bool tensors; info a flat dict;
+- input: NumPy, Python list and CPU Tensor inputs are all converted to float64 NumPy for the inner layer; the caller's action object is not modified in place;
+- ee_pose: IK input = hand-computed target pose and the robot's current qpos, taking the first 7 dims of the first solution + gripper; the planner is built once, with different arm/stick constructor arguments
+  (the IK failure path is already in tests/robomme_ood/unit/robomme/test_fail_paths.py, not repeated);
+- waypoint: the pose given to screw = waypoint + hand-computed quaternion; movement frames first, gripper frames after; the gripper only accepts exact +/-1;
+- multi_choice: reset builds the planner and camera cache; point=[y,x] selects the nearest candidate via real pinhole projection and hands it to solve;
+  order and caps of the screw->RRT* retry hook; solve returning -1 -> RuntimeError.
 """
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ from tests.robomme_ood.unit.wrappers.wrappers_fakes import (
 )
 
 PKGS = ("robomme", "robomme_ood")
-# 包 __init__ 用同名类覆盖了子模块属性，按模块路径取模块本身（hard 包的同名模块是它的 shim）
+# the package __init__ shadows the submodule attribute with a same-named class; fetch the module itself by module path (the hard package's same-named module is its shim)
 ee_mod = importlib.import_module("robomme.env_record_wrapper.EndeffectorDemonstrationWrapper")
 SQ = math.sqrt(0.5)
 BASE_OBS = {"front_rgb_list", "wrist_rgb_list", "joint_state_list", "eef_state_list", "gripper_state_list"}
@@ -73,7 +73,7 @@ def log():
 
 @pytest.fixture
 def planners(monkeypatch, log):
-    """FailAware 规划器换成 spy（hard 的 planner_fail_safe 是 shim，同一模块对象）。返回脚本字典，测试可在 reset 前填。"""
+    """Replace FailAware planners with spies (hard's planner_fail_safe is a shim, the same module object). Returns the script dict, which tests may fill before reset."""
     def install(new_scripts=None):
         a, s = planner_spy_classes(log, new_scripts or {})
         monkeypatch.setattr(pfs, "FailAwarePandaArmMotionPlanningSolver", a)
@@ -95,7 +95,7 @@ def _rgb_values(obs):
 
 
 def _check_contract(out, n_frames, first_step):
-    """手写的返回契约：n_frames 帧，依次来自第 first_step、first_step+1… 次底层 step。"""
+    """Hand-written return contract: n_frames frames, coming from low-level steps first_step, first_step+1, ... in turn."""
     obs, reward, terminated, truncated, info = out
     assert BASE_OBS <= set(obs)
     assert all(isinstance(v, list) and len(v) == n_frames for v in obs.values())
@@ -134,7 +134,7 @@ def _same(a, b):
     return np.array_equal(np.asarray(a), np.asarray(b))
 
 
-# --------------------------------------------------------------------------- joint_angle（直通）
+# --------------------------------------------------------------------------- joint_angle (passthrough)
 
 KINDS = ("numpy", "list", "tensor")
 
@@ -142,8 +142,8 @@ KINDS = ("numpy", "list", "tensor")
 @pytest.mark.parametrize("kind", KINDS)
 def test_joint_angle_step_contract(pkg, log, planners, kind):
     demo, inner = _demo(pkg, log)
-    demo.reset()                                         # 初始动作步 = 第 1 次底层 step
-    values = [0.25, -0.5, 0.75, -1.0, 0.125, 0.5, -0.25, 1.0, 9.0]  # 第 9 维应被截掉
+    demo.reset()                                         # initial action step = low-level step 1
+    values = [0.25, -0.5, 0.75, -1.0, 0.125, 0.5, -0.25, 1.0, 9.0]  # the 9th dim should be truncated
     action = _as_kind(values, kind)
     before = _snapshot(action)
     out = demo.step(action)
@@ -151,10 +151,10 @@ def test_joint_angle_step_contract(pkg, log, planners, kind):
     sent = inner.actions[-1]
     assert sent.dtype == np.float64 and sent.shape == (8,)
     np.testing.assert_array_equal(sent, values[:8])
-    assert _same(action, before)                          # 调用方动作未被改写
+    assert _same(action, before)                          # caller's action not modified
     if kind == "numpy":
         sent[0] = 123.0
-        assert action[0] == np.float32(0.25)              # 交给内层的是副本，不是别名
+        assert action[0] == np.float32(0.25)              # the inner layer gets a copy, not an alias
 
 
 # --------------------------------------------------------------------------- ee_pose
@@ -176,18 +176,18 @@ def test_ee_pose_success_contract(pkg, log, planners, monkeypatch, kind):
     first = np.array([0.0, 0.11, 0.22, 0.33, 0.44, 0.55, 0.66, 0.04, 0.04])
     second = np.full(9, 7.0)
     w, demo, inner = _ee(pkg, log, monkeypatch, solutions=[first, second])
-    values = [0.1, 0.2, 0.3, 0.0, 0.0, math.pi / 2, -1.0, 99.0]  # 第 8 维多余，应忽略
+    values = [0.1, 0.2, 0.3, 0.0, 0.0, math.pi / 2, -1.0, 99.0]  # the 8th dim is extra and should be ignored
     action = _as_kind(values, kind)
     before = _snapshot(action)
     out = w.step(action)
     _check_contract(out, n_frames=1, first_step=2)
-    # IK 输入：世界系目标 = 位置 + 绕 z 转 90° 的 wxyz 四元数（手算 cos45°, 0, 0, sin45°）；当前 qpos 取机器人第 0 行
+    # IK input: world-frame goal = position + wxyz quaternion for a 90 deg rotation about z (hand-computed cos45, 0, 0, sin45); current qpos takes row 0 of the robot
     to_base = [e for e in log if e[0] == "ik.to_base"]
     solve = [e for e in log if e[0] == "ik.solve"]
     np.testing.assert_allclose(to_base[-1][1], [0.1, 0.2, 0.3, SQ, 0, 0, SQ], atol=1e-6)
     np.testing.assert_allclose(solve[-1][1], to_base[-1][1])
     np.testing.assert_allclose(solve[-1][2], QPOS9, atol=1e-7)
-    # 取第一组解的前 7 维 + 夹爪
+    # take the first 7 dims of the first solution + gripper
     sent = inner.actions[-1]
     assert sent.dtype == np.float64 and sent.shape == (8,)
     np.testing.assert_allclose(sent, list(first[:7]) + [-1.0])
@@ -201,12 +201,12 @@ def test_ee_pose_planner_built_once_with_arm_kwargs(pkg, log, planners, monkeypa
     new = [e for e in log if e[0] == "ik.new"]
     assert new == [("ik.new", "arm", dict(debug=False, vis=False, base_pose=inner.agent.robot.pose,
                                           visualize_target_grasp_pose=False, print_env_info=False))]
-    assert w._ee_pose_planner.env is demo               # IK 规划器绑的是内层 DemonstrationWrapper
+    assert w._ee_pose_planner.env is demo               # the IK planner is bound to the inner DemonstrationWrapper
 
 
 def test_ee_pose_stick_quat_drops_gripper(pkg, log, planners, monkeypatch):
     w, demo, inner = _ee(pkg, log, monkeypatch, env_id="RouteStick", repr_="quat")
-    out = w.step([0.1, 0.2, 0.3, 1.0, 0.0, 0.0, 0.0])    # stick + quat：7 维即可
+    out = w.step([0.1, 0.2, 0.3, 1.0, 0.0, 0.0, 0.0])    # stick + quat: 7 dims suffice
     _check_contract(out, n_frames=1, first_step=2)
     new = [e for e in log if e[0] == "ik.new"]
     assert new[0][1] == "stick" and new[0][2]["joint_vel_limits"] == P.STICK_JOINT_VEL_LIMITS
@@ -243,7 +243,7 @@ def test_waypoint_success_contract_and_order(pkg, log, planners, kind):
     action = _as_kind(values, kind)
     before = _snapshot(action)
     out = w.step(action)
-    # 移动 2 帧（第 2、3 次底层 step）在前，夹爪 1 帧（第 4 次）在后
+    # 2 movement frames (low-level steps 2, 3) first, 1 gripper frame (step 4) after
     _check_contract(out, n_frames=3, first_step=2)
     calls = [e for e in log if e[0].startswith("planner.") and e[0] != "planner.new"]
     assert [c[0] for c in calls] == ["planner.screw", "planner.close"]
@@ -260,7 +260,7 @@ def test_waypoint_pose_quaternion_handcomputed(pkg, log, planners, rpy, quat):
     w.step([0.0, 0.0, 0.5, *rpy, 0.0])
     pose = [e for e in log if e[0] == "planner.screw"][-1][1]
     q = np.asarray(pose.q, dtype=np.float64)
-    # 四元数 q 与 −q 是同一旋转：按符号对齐后比较
+    # quaternions q and -q are the same rotation: compare after sign alignment
     q = q if np.dot(q, quat) >= 0 else -q
     np.testing.assert_allclose(q, quat, atol=1e-6)
 
@@ -275,7 +275,7 @@ def test_waypoint_planner_built_once(pkg, log, planners, env_id, kind, extra):
     w.step([0.0, 0.0, 0.5, 0, 0, 0, 0])
     new = [e for e in log if e[0] == "planner.new"]
     expected = dict(debug=False, base_pose=inner.agent.robot.pose, print_env_info=False, **extra)
-    # 第一个是内层 DemonstrationWrapper.reset 演示用的规划器；waypoint 自己的规划器两步只建一次
+    # the first is the planner used by the inner DemonstrationWrapper.reset demo; waypoint's own planner is built only once over two steps
     assert len(new) == 2 and new[1] == ("planner.new", kind, expected)
     assert w._planner.env is demo
 
@@ -286,7 +286,7 @@ def test_waypoint_gripper_requires_exact_unit(pkg, log, planners, grip):
     out = w.step([0.0, 0.0, 0.5, 0, 0, 0, grip])
     names = [e[0] for e in log]
     assert "planner.close" not in names and "planner.open" not in names
-    assert len(out[0]["front_rgb_list"]) == 1            # 只有 screw 的 1 个底层步
+    assert len(out[0]["front_rgb_list"]) == 1            # only screw's 1 low-level step
 
 
 def test_waypoint_open_gripper_after_move(pkg, log, planners):
@@ -299,21 +299,21 @@ def test_waypoint_open_gripper_after_move(pkg, log, planners):
 
 
 def test_waypoint_failed_attempt_frames_are_dropped(pkg, log, planners):
-    """锁定现状：screw 先走了 1 步再抛 ScrewPlanFailure，环境确实前进了，但这一步不出现在返回的帧里。"""
+    """Lock in current behavior: screw takes 1 step and then raises ScrewPlanFailure; the env really advanced, but this step does not appear in the returned frames."""
     planners({"screw": [("steps_then_raise", 1, ScrewPlanFailure("mid")), 2]})
     w, demo, inner = _waypoint(pkg, log)
     out = w.step([0.0, 0.0, 0.5, 0, 0, 0, 0])
-    assert inner.step_calls == 1 + 3                       # 初始动作步 + 失败的 1 步 + 成功的 2 步
+    assert inner.step_calls == 1 + 3                       # initial action step + 1 failed step + 2 successful steps
     assert _rgb_values(out[0]) == [frame_value(3), frame_value(4)]
 
 
 def test_waypoint_last_step_signals(pkg, log, planners):
     planners({"screw": [2]})
     w, demo, inner = _waypoint(pkg, log)
-    inner.outcomes = [(False, False), (True, False), (True, False)]  # 第 2 个移动步成功 → 额外底层步
+    inner.outcomes = [(False, False), (True, False), (True, False)]  # the 2nd movement step succeeds -> extra low-level step
     obs, reward, terminated, truncated, info = w.step([0.0, 0.0, 0.5, 0, 0, 0, 0])
     assert bool(terminated) is True and info["status"] == "success"
-    assert len(obs["front_rgb_list"]) == 2                 # 额外步不进返回帧
+    assert len(obs["front_rgb_list"]) == 2                 # the extra step is not in the returned frames
     assert inner.step_calls == 1 + 3
 
 
@@ -341,7 +341,7 @@ def _oracle(pkg, log, monkeypatch, solve_steps=2, solve_result=None):
 def test_multi_choice_reset_builds_planner_and_camera_cache(pkg, log, planners, monkeypatch):
     w, demo, inner, _, (obs, info) = _oracle(pkg, log, monkeypatch)
     new = [e for e in log if e[0] == "planner.new"]
-    # OraclePlanner.reset 先建自己的规划器（vis = gui_render）再 reset 内层；第二个是内层演示用的规划器
+    # OraclePlanner.reset first builds its own planner (vis = gui_render) then resets the inner layer; the second is the planner used by the inner demo
     assert len(new) == 2
     oracle_new = new[0]
     assert oracle_new == ("planner.new", "arm", dict(debug=False, vis=False, base_pose=inner.agent.robot.pose,
@@ -356,21 +356,21 @@ def test_multi_choice_reset_builds_planner_and_camera_cache(pkg, log, planners, 
 
 def test_multi_choice_point_selects_nearest_by_projection(pkg, log, planners, monkeypatch):
     w, demo, inner, seen, _ = _oracle(pkg, log, monkeypatch)
-    # cube_near (0.1, 0.05, 1.0) 投影：x = 100·0.1 + 32 = 42，y = 100·0.05 + 24 = 29；cube_far → (22, 14)
-    command = {"choice": "A", "point": [30, 41]}            # [y, x]，离 cube_near 最近
+    # cube_near (0.1, 0.05, 1.0) projects to: x = 100*0.1 + 32 = 42, y = 100*0.05 + 24 = 29; cube_far -> (22, 14)
+    command = {"choice": "A", "point": [30, 41]}            # [y, x], nearest to cube_near
     before = copy.deepcopy(command)
     evals_before = log.count(("env.evaluate", False)), log.count(("env.evaluate", True))
     out = w.step(command)
     assert seen == [inner.all_cubes[0]]
     _check_contract(out, n_frames=2, first_step=2)
-    assert command == before                                 # 命令字典未被改写
+    assert command == before                                 # command dict not modified
     assert (log.count(("env.evaluate", False)) - evals_before[0], log.count(("env.evaluate", True)) - evals_before[1]) == (1, 1)
     assert [o["label"] for o in out[4]["available_multi_choices"]] == ["a", "b", "c"]
 
 
 def test_multi_choice_point_near_far_cube(pkg, log, planners, monkeypatch):
     w, demo, inner, seen, _ = _oracle(pkg, log, monkeypatch)
-    w.step({"choice": "a", "point": [13, 21]})               # 靠近 cube_far 的投影 (22, 14)
+    w.step({"choice": "a", "point": [13, 21]})               # near the cube_far projection (22, 14)
     assert seen == [inner.all_cubes[1]]
 
 
@@ -381,7 +381,7 @@ def test_multi_choice_solve_minus_one_raises(pkg, log, planners, monkeypatch):
 
 
 def _retry_harness(pkg, log, scripts):
-    """真实构造 OraclePlanner（上限取自其 __init__），把重试钩子套到规划器 spy 上。"""
+    """Really construct OraclePlanner (caps taken from its __init__) and attach the retry hook to the planner spy."""
     a, _ = planner_spy_classes(log, scripts)
     planner = a(env=None)
     cls = _mods(pkg)["OraclePlannerDemonstrationWrapper"].OraclePlannerDemonstrationWrapper
@@ -415,7 +415,7 @@ def test_multi_choice_retry_hook_exhausted(pkg, log):
 
 
 def test_multi_choice_retry_hook_does_not_swallow_other_screw_errors(pkg, log):
-    """锁定现状：screw 抛出 ScrewPlanFailure 以外的异常时直接向外抛，不转 RRT*。"""
+    """Lock in current behavior: when screw raises an exception other than ScrewPlanFailure it propagates directly, without falling back to RRT*."""
     planner = _retry_harness(pkg, log, {"screw": [KeyError("k")]})
     with pytest.raises(KeyError):
         planner.move_to_pose_with_screw("G")

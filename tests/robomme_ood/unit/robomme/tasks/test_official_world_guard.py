@@ -1,5 +1,5 @@
-"""离线世界自身的边界：进出上下文后所有替换都还原；替身不碰渲染材质；资源守卫对 BaseEnv.__init__ 的拦截在
-上下文外依旧生效（只比对象身份，不真的调用被禁入口，以免记违规账）。"""
+"""Boundaries of the offline world itself: all replacements are restored after entering and leaving the context; doubles do not touch render materials; the resource guard's interception of BaseEnv.__init__
+stays in effect outside the context (only object identity is compared; the forbidden entry is never actually called, to avoid recording a violation)."""
 from __future__ import annotations
 
 import pytest
@@ -39,31 +39,31 @@ def _assert_restored(mod, snap):
 def test_exception_inside_context_still_restores():
     mod = ow.task_module("PickXtimes")
     snap = _snapshot(mod)
-    with pytest.raises(RuntimeError, match="用例里的异常"):
+    with pytest.raises(RuntimeError, match="exception inside the test"):
         with OfficialWorld("PickXtimes") as world:
             world.make("easy", seed=0)
-            raise RuntimeError("用例里的异常")
+            raise RuntimeError("exception inside the test")
     _assert_restored(mod, snap)
 
 
 def test_failure_while_entering_rolls_back():
     class _Flaky(OfficialWorld):
         def _swap(self, obj, name, value):
-            if obj is BaseEnv:  # 模块级替换都装上之后、替换 BaseEnv 时出错
-                raise RuntimeError("装到一半")
+            if obj is BaseEnv:  # error while replacing BaseEnv, after all module-level replacements are installed
+                raise RuntimeError("half installed")
             super()._swap(obj, name, value)
 
     mod = ow.task_module("PickXtimes")
     snap = _snapshot(mod)
     world = _Flaky("PickXtimes")
-    with pytest.raises(RuntimeError, match="装到一半"):
+    with pytest.raises(RuntimeError, match="half installed"):
         world.__enter__()
     _assert_restored(mod, snap)
     assert world._saved == []
 
 
 def test_guard_still_blocks_real_init_outside_world():
-    # 资源守卫在收集前把 BaseEnv.__init__ 换成拦截函数；离线世界退出后必须还是它
+    # the resource guard replaces BaseEnv.__init__ with an interceptor before collection; it must still be that after leaving the offline world
     assert BaseEnv.__init__.__name__ == "_blocked_init"
     assert getattr(BaseEnv, "_resource_policy_patched", False) is True
 
@@ -73,4 +73,4 @@ def test_render_material_is_never_real():
         mod = world.module
         assert mod.sapien.render.RenderMaterial is ow._FakeMaterial
         ep = world.make("easy", seed=0)
-        ep.step(3)  # InsertPeg.step 每步都会新建材质
+        ep.step(3)  # InsertPeg.step creates a new material every step

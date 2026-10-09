@@ -1,11 +1,11 @@
-"""StopCube 原生三档真值表（C05、C06 计时与场景运动）。
+"""StopCube native three-tier truth table (C05, C06 timing and scene motion).
 
-方块在两端点之间往返（真实 move_straight_line）。到达步、停止窗口与截止步不在测试里按公式推，而是按具体
-(move_interval, stop_time) 手算后钉在 ``official_thresholds.STOPCUBE_CASES``；测试按这两个取值挑 seed。期望
-（目标语言：「stop the cube … for the k-th time」）：
-- 先把 tcp 悬到按钮上方（准备子任务），在第 stop_time 次到达时按下 → 成功，且之后继续步进保持成功；
-- 第 stop_time−1 次到达时按 → 失败（停止步不在窗口内）；方块不在目标上时按 → 立即失败；
-- 一直不按 → 过了截止步即失败。三档在官方实现里共用同一逻辑（难度不参与取值）。
+The cube shuttles between two endpoints (real move_straight_line). Arrival steps, stop window and deadline are not derived by formula in the test; they are hand-computed for a concrete
+(move_interval, stop_time) and pinned in ``official_thresholds.STOPCUBE_CASES``; the test picks seeds by these two values. Expectations
+(goal language: "stop the cube ... for the k-th time"):
+- first hover the tcp above the button (preparation subtask), press at the stop_time-th arrival -> success, and success persists on further steps;
+- pressing at the (stop_time-1)-th arrival -> failure (stop step outside the window); pressing while the cube is not on the target -> immediate failure;
+- never pressing -> failure once past the deadline. All three tiers share the same logic in the official implementation (difficulty does not affect values).
 """
 from __future__ import annotations
 
@@ -27,12 +27,12 @@ def world():
 
 
 def _case_episode(world, diff, case):
-    """挑一个 (move_interval, stop_time) 与钉值算例一致的 seed（离线 _initialize_episode，不是仿真 reset）。"""
+    """Pick a seed whose (move_interval, stop_time) matches the pinned case (offline _initialize_episode, not a simulation reset)."""
     for seed in range(64):
         ep = world.make(diff, seed=seed)
         if (ep.env.move_interval, ep.env.stop_time) == (case["move_interval"], case["stop_time"]):
             return ep
-    pytest.fail(f"64 个 seed 内找不到 {case}")
+    pytest.fail(f"no seed within 64 matches {case}")
 
 
 def _hover(ep):
@@ -46,7 +46,7 @@ def _run_to(ep, elapsed):
 
 
 def _press_at(ep, step):
-    """推进到 elapsed == step 再按下按钮（下一步 evaluate 看到的方块位置正是 move_straight_line(cur_step=step) 的位置）。"""
+    """Advance until elapsed == step, then press the button (the cube position seen by the next evaluate is exactly move_straight_line(cur_step=step))."""
     _run_to(ep, step)
     ep.press(ep.env.button)
     ep.step()
@@ -63,14 +63,14 @@ def test_stop_on_the_nth_visit_succeeds_and_persists(world, diff, case):
     assert f"for the {ORDINALS[st]} time" in goals[0] and f"on its {ORDINALS[st]} visit" in goals[1]
     _hover(ep)
     ep.step()
-    assert ep.task_index == 1  # 准备子任务完成
+    assert ep.task_index == 1  # preparation subtask complete
     _press_at(ep, case["visits"][st - 1])
     ep.step(3)
     assert ep.success and not ep.fail
     locked = env.stop_timestep
     lo, hi = case["window"]
     assert lo <= locked <= hi
-    _run_to(ep, case["deadline"] + case["move_interval"])  # 成功后继续：越过截止步仍成功，停止步不被改写
+    _run_to(ep, case["deadline"] + case["move_interval"])  # continue after success: still success past the deadline, stop step not rewritten
     assert ep.success and not ep.fail
     assert env.stop_timestep == locked
 
@@ -111,7 +111,7 @@ def test_never_pressing_times_out(world, diff, case):
 def test_without_hover_the_final_subgoal_is_never_reached(world):
     case = CASES[0]
     ep = _case_episode(world, "easy", case)
-    _press_at(ep, case["visits"][case["stop_time"] - 1])  # 没先悬停按钮：指针停在准备子任务，正确时刻按也不算
+    _press_at(ep, case["visits"][case["stop_time"] - 1])  # did not hover over the button first: pointer stays at the preparation subtask, pressing at the right moment does not count
     _run_to(ep, case["deadline"] + 1)
     assert ep.fail and not ep.success
 
