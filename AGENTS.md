@@ -34,7 +34,7 @@ command -v micromamba >/dev/null && echo "micromamba: 有" || echo "micromamba: 
 
 **冲突即停**（正本第 0 条）：判定输出与上表不符时，一律停下把原始输出交用户裁决。
 
-<!-- AGENTMETARULES:BEGIN common-agents src=16be1d135440ee3e3364a1e281150cab814eee52 blob=9467e9c746bc445da46596c7b7ffeb783b068536 -->
+<!-- AGENTMETARULES:BEGIN common-agents src=29a40500ebdbca89b98c198198bac41cef754184 blob=9467e9c746bc445da46596c7b7ffeb783b068536 -->
 
 ## 强制规则（最高优先级）
 
@@ -369,7 +369,7 @@ command -v micromamba >/dev/null && echo "micromamba: 有" || echo "micromamba: 
 | `<COMMIT_SUBJECT_STYLE>` | commit subject 体例 | 第 11 条 |
 | `<PLAN_EXEMPLAR>` | 计划密度标杆文档 | 第 2 条 |
 
-<!-- AGENTMETARULES:END common-agents src=16be1d135440ee3e3364a1e281150cab814eee52 blob=9467e9c746bc445da46596c7b7ffeb783b068536 -->
+<!-- AGENTMETARULES:END common-agents src=29a40500ebdbca89b98c198198bac41cef754184 blob=9467e9c746bc445da46596c7b7ffeb783b068536 -->
 
 ## 项目专属规则
 
@@ -430,6 +430,6 @@ command -v micromamba >/dev/null && echo "micromamba: 有" || echo "micromamba: 
 
 ## 规则来源与未采用清单
 
-- 通用规则 = 上方标记块，当前正本 commit `16be1d1`，与标记行 `src=` 一致（2026-10-08 同步正本 16be1d1：新机器上会话开工时检查全局 `~/.claude/settings.json` 的两个并发变量，缺失即问用户是否写进全局；2026-10-08 同步正本 9ec0a8c：Workflow 并发闸门与子代理同时运行上限一律设为 64，每台机器 `~/.claude/settings.json` 与本仓库项目级 `.claude/settings.json` 两处落地（用户原话「同意你需要更改这个AgentMetaRoth和每个仓库的这个设置就是每次都要设置成这样」）；2026-10-08 建仓时接入：子代理模型三档、开工令「完整计划呈现后用户不改即同意」等均已含在块内）。
+- 通用规则 = 上方标记块，当前正本 commit `29a4050`，与标记行 `src=` 一致（2026-10-08 同步正本 29a4050：`worktree.baseRef: "head"` 并入全局与项目级 `.claude/settings.json` 两处落地，新机器开工检查扩为三项；2026-10-08 同步正本 16be1d1：新机器上会话开工时检查全局 `~/.claude/settings.json` 的两个并发变量，缺失即问用户是否写进全局；2026-10-08 同步正本 9ec0a8c：Workflow 并发闸门与子代理同时运行上限一律设为 64，每台机器 `~/.claude/settings.json` 与本仓库项目级 `.claude/settings.json` 两处落地（用户原话「同意你需要更改这个AgentMetaRoth和每个仓库的这个设置就是每次都要设置成这样」）；2026-10-08 建仓时接入：子代理模型三档、开工令「完整计划呈现后用户不改即同意」等均已含在块内）。
 - 未采用的正本条目及原因：第 6、10、12、13、16、17、18 条（训练／评估／构建留档、GPU 监控）——本仓不跑训练、评估与生成，这些都在评估仓；第 8、23 条（集群、服务型作业）——本仓不上集群；第 24 条（submodule / vendoring）——本仓没有第三方源码子模块，`src/robomme_hard` 对官方的复制／借用关系见 `src/robomme_hard/UPSTREAM.json` 与其 README。
 - Claude Code 独有机制见同目录 `CLAUDE.md`（标记块 `common-claude`）；集群规约见 `greatlakes.md`（标记块 `common-greatlakes`）。两份文件冲突时以本文件为准。
