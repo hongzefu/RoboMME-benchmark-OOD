@@ -1,8 +1,8 @@
-"""L0：hard 包的三个录制复制件与官方只差白名单；``UPSTREAM.json`` 的 shim 与自签 sha 成立（C01 shim 部分、C18）。
+"""L0: the hard package's three recording copies differ from upstream only by the whitelist; ``UPSTREAM.json`` shims and self-signed sha hold (C01 shim part, C18).
 
-官方一侧一律从 git 对象 ``016ac1c4:src/robomme/...`` 读（本仓自官方 ``016ac1c4`` 分出），不依赖工作区
-``src/robomme`` 的状态；shim 目标的 sha 同样对 ``016ac1c4`` 复算。
-白名单按行精确列出（删去的行、加入的行），任何额外差异——包括注释——都算越界。
+The upstream side is always read from git objects ``016ac1c4:src/robomme/...`` (this repo branched from upstream ``016ac1c4``),
+independent of the working-tree state of ``src/robomme``; shim target sha values are likewise recomputed against ``016ac1c4``.
+The whitelist lists lines exactly (removed lines, added lines); any extra difference, including comments, is out of bounds.
 """
 from __future__ import annotations
 
@@ -18,11 +18,11 @@ import pytest
 from tests.robomme_ood._support.loaders import REPO
 
 HARD = REPO / "src" / "robomme_ood"
-#: 官方锚点（完整 40 位 sha）：本仓自它分出
+#: Upstream anchor (full 40-char sha): this repo branched from it
 OFFICIAL_COMMIT = "016ac1c4ef3df2b88488abc19db08f3de83647b5"
 MANIFEST = HARD / "UPSTREAM.json"
 
-#: 复制件 → 与官方逐行差异白名单：[(官方删去的行, 复制件加入的行), ...]，按出现顺序。
+#: copy -> line-diff whitelist against upstream: [(lines removed from upstream, lines added in the copy), ...], in order of appearance.
 WHITELIST: dict[str, list[tuple[list[str], list[str]]]] = {
     "env_record_wrapper/RecordWrapper.py": [
         (
@@ -31,10 +31,10 @@ WHITELIST: dict[str, list[tuple[list[str], list[str]]]] = {
                 "        fail_safe_limit = 2000",
             ],
             [
-                "        # Force terminate episode if environment steps exceed preset safety limit (原 2000 steps，V4 起 5000)",
-                "        # V4（2026-09-22 用户明确授权解冻此一处：「录像放开2000步 改为5000步」）：",
-                "        # PickXtimes xhard num 取到 15 时演示约 136+138×num≈2206 步，原 2000 步上限必然误杀。",
-                "        # 原三档成功局都在 2000 步内结束，放宽上限不改变它们的任何产物（V1 本机前后对比验证）。",
+                "        # Force terminate episode if environment steps exceed preset safety limit (originally 2000 steps, 5000 since V4)",
+                "        # V4 (2026-09-22, user explicitly authorized unfreezing this single spot: 'raise the recording limit from 2000 to 5000 steps'):",
+                "        # with PickXtimes xhard num up to 15 the demo takes about 136+138×num≈2206 steps, so the old 2000-step cap would always kill it.",
+                "        # All successful episodes of the original three tiers end within 2000 steps; relaxing the cap changes none of their outputs (verified by a local before/after comparison in V1).",
                 "        fail_safe_limit = 5000",
             ],
         ),
@@ -62,7 +62,7 @@ def _git_show(commit: str, rel: str) -> bytes:
 
 
 def line_diff(official: str, copy: str) -> list[tuple[list[str], list[str]]]:
-    """逐行差异块：[(官方删去的行, 复制件加入的行)]（不含相同部分）。"""
+    """Line-diff blocks: [(lines removed from upstream, lines added in the copy)] (identical parts excluded)."""
     a, b = official.splitlines(), copy.splitlines()
     sm = difflib.SequenceMatcher(a=a, b=b, autojunk=False)
     return [(a[i1:i2], b[j1:j2]) for tag, i1, i2, j1, j2 in sm.get_opcodes() if tag != "equal"]
@@ -74,17 +74,17 @@ def test_copy_differs_from_official_exactly_by_whitelist(rel):
     copy = (HARD / rel).read_text(encoding="utf-8")
     assert line_diff(official, copy) == WHITELIST[rel]
     if not WHITELIST[rel]:
-        # 逐字节相同（连行尾与文件末换行）。
+        # Byte-identical (including line endings and the trailing newline).
         assert (HARD / rel).read_bytes() == official.encode()
 
 
 def test_line_diff_detects_reverted_limit_and_extra_comment():
-    """判定器负例：把 5000 改回 2000、或多加一行注释，差异都不再等于白名单。"""
+    """Checker negatives: changing 5000 back to 2000, or adding one extra comment line, makes the diff no longer equal the whitelist."""
     rel = "env_record_wrapper/RecordWrapper.py"
     official = _git_show(OFFICIAL_COMMIT, f"src/robomme/{rel}").decode()
     copy = (HARD / rel).read_text(encoding="utf-8")
     assert line_diff(official, copy.replace("fail_safe_limit = 5000", "fail_safe_limit = 2000")) != WHITELIST[rel]
-    assert line_diff(official, copy.replace("import gymnasium", "# 多一行\nimport gymnasium", 1)) != WHITELIST[rel]
+    assert line_diff(official, copy.replace("import gymnasium", "# one extra line\nimport gymnasium", 1)) != WHITELIST[rel]
     assert line_diff(official, official) == []
 
 
@@ -103,15 +103,15 @@ SHIM_ALIAS = re.compile(r'^sys\.modules\[__name__\] = importlib\.import_module\(
 
 
 def _shim_alias(lines: list[str]) -> str | None:
-    """三行 shim 形态（注释、导入、别名）成立时返回别名目标模块，否则 None。"""
-    if len(lines) != 3 or not lines[0].startswith("# 借用：") or lines[1] != SHIM_IMPORT:
+    """Returns the alias target module if the three-line shim form (comment, import, alias) holds, otherwise None."""
+    if len(lines) != 3 or not lines[0].startswith("# Borrowed: ") or lines[1] != SHIM_IMPORT:
         return None
     m = SHIM_ALIAS.match(lines[2])
     return m.group(1) if m else None
 
 
 def _shim_files() -> dict[str, str]:
-    """git 跟踪的 hard 包 .py 文件里，内容是三行 shim 形态的 → {路径: 别名目标模块}（由内容反推，不用路径公式）。"""
+    """Git-tracked hard-package .py files whose content has the three-line shim form -> {path: alias target module} (derived from content, not from a path formula)."""
     out = subprocess.run(["git", "ls-files", "-z", "--", "src/robomme_ood"], cwd=REPO, check=True,
                          capture_output=True).stdout
     found = {}
@@ -125,7 +125,7 @@ def _shim_files() -> dict[str, str]:
 
 
 def test_shim_alias_form_negatives():
-    ok = ["# 借用：x", SHIM_IMPORT, 'sys.modules[__name__] = importlib.import_module("robomme.a")']
+    ok = ["# Borrowed: x", SHIM_IMPORT, 'sys.modules[__name__] = importlib.import_module("robomme.a")']
     assert _shim_alias(ok) == "robomme.a"
     assert _shim_alias(ok + ["X = 1"]) is None
     assert _shim_alias(ok[1:]) is None
@@ -136,7 +136,7 @@ def test_shim_registry_equals_shim_files_on_disk():
     m = _manifest_raw()
     registered = {s["shim"]: s["target_module"] for s in m["shims"]}
     assert len(registered) == len(m["shims"])
-    # 由文件内容反推的 shim 集合及各自别名目标，与清单登记完全一致。
+    # The shim set and alias targets derived from file content match the manifest registration exactly.
     assert _shim_files() == registered
 
 
@@ -145,14 +145,14 @@ def test_shim_form_and_target(entry):
     m = _manifest_raw()
     path = REPO / entry["shim"]
     lines = path.read_text(encoding="utf-8").splitlines()
-    # 恰好三行：一行注释（指向本清单）、导入、别名；多一行少一行都不行。
+    # Exactly three lines: one comment (pointing to this manifest), import, alias; one more or one fewer is rejected.
     assert len(lines) == 3, lines
-    assert lines[0].startswith("# 借用：")
-    rel_manifest = lines[0].rsplit("清单见 ", 1)[1].strip()
+    assert lines[0].startswith("# Borrowed: ")
+    rel_manifest = lines[0].rsplit("manifest: ", 1)[1].strip()
     assert (path.parent / rel_manifest).resolve() == MANIFEST.resolve()
     assert lines[1] == SHIM_IMPORT
     assert _shim_alias(lines) == entry["target_module"]
-    # 目标文件登记在官方清单里；目标文件的 sha 与字节数对官方 git 对象独立复算。
+    # The target file is registered in the upstream manifest; its sha and byte size are recomputed independently from upstream git objects.
     blob = _git_show(OFFICIAL_COMMIT, entry["target_file"])
     assert entry["target_sha256"] == hashlib.sha256(blob).hexdigest()
     assert entry["target_bytes"] == len(blob)

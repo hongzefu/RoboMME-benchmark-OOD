@@ -1095,10 +1095,10 @@ class RobommeRecordWrapper(gym.Wrapper):
 
         # Failsafe: enforce a hard cap on episode length so planners can't run forever
         # Keep English comment to retain original meaning: Force truncate when planner stuck, protect recording process
-        # Force terminate episode if environment steps exceed preset safety limit (原 2000 steps，V4 起 5000)
-        # V4（2026-09-22 用户明确授权解冻此一处：「录像放开2000步 改为5000步」）：
-        # PickXtimes xhard num 取到 15 时演示约 136+138×num≈2206 步，原 2000 步上限必然误杀。
-        # 原三档成功局都在 2000 步内结束，放宽上限不改变它们的任何产物（V1 本机前后对比验证）。
+        # Force terminate episode if environment steps exceed preset safety limit (originally 2000 steps, 5000 since V4)
+        # V4 (2026-09-22, user explicitly authorized unfreezing this single spot: 'raise the recording limit from 2000 to 5000 steps'):
+        # with PickXtimes xhard num up to 15 the demo takes about 136+138×num≈2206 steps, so the old 2000-step cap would always kill it.
+        # All successful episodes of the original three tiers end within 2000 steps; relaxing the cap changes none of their outputs (verified by a local before/after comparison in V1).
         fail_safe_limit = 5000
         env_steps = int(getattr(self.env.unwrapped, "elapsed_steps", getattr(self.env, "elapsed_steps", 0)))
         #print(env_steps)
