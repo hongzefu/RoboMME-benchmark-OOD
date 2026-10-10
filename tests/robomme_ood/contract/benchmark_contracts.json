@@ -2527,10 +2527,11 @@
       "nodeids": [
         "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_grasp_putdown_way",
         "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_grasp_putdown_rejects_push_and_peg",
-        "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_gripper_push_way_and_open_gripper_requirement",
+        "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_gripper_push_execution_allows_closed_gripper",
         "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_gripper_push_rejects_grasping_cube",
         "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_peg_push_way",
-        "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_peg_push_rejects_cube_first_and_distance_boundary"
+        "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_peg_push_rejects_cube_first_and_distance_boundary",
+        "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_push_gripper_requirement_by_phase_and_difficulty"
       ],
       "resource": "cpu",
       "mutants": [],
@@ -2622,7 +2623,9 @@
         "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_press_on_previous_pass_fails[xhard5]",
         "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_never_pressing_fails_after_window[xhard1]",
         "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_never_pressing_fails_after_window[xhard2]",
-        "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_press_off_target_fails_immediately[xhard1]"
+        "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_press_off_target_fails_immediately[xhard1]",
+        "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_stop_threshold_difficulty_matrix",
+        "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_stop_requires_stopped_and_preserves_first_timestep"
       ],
       "resource": "cpu",
       "mutants": [],

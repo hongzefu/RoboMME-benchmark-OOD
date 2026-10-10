@@ -24,7 +24,7 @@ from mani_skill.utils.geometry.rotation_conversions import (
 )
 import copy
 from .utils import *
-from .utils.difficulty import normalize_robomme_difficulty, require_xhard4_only
+from .utils.difficulty import normalize_robomme_difficulty, require_xhard4_only, is_newvalue_difficulty
 from .utils.subgoal_evaluate_func import static_check
 from .utils.episode_spec import SpecRecorder
 from .utils.sampling_config import SamplingConfigError, assert_native_decision, split_sampling_config
@@ -928,7 +928,7 @@ class MoveCube(BaseEnv):
                 "segment":self.grasp_target
                 },
                 {
-                "func": lambda:  is_obj_pushed_onto(self,self.cube,self.goal_site,distance_threshold=self.cube_half_size*2*1.2,must_gripper_open=True),
+                "func": lambda:  is_obj_pushed_onto(self,self.cube,self.goal_site,distance_threshold=self.cube_half_size*2*1.2,must_gripper_open=not is_newvalue_difficulty(self.difficulty)),
                 "name": f"Hook the cube to the target with the peg",
                 "subgoal_segment":f"Hook the cube at <> to the target at <> with the peg",
                 "choice_label": "hook the cube to the target with the peg",
@@ -972,7 +972,7 @@ class MoveCube(BaseEnv):
                                 "solve": lambda env, planner: [solve_strong_reset(env,planner)],
                                 },
                                 {
-                                "func": lambda: is_obj_pushed_onto(self,self.cube,self.goal_site,distance_threshold=self.cube_half_size*2*1.2,must_gripper_open=True),
+                                "func": lambda: is_obj_pushed_onto(self,self.cube,self.goal_site,distance_threshold=self.cube_half_size*2*1.2,must_gripper_open=not is_newvalue_difficulty(self.difficulty)),
                                 "name": "Close the gripper and push the cube to the target",
                                 "subgoal_segment":f"Close the gripper and push the cube at <> to the target at <>",
                                 "choice_label": "close gripper and push the cube to the target",

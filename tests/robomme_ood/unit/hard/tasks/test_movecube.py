@@ -3,7 +3,7 @@
 Each of the three methods uses the first packaged formal episode that uses it (method selected by the spec's ``initializations.1.way_idx``, cross-checked with the env's actual ``way``).
 The demonstration segment is walked through in the CPU world; on reset the cube and goal switch to the execution layout (production step's reset logic).
 Errors and boundaries: under pick-and-place, pushing directly to the goal or grasping the peg fails; under push, picking up the cube fails; under stick push, pushing the cube first fails;
-reaching the goal requires the gripper open; inside/outside the distance threshold.
+the OOD execution push permits a closed gripper, while demonstration and original tiers require it open; distance boundaries remain fixed.
 """
 from __future__ import annotations
 
@@ -97,16 +97,44 @@ def test_grasp_putdown_rejects_push_and_peg(world):
     assert w.step() == {"success": False, "fail": True}
 
 
-def test_gripper_push_way_and_open_gripper_requirement(world):
+def test_gripper_push_execution_allows_closed_gripper(world):
     w = world("gripper_push")
     _demo(w)
     q = w.agent.robot.get_qpos().clone()
-    q[0, -2:] = 0.0  # gripper closed: reaching the goal does not count either (must_gripper_open)
+    q[0, -2:] = 0.0  # Empty closed gripper is allowed during OOD execution.
     w.agent.robot.set_qpos(q)
     _onto_goal(w, w.env.cube)
-    assert w.step() == OK
-    w.agent.robot.set_qpos(reset_panda.get_reset_panda_param("qpos"))
     assert w.step() == {"success": True, "fail": False}
+
+
+@pytest.mark.parametrize("way", ["peg_push", "gripper_push"])
+@pytest.mark.parametrize("difficulty", ["easy", "medium", "hard", "xhard4"])
+@pytest.mark.parametrize("demonstration", [True, False])
+def test_push_gripper_requirement_by_phase_and_difficulty(world, way, difficulty, demonstration):
+    w = world(way)
+    w.env.difficulty = difficulty
+    w.still()
+    w.env.evaluate()
+    task = next(t for t in w.env.task_list if t["demonstration"] == demonstration
+                and t["name"].startswith(("Hook the cube", "Close the gripper")))
+    w.agent.held = None
+    _onto_goal(w, w.env.cube)
+    q = w.agent.robot.get_qpos().clone()
+    q[0, -2:] = 0.0
+    w.agent.robot.set_qpos(q)
+    assert bool(task["func"]()) == (difficulty == "xhard4" and not demonstration)
+    q[0, -2:] = 0.04
+    w.agent.robot.set_qpos(q)
+    assert bool(task["func"]()) is True
+    _onto_goal(w, w.env.cube, offset=0.049)
+    assert bool(task["func"]()) is False
+    _onto_goal(w, w.env.cube, offset=0.047)
+    assert bool(task["func"]()) is True
+    if way == "gripper_push":
+        for obj in (w.env.cube, w.env.grasp_target, w.env.grasp_target_false):
+            w.grasp(obj)
+            assert any(bool(v) for v in task["failure_func"]())
+            w.agent.held = None
 
 
 def test_gripper_push_rejects_grasping_cube(world):

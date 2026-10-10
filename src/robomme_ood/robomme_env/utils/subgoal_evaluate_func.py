@@ -16,6 +16,7 @@ from mani_skill.utils.building import actors
 from mani_skill.utils.registration import register_env
 from mani_skill.utils.scene_builder.table import TableSceneBuilder
 from mani_skill.utils.structs.pose import Pose
+from .difficulty import is_newvalue_difficulty
 
 
 #Robomme
@@ -527,10 +528,8 @@ def is_obj_stopped_onto(self, obj, target, stop):
     )
 
     # Set distance threshold
-    distance_threshold = self.cube_half_size*(2.5)
-
-    distance_threshold = self.cube_half_size*(3)
-    ########for oracle eval only
+    factor = 2.5 if is_newvalue_difficulty(getattr(self, "difficulty", None)) else 3
+    distance_threshold = self.cube_half_size * factor
 
     # Return True only when object is near target and has stopped moving
     stop_ok = stop 

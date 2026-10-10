@@ -553,14 +553,15 @@
   "oracle": "Hand-written event sequences (CPU world stand-in: grasp, TCP, joints, button joints, clock) + this episode's values from packaged formal episodes; answer-type tasks are derived independently from events recorded by the test or top-view geometry",
   "positive": "Each of the three methods moves the cube to the goal using the demonstrated method: success",
   "negative": "Under pick-and-place pushing directly/grasping the stick, under push picking up the cube, under stick push pushing the cube first all fail",
-  "boundaries": "Reaching the goal requires the gripper open; within half a cube edge counts as reached, beyond two cube edges does not",
+  "boundaries": "OOD execution pushes allow an empty closed gripper; demonstration and original tiers require it open. Push distance remains 0.048 m; illegal grasps and method order still fail",
   "nodeids": [
    "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_grasp_putdown_way",
    "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_grasp_putdown_rejects_push_and_peg",
-   "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_gripper_push_way_and_open_gripper_requirement",
+   "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_gripper_push_execution_allows_closed_gripper",
    "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_gripper_push_rejects_grasping_cube",
    "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_peg_push_way",
-   "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_peg_push_rejects_cube_first_and_distance_boundary"
+   "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_peg_push_rejects_cube_first_and_distance_boundary",
+   "tests/robomme_ood/unit/hard/tasks/test_movecube.py::test_push_gripper_requirement_by_phase_and_difficulty"
   ],
   "resource": "cpu",
   "mutants": [],
@@ -620,7 +621,7 @@
   "oracle": "Hand-written event sequences (CPU world stand-in: grasp, TCP, joints, button joints, clock) + this episode's values from packaged formal episodes; answer-type tasks are derived independently from events recorded by the test or top-view geometry",
   "positive": "Pressing on the N-th pass over the target succeeds and the terminal state is stable",
   "negative": "Pressing on the (N−1)-th pass, pressing when the cube is not on the target, never pressing until timeout all fail",
-  "boundaries": "The stop moment falls in the [(N−1)T, NT] window",
+  "boundaries": "The stop moment falls in the [(N−1)T, NT] window; original/absent difficulty accepts distances up to 0.060 m, xhard1-xhard5 up to 0.050 m, equality included; stop=False does not write the first stop timestep",
   "nodeids": [
    "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_press_on_nth_pass_succeeds[xhard1]",
    "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_press_on_nth_pass_succeeds[xhard2]",
@@ -634,7 +635,9 @@
    "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_press_on_previous_pass_fails[xhard5]",
    "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_never_pressing_fails_after_window[xhard1]",
    "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_never_pressing_fails_after_window[xhard2]",
-   "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_press_off_target_fails_immediately[xhard1]"
+   "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_press_off_target_fails_immediately[xhard1]",
+   "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_stop_threshold_difficulty_matrix",
+   "tests/robomme_ood/unit/hard/tasks/test_stopcube.py::test_stop_requires_stopped_and_preserves_first_timestep"
   ],
   "resource": "cpu",
   "mutants": [],
